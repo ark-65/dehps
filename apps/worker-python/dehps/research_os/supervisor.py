@@ -24283,7 +24283,31 @@ class ResearchEvidenceSupervisor:
             and (task_key is None or item.task_key == task_key)
             and task_by_key[item.task_key].requested_capability in self.capabilities
         ]
+        additional_failed_recovery = []
         if not running and not ready and not failed_recovery:
+            for item in snapshot.resolutions:
+                candidate_task = task_by_key[item.task_key]
+                if (
+                    item.status is not TaskStatus.FAILED
+                    or (task_key is not None and item.task_key != task_key)
+                    or candidate_task.requested_capability not in self.capabilities
+                ):
+                    continue
+                candidate_events = self.repository.list_mainline_execution_events(
+                    control_plane_key=self.control_plane_key,
+                    task_key=item.task_key,
+                )
+                if self._validated_additional_failed_recovery_event(
+                    task=candidate_task,
+                    events=candidate_events,
+                ) is not None:
+                    additional_failed_recovery.append(item)
+        if (
+            not running
+            and not ready
+            and not failed_recovery
+            and not additional_failed_recovery
+        ):
             unsupported = [
                 item.task_key
                 for item in snapshot.ready_queue
@@ -24312,7 +24336,7 @@ class ResearchEvidenceSupervisor:
             )
             return payload
 
-        item = (running or ready or failed_recovery)[0]
+        item = (running or ready or failed_recovery or additional_failed_recovery)[0]
         task = task_by_key[item.task_key]
         capability = str(task.requested_capability)
         declared_status = task_states[task.artifact_digest].declared_status
@@ -24447,6 +24471,25 @@ class ResearchEvidenceSupervisor:
                             "additional failed recovery event identity changed"
                         )
                     terminal_sequence = recovered_record.sequence + 1
+                    if is_failed_recovery:
+                        running_payload = self._transition_manifest(
+                            manifest,
+                            task_key=task.task_key,
+                            status=TaskStatus.RUNNING,
+                            classification=CompletionClassification.INTEGRATED,
+                        )
+                        running_import = self.repository.import_manifest(
+                            control_plane_key=self.control_plane_key,
+                            payload=running_payload,
+                            source=(
+                                "research-evidence-supervisor-"
+                                "additional-failed-recovery"
+                            ),
+                        )
+                        running_manifest = self.repository.load_manifest(
+                            control_plane_key=self.control_plane_key
+                        )
+                        running_manifest_digest = running_import.manifest_digest
                 if m4_p3_recovered_failure is not None:
                     terminal_sequence = (
                         3 if m4_p3_guard_recovery_token else 2

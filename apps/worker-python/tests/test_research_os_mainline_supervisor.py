@@ -2018,6 +2018,109 @@ def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
     )
 
 
+def test_additional_failed_recovery_restores_running_before_sequence_two_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = MemoryMainlineRepository(p26_failed_manifest_payload())
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
+    )
+    commit = "e6dedaf9c835672a5e17007653ee6e8fe55b67d9"
+    started = MainlineExecutionEvent(
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        task_key=P26_TASK_KEY,
+        task_digest=task.artifact_digest,
+        capability=P26_LEGACY_CAPABILITY,
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-07-31T08:10:59.912185+00:00",
+        payload=(
+            ("input_artifact_digests", list(task.input_artifact_digests)),
+            ("git_commit", commit),
+        ),
+    )
+    failed = MainlineExecutionEvent(
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        task_key=P26_TASK_KEY,
+        task_digest=task.artifact_digest,
+        capability=P26_LEGACY_CAPABILITY,
+        event_type="failed",
+        sequence=1,
+        recorded_at="2026-08-04T09:23:06.717682+00:00",
+        payload=(
+            ("error", P26_FAILED_RECOVERY_ERROR),
+            ("git_commit", commit),
+        ),
+    )
+    repository.record_mainline_execution_event(event=started)
+    repository.record_mainline_execution_event(event=failed)
+    original_import = repository.import_manifest
+
+    def import_with_production_running_digest(
+        *, control_plane_key: str, payload: dict, source: str
+    ):
+        result = original_import(
+            control_plane_key=control_plane_key,
+            payload=payload,
+            source=source,
+        )
+        if source.endswith("additional-failed-recovery"):
+            return SimpleNamespace(
+                manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+                snapshot_digest=result.snapshot_digest,
+            )
+        return result
+
+    monkeypatch.setattr(
+        repository, "import_manifest", import_with_production_running_digest
+    )
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc),
+        git_commit=commit,
+        require_clean_tree=False,
+    )
+    supervisor.capabilities[P26_LEGACY_CAPABILITY] = _ProjectedCapability(
+        root=root,
+        task_key=P26_TASK_KEY,
+        summary={"actual_fold_count": 61},
+    )
+    failed_mapping = repository.events[-1]
+    monkeypatch.setattr(
+        supervisor,
+        "_validated_additional_failed_recovery_event",
+        lambda **_kwargs: failed_mapping,
+    )
+
+    result = supervisor.run_once(task_key=P26_TASK_KEY)
+
+    assert result["status"] == "COMPLETE"
+    assert [event["event_type"] for event in repository.events] == [
+        "started",
+        "failed",
+        "completed",
+    ]
+    assert repository.events[-1]["sequence"] == 2
+    assert repository.events[-1]["execution_id"] == P26_FAILED_RECOVERY_EXECUTION_ID
+    completed_task = next(
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
+    )
+    assert (
+        repository.manifest.task_state_by_digest[
+            completed_task.artifact_digest
+        ].declared_status
+        is TaskStatus.COMPLETED
+    )
+
+
 def test_supervisor_rejects_wrong_p26_failed_recovery_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

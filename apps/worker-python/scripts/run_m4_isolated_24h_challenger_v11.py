@@ -115,6 +115,9 @@ LIVE_PARTIAL_FROZEN_GOAL_DIGEST = (
 USER_SCOPE_RESUME_MANIFEST_DIGEST = (
     "96bf5c5b13b9f65fa48b0d8da119412f256a1ec657141be8ca8968b5fb12762f"
 )
+USER_SCOPE_FAILED_MANIFEST_DIGEST = (
+    "1d4c0d3f1b242d94a04bb4aafa6cb9cd21dc4e34c5344c518e1dd6e820c23fbd"
+)
 USER_SCOPE_RESUME_TASK_KEY = "m4-isolated-24h-challenger-v11-search-batch-000000000000"
 USER_SCOPE_RESUME_CAPABILITY = "M4IsolatedSearchBatchCapabilityV11"
 USER_SCOPE_RESUME_TASK_DIGEST = (
@@ -162,15 +165,20 @@ USER_SCOPE_FOUNDATION_ATTESTATION_DIGEST = (
 USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST = (
     "2810d17a645483fbfb368334c20ba5264e9dcbca937908ed5dbd9471144d73e1"
 )
-USER_SCOPE_UTC_RECOVERY_BASE_COMMIT = "103aa7585257accf727020ea6454a3c1cc383267"
-USER_SCOPE_ENGINEERING_REQUEST_KEY = (
-    "engineering-m4-isolated-v11-utc-registration-resume-and-exact-failed-event-hook-v1"
+USER_SCOPE_EVENT_ISOLATION_RUNTIME_COMMIT = (
+    "103aa7585257accf727020ea6454a3c1cc383267"
 )
-USER_SCOPE_ENGINEERING_REQUEST_ID = 749
-USER_SCOPE_ENGINEERING_DECISION_ID = 3177
-USER_SCOPE_ENGINEERING_EXECUTION_ID = 604
+USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT = (
+    "c790ef74c99b1b0a691821d1825a84c19a6c89be"
+)
+USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-failed-state-to-running-recovery-gate-v1"
+)
+USER_SCOPE_ENGINEERING_REQUEST_ID = 750
+USER_SCOPE_ENGINEERING_DECISION_ID = 3182
+USER_SCOPE_ENGINEERING_EXECUTION_ID = 605
 USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
-    "2903c11e5e4e9809c817ed05041ba59503a5e68da76be9d819eda60a81bf3aa6"
+    "db00234098f0f27d68c05deb427c4c2897a0406860343adbc5bad281b474071b"
 )
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
@@ -327,41 +335,41 @@ def validate_user_scope_recovery_governance(
         raise IsolatedRunnerError("user_scope_recovery_phase_changed")
     bindings = source_contract.get("governance_bindings")
     if not isinstance(bindings, dict) or {
-        "utc_registration_failed_event_repair_base_merged_commit": bindings.get(
-            "utc_registration_failed_event_repair_base_merged_commit"
+        "failed_state_recovery_gate_base_merged_commit": bindings.get(
+            "failed_state_recovery_gate_base_merged_commit"
         ),
-        "utc_registration_failed_event_repair_engineering_approval_decision_id": bindings.get(
-            "utc_registration_failed_event_repair_engineering_approval_decision_id"
+        "failed_state_recovery_gate_engineering_approval_decision_id": bindings.get(
+            "failed_state_recovery_gate_engineering_approval_decision_id"
         ),
-        "utc_registration_failed_event_repair_engineering_execution_id": bindings.get(
-            "utc_registration_failed_event_repair_engineering_execution_id"
+        "failed_state_recovery_gate_engineering_execution_id": bindings.get(
+            "failed_state_recovery_gate_engineering_execution_id"
         ),
-        "utc_registration_failed_event_repair_engineering_request_id": bindings.get(
-            "utc_registration_failed_event_repair_engineering_request_id"
+        "failed_state_recovery_gate_engineering_request_id": bindings.get(
+            "failed_state_recovery_gate_engineering_request_id"
         ),
-        "utc_registration_failed_event_repair_engineering_request_key": bindings.get(
-            "utc_registration_failed_event_repair_engineering_request_key"
+        "failed_state_recovery_gate_engineering_request_key": bindings.get(
+            "failed_state_recovery_gate_engineering_request_key"
         ),
-        "utc_registration_failed_event_repair_engineering_request_payload_sha256": bindings.get(
-            "utc_registration_failed_event_repair_engineering_request_payload_sha256"
+        "failed_state_recovery_gate_engineering_request_payload_sha256": bindings.get(
+            "failed_state_recovery_gate_engineering_request_payload_sha256"
         ),
     } != {
-        "utc_registration_failed_event_repair_base_merged_commit": (
-            USER_SCOPE_UTC_RECOVERY_BASE_COMMIT
+        "failed_state_recovery_gate_base_merged_commit": (
+            USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT
         ),
-        "utc_registration_failed_event_repair_engineering_approval_decision_id": (
+        "failed_state_recovery_gate_engineering_approval_decision_id": (
             USER_SCOPE_ENGINEERING_DECISION_ID
         ),
-        "utc_registration_failed_event_repair_engineering_execution_id": (
+        "failed_state_recovery_gate_engineering_execution_id": (
             USER_SCOPE_ENGINEERING_EXECUTION_ID
         ),
-        "utc_registration_failed_event_repair_engineering_request_id": (
+        "failed_state_recovery_gate_engineering_request_id": (
             USER_SCOPE_ENGINEERING_REQUEST_ID
         ),
-        "utc_registration_failed_event_repair_engineering_request_key": (
+        "failed_state_recovery_gate_engineering_request_key": (
             USER_SCOPE_ENGINEERING_REQUEST_KEY
         ),
-        "utc_registration_failed_event_repair_engineering_request_payload_sha256": (
+        "failed_state_recovery_gate_engineering_request_payload_sha256": (
             USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
         ),
     }:
@@ -438,7 +446,7 @@ def validate_user_scope_recovery_governance(
     )
     expected_recovery = {
         "candidate_result_count": 0,
-        "current_manifest_digest": USER_SCOPE_RESUME_MANIFEST_DIGEST,
+        "current_manifest_digest": USER_SCOPE_FAILED_MANIFEST_DIGEST,
         "engineering_approval_decision_id": USER_SCOPE_ENGINEERING_DECISION_ID,
         "engineering_execution_id": USER_SCOPE_ENGINEERING_EXECUTION_ID,
         "engineering_request_id": USER_SCOPE_ENGINEERING_REQUEST_ID,
@@ -468,7 +476,7 @@ def validate_user_scope_recovery_governance(
         or operator_executions[0].environment != "production"
         or operator_executions[0].executor_role is not AgentRole.OPERATOR
         or operator.payload.get("version")
-        != "m4-isolated-v11-utc-registration-failed-event-recovery-v2"
+        != "m4-isolated-v11-failed-state-gated-recovery-v3"
         or operator.payload.get("commit") != git_commit
         or recovery != expected_recovery
         or not isinstance(mail_contract, dict)
@@ -521,16 +529,24 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         self._definition_gate: dict[str, Any] | None = None
         self._bootstrap_rebind_gate: dict[str, Any] | None = None
         self._user_scope_resume_event_gate = False
+        self._user_scope_failed_transition_gate: dict[str, Any] | None = None
 
     @contextmanager
     def user_scope_resume_event_view(self) -> Iterator[None]:
-        if self._user_scope_resume_event_gate:
+        if self._user_scope_resume_event_gate or getattr(
+            self, "_user_scope_failed_transition_gate", None
+        ) is not None:
             raise IsolatedRunnerError("user_scope_resume_event_gate_reentrant")
         self._user_scope_resume_event_gate = True
+        self._user_scope_failed_transition_gate = {
+            "router_consumed": False,
+            "completion_consumed": False,
+        }
         try:
             yield
         finally:
             self._user_scope_resume_event_gate = False
+            self._user_scope_failed_transition_gate = None
 
     def list_mainline_execution_events(
         self,
@@ -773,8 +789,25 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if len(state_changes) > 1:
             raise ResearchOSValidationError("isolated_v11_multi_task_state_change")
         if state_changes:
-            _, old, new = state_changes[0]
-            if (old, new) not in {
+            changed_task_key, old, new = state_changes[0]
+            transition = (old, new)
+            if transition == (TaskStatus.FAILED.value, TaskStatus.RUNNING.value):
+                gate = self._user_scope_failed_transition_gate
+                if (
+                    gate is None
+                    or gate.get("router_consumed") is not False
+                    or gate.get("completion_consumed") is not False
+                    or current.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST
+                    or incoming.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST
+                    or changed_task_key != USER_SCOPE_RESUME_TASK_KEY
+                    or current_tasks[changed_task_key].artifact_digest
+                    != USER_SCOPE_RESUME_TASK_DIGEST
+                ):
+                    raise ResearchOSValidationError(
+                        "isolated_v11_failed_recovery_transition_gate_changed"
+                    )
+                gate["router_consumed"] = True
+            elif transition not in {
                 (TaskStatus.DRAFT.value, TaskStatus.RUNNING.value),
                 (TaskStatus.RUNNING.value, TaskStatus.COMPLETED.value),
                 (TaskStatus.RUNNING.value, TaskStatus.FAILED.value),
@@ -874,7 +907,24 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                         "isolated_v11_atomic_completion_transition_changed"
                     )
                 transition = state_changes[0][1:]
-                if transition in {("draft", "running"), ("running", "failed")}:
+                if transition == ("failed", "running"):
+                    gate = self._user_scope_failed_transition_gate
+                    if (
+                        gate is None
+                        or gate.get("router_consumed") is not True
+                        or gate.get("completion_consumed") is not False
+                        or current.artifact_digest
+                        != USER_SCOPE_FAILED_MANIFEST_DIGEST
+                        or manifest.artifact_digest
+                        != USER_SCOPE_RESUME_MANIFEST_DIGEST
+                        or state_changes[0][0] != USER_SCOPE_RESUME_TASK_KEY
+                        or added_facts
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_failed_recovery_completion_gate_changed"
+                        )
+                    gate["completion_consumed"] = True
+                elif transition in {("draft", "running"), ("running", "failed")}:
                     if added_facts:
                         raise ResearchOSValidationError(
                             "isolated_v11_atomic_completion_transition_changed"
@@ -2268,7 +2318,7 @@ def _validate_user_scope_resume_live_state(
     *, repository: IsolatedChallengerRepository
 ) -> tuple[ControlPlaneManifest, dict[str, str]]:
     manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
-    if manifest.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST:
+    if manifest.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST:
         raise IsolatedRunnerError("user_scope_resume_manifest_changed")
     if len(manifest.tasks) != 27:
         raise IsolatedRunnerError("user_scope_resume_task_count_changed")
@@ -2280,7 +2330,7 @@ def _validate_user_scope_resume_live_state(
     if state_counts != {
         TaskStatus.COMPLETED: 22,
         TaskStatus.DRAFT: 4,
-        TaskStatus.RUNNING: 1,
+        TaskStatus.FAILED: 1,
     }:
         raise IsolatedRunnerError("user_scope_resume_task_states_changed")
     matches = [
@@ -2291,7 +2341,7 @@ def _validate_user_scope_resume_live_state(
     task = matches[0]
     state = manifest.task_state_by_digest[task.artifact_digest]
     if (
-        state.declared_status is not TaskStatus.RUNNING
+        state.declared_status is not TaskStatus.FAILED
         or state.completion_classification is not CompletionClassification.INTEGRATED
         or state.superseded_by_task_digest is not None
     ):
@@ -2479,7 +2529,7 @@ def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
         "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
         "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
         "origin_git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
-        "runtime_git_commit": USER_SCOPE_UTC_RECOVERY_BASE_COMMIT,
+        "runtime_git_commit": USER_SCOPE_EVENT_ISOLATION_RUNTIME_COMMIT,
         "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         "runtime_source_contract_digest": (
             "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed"
