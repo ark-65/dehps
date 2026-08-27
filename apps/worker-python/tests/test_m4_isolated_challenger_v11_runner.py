@@ -336,6 +336,84 @@ def test_repository_bootstrap_rebind_gate_is_nonreentrant() -> None:
         repository.import_bootstrap_manifest(incoming_payload)
 
 
+def test_roll_forward_before_preregistration_never_loads_completed_health(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026100",
+        source_max_draw_date="2026-08-30",
+        projection_time="2026-08-30T16:00:00+08:00",
+    )
+    payload, _ = runner.builder.build_bootstrap_manifest(
+        context=context,
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    extensions = []
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params=None):
+            self.statement = statement
+            return self
+
+        def fetchone(self):
+            if "multiplicity_head" in self.statement:
+                return (0, 0)
+            assert "registration_batches" in self.statement
+            return (0,)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+        @staticmethod
+        def export_manifest(**_kwargs):
+            return payload
+
+        @staticmethod
+        def import_extension(value):
+            extensions.append(value)
+
+    monkeypatch.setattr(
+        runner,
+        "_latest_registered_health_artifact",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("pre-preregistration health load")
+        ),
+    )
+
+    runner._roll_forward(
+        repository=_Repository(),
+        context=context,
+        source_digest="f" * 64,
+        now=datetime(2026, 8, 28, 0, 47, tzinfo=contract.TIMEZONE),
+    )
+
+    assert len(extensions) == 1
+    extended = ControlPlaneManifest.from_dict(extensions[0])
+    assert len(extended.tasks) == 15
+    assert contract.FREEZE_FACT not in extended.facts.artifacts
+
+
 def test_fact_builder_rejects_formal_route_or_promotion() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
     context = _context()

@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "a13889100c0f83a315f5e3997ce53ac1fb8a86b661bcd1d522d3cec59adf4fc0",
+  "artifact_digest": "1d3a7766dfd7a3c09fd7cca0b54ec15ce154f5234bf1bbb97e61c63d55c92ada",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -45,6 +45,12 @@
     "official_history_date_research_request_id": 711,
     "official_history_date_research_request_key": "research-m4-isolated-v11-official-history-date-exceptions-v1",
     "official_history_date_research_request_payload_sha256": "2db165a402c59a24ebe7d623e336571e767bd9bb69c3b3f85e38c8e872b155fd",
+    "prereg_health_order_repair_base_merged_commit": "4943be18282997b782443f4f795fa74edb57fff3",
+    "prereg_health_order_repair_engineering_approval_decision_id": 3024,
+    "prereg_health_order_repair_engineering_execution_id": 574,
+    "prereg_health_order_repair_engineering_request_id": 718,
+    "prereg_health_order_repair_engineering_request_key": "engineering-m4-isolated-v11-prereg-health-order-and-rebind-v2",
+    "prereg_health_order_repair_engineering_request_payload_sha256": "4401289dcfa12ea8d194715d995f8d7da7ab35eb1c3799d3b8b2f216fa705457",
     "repair_base_merged_commit": "ab1e8d0d71e7caca99c77d36e8fa92a8762e1854",
     "repair_engineering_approval_decision_id": 2957,
     "repair_engineering_execution_id": 562,
@@ -106,9 +112,9 @@
       "sha256": "c3330fe8aa128f28294778654617a5d9deb9826bc7c5c60bd93ae4d55da02dba"
     },
     {
-      "bytes": 91656,
+      "bytes": 92495,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "55f44bd2844cbcb254060c634be34d02316cb4a92551df8a464d25fc31ce291a"
+      "sha256": "dd557aff3649e4fb8503b52d1d7c15bfed4d169c2b4275f84b6d4e27d2329018"
     },
     {
       "bytes": 17768,
@@ -171,5 +177,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "69a32932a026f1ff78a3799b1385c3d73afa89f36369127aad9c026de7059dc4"
+  "source_set_digest": "5dd0fdef7211159129f9b2d84d9842b3efdd5901a57ece6fc8d2bb5b3f8ded5c"
 }

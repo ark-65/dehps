@@ -72,6 +72,12 @@ KNOWN_AUTHORITIES = frozenset(
 PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST = (
     "99f058e6df7e36ebd07bb411c7c1960989367230cb0a9344619442466112460a"
 )
+APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
+    {
+        PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
+        "a13889100c0f83a315f5e3997ce53ac1fb8a86b661bcd1d522d3cec59adf4fc0",
+    }
+)
 
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
@@ -418,10 +424,20 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             raise ResearchOSValidationError(
                 "isolated_v11_bootstrap_rebind_target_changed"
             )
-        predecessor = self._expected_definition(
-            operator_authorized=True,
-            context=current_context,
-            source_digest=PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
+        predecessor_matches = tuple(
+            candidate
+            for candidate in (
+                self._expected_definition(
+                    operator_authorized=True,
+                    context=current_context,
+                    source_digest=predecessor_source_digest,
+                )
+                for predecessor_source_digest in sorted(
+                    APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS
+                )
+            )
+            if current.to_dict(include_digest=True)
+            == candidate.to_dict(include_digest=True)
         )
         expected_incoming = self._expected_definition(
             operator_authorized=True,
@@ -432,8 +448,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             context=incoming_context,
         )
         if (
-            current.to_dict(include_digest=True)
-            != predecessor.to_dict(include_digest=True)
+            len(predecessor_matches) != 1
             or incoming.to_dict(include_digest=True)
             != live_incoming.to_dict(include_digest=True)
             or len(current.tasks) != 14
@@ -445,7 +460,8 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             or current.facts.artifacts
             or current.facts.evidence
             or current.facts.external_events
-            or current.facts.authorities != predecessor.facts.authorities
+            or current.facts.authorities
+            != predecessor_matches[0].facts.authorities
             or self.list_mainline_execution_event_metadata(
                 control_plane_key=contract.CONTROL_PLANE_KEY,
                 task_keys=tuple(task.task_key for task in current.tasks),
@@ -856,15 +872,20 @@ def _roll_forward(
         and fact.endswith("-open:OPEN")
         for fact in facts
     )
-    latest_health = _latest_registered_health_artifact(
-        repository=repository,
-        manifest=manifest,
-        facts=facts,
-        before=now,
-        context=context,
-    )
+    latest_health: dict[str, Any] | None = None
+    if contract.FREEZE_FACT in facts:
+        latest_health = _latest_registered_health_artifact(
+            repository=repository,
+            manifest=manifest,
+            facts=facts,
+            before=now,
+            context=context,
+        )
+    if contract.MAIL_CONFIGURATION_FACT in facts and latest_health is None:
+        raise IsolatedRunnerError("mail_configuration_without_preregistration")
     if (
         not has_open_incident
+        and latest_health is not None
         and latest_health["artifact_type"] == "M4IsolatedRuntimeHealthV11"
         and latest_health["body"].get("status")
         in {"THERMAL_PAUSED", "THERMAL_HARD_STOP", "RESOURCE_GUARD_TRIGGERED"}
