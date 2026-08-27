@@ -929,22 +929,22 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
     source_contract = {
         "artifact_digest": repaired_source,
         "governance_bindings": {
-            "utc_registration_failed_event_repair_base_merged_commit": (
-                runner.USER_SCOPE_UTC_RECOVERY_BASE_COMMIT
+            "failed_state_recovery_gate_base_merged_commit": (
+                runner.USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT
             ),
-            "utc_registration_failed_event_repair_engineering_approval_decision_id": (
+            "failed_state_recovery_gate_engineering_approval_decision_id": (
                 runner.USER_SCOPE_ENGINEERING_DECISION_ID
             ),
-            "utc_registration_failed_event_repair_engineering_execution_id": (
+            "failed_state_recovery_gate_engineering_execution_id": (
                 runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
             ),
-            "utc_registration_failed_event_repair_engineering_request_id": (
+            "failed_state_recovery_gate_engineering_request_id": (
                 runner.USER_SCOPE_ENGINEERING_REQUEST_ID
             ),
-            "utc_registration_failed_event_repair_engineering_request_key": (
+            "failed_state_recovery_gate_engineering_request_key": (
                 runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
             ),
-            "utc_registration_failed_event_repair_engineering_request_payload_sha256": (
+            "failed_state_recovery_gate_engineering_request_payload_sha256": (
                 runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
             ),
         },
@@ -970,7 +970,7 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
     )
     recovery = {
         "candidate_result_count": 0,
-        "current_manifest_digest": runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+        "current_manifest_digest": runner.USER_SCOPE_FAILED_MANIFEST_DIGEST,
         "engineering_approval_decision_id": (runner.USER_SCOPE_ENGINEERING_DECISION_ID),
         "engineering_execution_id": runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
         "engineering_request_id": runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
@@ -991,7 +991,7 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
         ),
     }
     payload = {
-        "version": "m4-isolated-v11-utc-registration-failed-event-recovery-v2",
+        "version": "m4-isolated-v11-failed-state-gated-recovery-v3",
         "commit": repaired_commit,
         "checks": {"user_systemd_running_batch_recovery": recovery},
         "mail_contract": {
@@ -1204,7 +1204,7 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
         "execution_id": runner.USER_SCOPE_RESUME_EXECUTION_ID,
         "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
         "origin_git_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
-        "runtime_git_commit": runner.USER_SCOPE_UTC_RECOVERY_BASE_COMMIT,
+        "runtime_git_commit": runner.USER_SCOPE_EVENT_ISOLATION_RUNTIME_COMMIT,
         "origin_source_contract_digest": runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         "runtime_source_contract_digest": (
             "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed"
@@ -1374,6 +1374,122 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
     return tuple(_user_scope_event_dict(record) for record in records)
 
 
+def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+    )
+    target = SimpleNamespace(
+        task_key=runner.USER_SCOPE_RESUME_TASK_KEY,
+        artifact_digest=runner.USER_SCOPE_RESUME_TASK_DIGEST,
+        requested_capability=runner.USER_SCOPE_RESUME_CAPABILITY,
+        metric_contract=json.dumps(
+            {
+                "render_context": context,
+                "source_contract_digest": (
+                    runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+                ),
+            }
+        ),
+    )
+    completed_states = [
+        SimpleNamespace(declared_status=TaskStatus.COMPLETED) for _ in range(22)
+    ]
+    draft_states = [
+        SimpleNamespace(declared_status=TaskStatus.DRAFT) for _ in range(4)
+    ]
+    failed_state = SimpleNamespace(
+        declared_status=TaskStatus.FAILED,
+        completion_classification=CompletionClassification.INTEGRATED,
+        superseded_by_task_digest=None,
+    )
+    manifest = SimpleNamespace(
+        artifact_digest=runner.USER_SCOPE_FAILED_MANIFEST_DIGEST,
+        tasks=[target]
+        + [
+            SimpleNamespace(task_key=f"other-{index}", artifact_digest=f"{index:064x}")
+            for index in range(26)
+        ],
+        task_states=(*completed_states, *draft_states, failed_state),
+        task_state_by_digest={target.artifact_digest: failed_state},
+        facts=SimpleNamespace(artifacts=frozenset()),
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement):
+            self.statement = statement
+            return self
+
+        def fetchall(self):
+            if "registration_batches" in self.statement:
+                return [
+                    (
+                        0,
+                        0,
+                        "2026100",
+                        runner.USER_SCOPE_RESUME_EXECUTION_ID,
+                        0,
+                        contract.ATTEMPTS_PER_BATCH,
+                        contract.ATTEMPTS_PER_BATCH,
+                    )
+                ]
+            return [
+                (
+                    0,
+                    "REGISTERED",
+                    runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+                    contract.ATTEMPTS_PER_BATCH,
+                )
+            ]
+
+        def fetchone(self):
+            if "multiplicity_head" in self.statement:
+                return (0, contract.ATTEMPTS_PER_BATCH)
+            return (0,)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    repository = SimpleNamespace(
+        load_manifest=lambda **_kwargs: manifest,
+        list_mainline_execution_events=lambda **_kwargs: _user_scope_events(
+            runner, completed=False
+        ),
+        list_mainline_artifacts=lambda **_kwargs: (),
+        connection_factory=lambda: _Connection(),
+    )
+    monkeypatch.setattr(runner, "_p3_source_identity", lambda: ("p3", "unchanged"))
+
+    verified_manifest, verified_context = runner._validate_user_scope_resume_live_state(
+        repository=repository
+    )
+
+    assert verified_manifest is manifest
+    assert verified_context == context
+    assert runner.USER_SCOPE_FAILED_MANIFEST_DIGEST != (
+        runner.USER_SCOPE_RESUME_MANIFEST_DIGEST
+    )
+
+
 def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
     monkeypatch,
 ) -> None:
@@ -1420,6 +1536,102 @@ def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
         )
         == events
     )
+
+
+def test_failed_to_running_transition_requires_exact_two_phase_user_scope_gate(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    payload, _ = runner.builder.build_bootstrap_manifest(
+        context=context,
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    base = ControlPlaneManifest.from_dict(payload)
+    task = base.tasks[0]
+    current_states = list(base.task_states)
+    current_states[0] = replace(
+        current_states[0],
+        declared_status=TaskStatus.FAILED,
+        completion_classification=CompletionClassification.INTEGRATED,
+    )
+    current = replace(base, task_states=tuple(current_states))
+    incoming_states = list(current.task_states)
+    incoming_states[0] = replace(
+        incoming_states[0],
+        declared_status=TaskStatus.RUNNING,
+        completion_classification=CompletionClassification.INTEGRATED,
+    )
+    incoming = replace(current, task_states=tuple(incoming_states))
+
+    class _Cursor:
+        def __init__(self):
+            self.result = None
+
+        def execute(self, statement, _params=None):
+            self.result = (
+                {"current_manifest_digest": current.artifact_digest}
+                if "SELECT current_manifest_digest" in statement
+                else {"manifest_json": current.to_dict(include_digest=True)}
+            )
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    repository = object.__new__(runner.IsolatedChallengerRepository)
+    repository.context = dict(context)
+    repository.source_digest = "f" * 64
+    repository._fact_gate = None
+    repository._definition_gate = None
+    repository._bootstrap_rebind_gate = None
+    repository._user_scope_resume_event_gate = False
+    repository._user_scope_failed_transition_gate = None
+    repository.load_manifest = lambda **_kwargs: current
+    monkeypatch.setattr(
+        runner, "USER_SCOPE_FAILED_MANIFEST_DIGEST", current.artifact_digest
+    )
+    monkeypatch.setattr(
+        runner, "USER_SCOPE_RESUME_MANIFEST_DIGEST", incoming.artifact_digest
+    )
+    monkeypatch.setattr(runner, "USER_SCOPE_RESUME_TASK_KEY", task.task_key)
+    monkeypatch.setattr(
+        runner, "USER_SCOPE_RESUME_TASK_DIGEST", task.artifact_digest
+    )
+    monkeypatch.setattr(
+        runner.PostgresResearchOSRepository,
+        "_verify_mainline_completion_records",
+        lambda *_args, **_kwargs: None,
+    )
+
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="failed_recovery_transition_gate_changed",
+    ):
+        repository._verify_exact_transition(incoming)
+    with repository.user_scope_resume_event_view():
+        repository._verify_exact_transition(incoming)
+        assert repository._user_scope_failed_transition_gate == {
+            "router_consumed": True,
+            "completion_consumed": False,
+        }
+        repository._verify_mainline_completion_records(
+            _Cursor(),
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            manifest=incoming,
+        )
+        assert repository._user_scope_failed_transition_gate == {
+            "router_consumed": True,
+            "completion_consumed": True,
+        }
+        with pytest.raises(
+            runner.ResearchOSValidationError,
+            match="failed_recovery_transition_gate_changed",
+        ):
+            repository._verify_exact_transition(incoming)
+    assert repository._user_scope_resume_event_gate is False
+    assert repository._user_scope_failed_transition_gate is None
 
 
 @pytest.mark.parametrize("mutation", ("missing", "duplicate", "changed", "extra"))

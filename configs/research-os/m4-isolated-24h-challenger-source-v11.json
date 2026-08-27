@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "99ed138790a8196ffe80bbe7d9238672ec72ab153cf2eab9430a75afb0eaebbc",
+  "artifact_digest": "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -25,6 +25,12 @@
     "extension_goal_repair_engineering_request_id": 733,
     "extension_goal_repair_engineering_request_key": "engineering-m4-isolated-v11-extension-frozen-goal-and-ready-source-rebind-v1",
     "extension_goal_repair_engineering_request_payload_sha256": "7bf25967514c21736de4b49ca6658f92493b3aca384448f128d16d3822cf1df2",
+    "failed_state_recovery_gate_base_merged_commit": "c790ef74c99b1b0a691821d1825a84c19a6c89be",
+    "failed_state_recovery_gate_engineering_approval_decision_id": 3182,
+    "failed_state_recovery_gate_engineering_execution_id": 605,
+    "failed_state_recovery_gate_engineering_request_id": 750,
+    "failed_state_recovery_gate_engineering_request_key": "engineering-m4-isolated-v11-failed-state-to-running-recovery-gate-v1",
+    "failed_state_recovery_gate_engineering_request_payload_sha256": "db00234098f0f27d68c05deb427c4c2897a0406860343adbc5bad281b474071b",
     "input_identity_repair_base_merged_commit": "f44678604ba1413785bb6c7b57570396cdf5261d",
     "input_identity_repair_engineering_approval_decision_id": 3114,
     "input_identity_repair_engineering_execution_id": 592,
@@ -184,9 +190,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 139210,
+      "bytes": 141493,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "de349dd17abec9735b9a33caa856fa6d32d19128e9d8e0e62ac72b201f3e726b"
+      "sha256": "dff6d974a0b6ef7740cb868f4bcc80e5a0ee67609963a846a106952c687ded2f"
     },
     {
       "bytes": 17768,
@@ -249,5 +255,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "723274bcbdbfb15ab570691d89203878cd13fcf8e5bca2ac77626a220ca5a9f8"
+  "source_set_digest": "ae38625bfe9af94c99365d657a88a1338da5ffaa49831a9f97321e8fb4240ee4"
 }
