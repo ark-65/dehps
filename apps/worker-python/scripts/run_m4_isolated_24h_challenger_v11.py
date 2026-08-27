@@ -226,6 +226,28 @@ USER_SCOPE_ENGINEERING_EXECUTION_ID = 614
 USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
     "fa3c627a53d82ff65b94542cf6e25d9a46f19012c8d69033a2733797f523e77f"
 )
+USER_SCOPE_COMMITTED_MANIFEST_DIGEST = (
+    "86f0934cbe3599d9bbd4ee1cf7ca93f209868a5bcee9d1213af9c045cc56f6f5"
+)
+USER_SCOPE_COMMITTED_EVENT_DIGEST = (
+    "c1749690a190688ae23eb270060c0d76ec8db309614833820929917b2083c7ed"
+)
+USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST = (
+    "7b44ecf4260b6108b09673bd91c55503c54b1c08751cc9975f57c449ea3564aa"
+)
+USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST = (
+    "1bd1ac099c8c280443ff994ce40e498c53fabc1d78da2c008dd0739f049cb200"
+)
+USER_SCOPE_COMMITTED_REPAIR_BASE_COMMIT = "a32da3bceb5085e532631979c3a8c1be372d5bc6"
+USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-exact-sequence3-committed-replay-ledger-recovery-v1"
+)
+USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID = 762
+USER_SCOPE_COMMITTED_ENGINEERING_DECISION_ID = 3242
+USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID = 617
+USER_SCOPE_COMMITTED_ENGINEERING_PAYLOAD_SHA256 = (
+    "1279b78cfdf498c6107ede9b351e8baf080b1ad9a6eee15e212a180d0e948637"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -733,6 +755,189 @@ def validate_user_scope_recovery_governance(
         "engineering_request_id": USER_SCOPE_ENGINEERING_REQUEST_ID,
         "engineering_decision_id": USER_SCOPE_ENGINEERING_DECISION_ID,
         "engineering_execution_id": USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        "operator_request_id": operator.id,
+        "operator_decision_id": operator_decision_id,
+        "operator_execution_id": operator_execution_id,
+        "operator_payload_sha256": payload_sha,
+    }
+
+
+def validate_user_scope_committed_recovery_governance(
+    *,
+    repository: AgentRequestRepository,
+    source_contract: Mapping[str, Any],
+    repaired_source_digest: str,
+    git_commit: str,
+) -> dict[str, Any]:
+    bindings = source_contract.get("governance_bindings")
+    expected_binding = {
+        "committed_replay_repair_base_merged_commit": (
+            USER_SCOPE_COMMITTED_REPAIR_BASE_COMMIT
+        ),
+        "committed_replay_repair_engineering_approval_decision_id": (
+            USER_SCOPE_COMMITTED_ENGINEERING_DECISION_ID
+        ),
+        "committed_replay_repair_engineering_execution_id": (
+            USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID
+        ),
+        "committed_replay_repair_engineering_request_id": (
+            USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID
+        ),
+        "committed_replay_repair_engineering_request_key": (
+            USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_KEY
+        ),
+        "committed_replay_repair_engineering_request_payload_sha256": (
+            USER_SCOPE_COMMITTED_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected_binding} != expected_binding
+        or source_contract.get("artifact_digest") != repaired_source_digest
+    ):
+        raise IsolatedRunnerError("committed_recovery_engineering_binding_changed")
+    engineering = repository.get_request(USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_KEY)
+    approvals = [
+        item
+        for item in repository.list_decisions(
+            USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_KEY
+        )
+        if item.id == USER_SCOPE_COMMITTED_ENGINEERING_DECISION_ID
+        and item.decision_code == "request_approved"
+        and item.previous_status == "under_review"
+        and item.new_status == "approved"
+    ]
+    executions = [
+        item
+        for item in repository.list_execution_metadata(
+            USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_KEY
+        )
+        if item.id == USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID
+    ]
+    if (
+        engineering.id != USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID
+        or engineering.request_type is not AgentRequestType.ENGINEERING_RUNTIME_FIX
+        or engineering.status is not AgentRequestStatus.COMPLETED
+        or engineering.metadata.get("payload_sha256")
+        != USER_SCOPE_COMMITTED_ENGINEERING_PAYLOAD_SHA256
+        or len(approvals) != 1
+        or approvals[0].decided_by_role is not AgentRole.REVIEWER
+        or len(executions) != 1
+        or executions[0].status is not AgentExecutionStatus.COMPLETED
+        or executions[0].environment != "development"
+        or executions[0].executor_role is not AgentRole.ENGINEERING
+    ):
+        raise IsolatedRunnerError("committed_recovery_engineering_governance_changed")
+    operator_key = os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "")
+    try:
+        operator_decision_id = int(
+            os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "")
+        )
+        operator_execution_id = int(
+            os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "")
+        )
+    except ValueError as exc:
+        raise IsolatedRunnerError(
+            "committed_recovery_operator_identity_invalid"
+        ) from exc
+    if not operator_key or operator_decision_id < 1 or operator_execution_id < 1:
+        raise IsolatedRunnerError("committed_recovery_operator_identity_invalid")
+    operator = repository.get_request(operator_key)
+    operator_approvals = [
+        item
+        for item in repository.list_decisions(operator_key)
+        if item.id == operator_decision_id
+        and item.decision_code == "request_approved"
+        and item.previous_status == "under_review"
+        and item.new_status == "approved"
+    ]
+    operator_executions = [
+        item
+        for item in repository.list_execution_metadata(operator_key)
+        if item.id == operator_execution_id
+    ]
+    checks = operator.payload.get("checks")
+    recovery = (
+        checks.get("user_systemd_committed_batch_recovery")
+        if isinstance(checks, dict)
+        else None
+    )
+    expected_recovery = {
+        "candidate_result_count": 0,
+        "committed_event_digest": USER_SCOPE_COMMITTED_EVENT_DIGEST,
+        "committed_manifest_digest": USER_SCOPE_COMMITTED_MANIFEST_DIGEST,
+        "engineering_approval_decision_id": (
+            USER_SCOPE_COMMITTED_ENGINEERING_DECISION_ID
+        ),
+        "engineering_execution_id": USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID,
+        "engineering_request_id": USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID,
+        "execution_artifact_digest": (USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST),
+        "execution_attempt_count": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_committed": 0,
+        "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "origin_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "publication_batch_digest": USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST,
+        "registered_artifact_count": 65,
+        "registered_candidate_count": contract.ATTEMPTS_PER_BATCH,
+        "repaired_source_contract_digest": repaired_source_digest,
+        "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "workload_rerun": False,
+    }
+    mail_contract = operator.payload.get("mail_contract")
+    resource_contract = operator.payload.get("resource_contract")
+    operations = operator.payload.get("ordered_operations")
+    if (
+        operator.request_type is not AgentRequestType.OPERATOR_RELEASE
+        or operator.status is not AgentRequestStatus.EXECUTING
+        or operator.parent_request_id != USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID
+        or len(operator_approvals) != 1
+        or operator_approvals[0].decided_by_role is not AgentRole.REVIEWER
+        or len(operator_executions) != 1
+        or operator_executions[0].status is not AgentExecutionStatus.RUNNING
+        or operator_executions[0].environment != "production"
+        or operator_executions[0].executor_role is not AgentRole.OPERATOR
+        or operator.payload.get("version")
+        != "m4-isolated-v11-sequence3-committed-replay-recovery-v1"
+        or operator.payload.get("commit") != git_commit
+        or recovery != expected_recovery
+        or not isinstance(mail_contract, dict)
+        or mail_contract.get("mandatory_kinds") != list(USER_SCOPE_MANDATORY_MAIL_KINDS)
+        or mail_contract.get("timezone") != "Asia/Shanghai"
+        or mail_contract.get("predraw_schedule") != "17:00 Tuesday Thursday Sunday"
+        or mail_contract.get("daily_research_summary_schedule") != "09:00 daily"
+        or mail_contract.get("postdraw") != "only after audited draw"
+        or mail_contract.get("incident") != "immediate fail-closed"
+        or mail_contract.get("sent")
+        != (
+            "Only SMTP final DATA250 plus append-only exactly-once "
+            "receipt/artifact/replay projects SENT"
+        )
+        or resource_contract
+        != {
+            "continuous_24h": True,
+            "p3_mutation": False,
+            "p3_preempts": True,
+            "p4_p5_p6_or_promotion": False,
+            "workers_max": contract.WORKER_COUNT,
+        }
+        or not isinstance(operations, list)
+        or "recover-committed-batch-replay-ledger" not in operations
+        or "recover-user-systemd-post-batch" not in operations
+        or "deploy-isolated-mail-runtime" not in operations
+    ):
+        raise IsolatedRunnerError("committed_recovery_operator_scope_changed")
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(operator.payload).encode("utf-8")
+    ).hexdigest()
+    if operator.metadata.get("payload_sha256") != payload_sha:
+        raise IsolatedRunnerError("committed_recovery_operator_payload_sha_changed")
+    return {
+        "phase": "committed_replay",
+        "engineering_request_id": USER_SCOPE_COMMITTED_ENGINEERING_REQUEST_ID,
+        "engineering_decision_id": USER_SCOPE_COMMITTED_ENGINEERING_DECISION_ID,
+        "engineering_execution_id": USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID,
         "operator_request_id": operator.id,
         "operator_decision_id": operator_decision_id,
         "operator_execution_id": operator_execution_id,
@@ -2742,6 +2947,165 @@ def _validate_user_scope_resume_live_state(
     return manifest, context
 
 
+def _user_scope_committed_ledger_state(
+    *, repository: PostgresResearchOSRepository
+) -> str:
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        batches = cursor.execute(
+            "SELECT registration_seq,batch_seq,target_issue,registration_execution_id,"
+            "m_before,m_after,candidate_count FROM "
+            "m4_isolated_v11.registration_batches ORDER BY registration_seq"
+        ).fetchall()
+        candidates = cursor.execute(
+            "SELECT count(*),count(*) FILTER (WHERE state='TERMINAL') FROM "
+            "m4_isolated_v11.candidate_registrations"
+        ).fetchone()
+        attempts = cursor.execute(
+            "SELECT count(*),count(*) FILTER (WHERE artifact_committed),"
+            "count(*) FILTER (WHERE artifact_digest IS NULL),"
+            "count(*) FILTER (WHERE artifact_digest IS NOT NULL),"
+            "count(*) FILTER (WHERE worker_started_at IS NOT NULL),"
+            "count(*) FILTER (WHERE terminal_at IS NOT NULL),"
+            "count(*) FILTER (WHERE status IN ('SUCCEEDED','FAILED')) FROM "
+            "m4_isolated_v11.execution_attempts"
+        ).fetchone()
+        results = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.candidate_results"
+            ).fetchone()[0]
+        )
+        deliveries = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger"
+            ).fetchone()[0]
+        )
+        head = cursor.execute(
+            "SELECT registration_seq,m_total FROM m4_isolated_v11.multiplicity_head "
+            "WHERE singleton=TRUE"
+        ).fetchone()
+    if batches != [
+        (
+            0,
+            0,
+            "2026100",
+            USER_SCOPE_RESUME_EXECUTION_ID,
+            0,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+        )
+    ]:
+        raise IsolatedRunnerError("committed_recovery_registration_batch_changed")
+    if (
+        candidates != (contract.ATTEMPTS_PER_BATCH, contract.ATTEMPTS_PER_BATCH)
+        or attempts is None
+        or tuple(attempts[:1] + attempts[4:]) != (contract.ATTEMPTS_PER_BATCH,) * 4
+        or deliveries != 0
+        or head != (0, contract.ATTEMPTS_PER_BATCH)
+    ):
+        raise IsolatedRunnerError("committed_recovery_ledger_identity_changed")
+    _, committed, null_digests, nonnull_digests, *_ = map(int, attempts)
+    if (
+        committed == 0
+        and null_digests == contract.ATTEMPTS_PER_BATCH
+        and nonnull_digests == 0
+        and results == 0
+    ):
+        return "PRE_MIRROR"
+    if (
+        committed == contract.ATTEMPTS_PER_BATCH
+        and null_digests == 0
+        and nonnull_digests == contract.ATTEMPTS_PER_BATCH
+        and results == contract.ATTEMPTS_PER_BATCH
+    ):
+        return "MIRRORED"
+    raise IsolatedRunnerError("committed_recovery_partial_ledger_forbidden")
+
+
+def _validate_user_scope_committed_live_state(
+    *, repository: IsolatedChallengerRepository
+) -> tuple[ControlPlaneManifest, dict[str, str], str]:
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    if (
+        manifest.artifact_digest != USER_SCOPE_COMMITTED_MANIFEST_DIGEST
+        or len(manifest.tasks) != 27
+    ):
+        raise IsolatedRunnerError("committed_recovery_manifest_changed")
+    state_counts: dict[TaskStatus, int] = {}
+    for state in manifest.task_states:
+        state_counts[state.declared_status] = (
+            state_counts.get(state.declared_status, 0) + 1
+        )
+    if state_counts != {TaskStatus.COMPLETED: 23, TaskStatus.DRAFT: 4}:
+        raise IsolatedRunnerError("committed_recovery_task_states_changed")
+    matches = [
+        task for task in manifest.tasks if task.task_key == USER_SCOPE_RESUME_TASK_KEY
+    ]
+    if len(matches) != 1 or matches[0].artifact_digest != USER_SCOPE_RESUME_TASK_DIGEST:
+        raise IsolatedRunnerError("committed_recovery_task_changed")
+    task = matches[0]
+    state = manifest.task_state_by_digest[task.artifact_digest]
+    context = _task_context(task)
+    if (
+        state.declared_status is not TaskStatus.COMPLETED
+        or state.completion_classification is not CompletionClassification.COMPLETE
+        or state.superseded_by_task_digest is not None
+        or context["batch_seq"] != "000000000000"
+        or context["target_issue"] != "2026100"
+        or json.loads(task.metric_contract).get("source_contract_digest")
+        != USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+    ):
+        raise IsolatedRunnerError("committed_recovery_task_identity_changed")
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+    )
+    _validate_user_scope_resume_event_set(events, allow_completed=True)
+    current_events = [
+        item
+        for item in events
+        if item.get("task_digest") == USER_SCOPE_RESUME_TASK_DIGEST
+    ]
+    current_by_digest = {
+        str(item.get("event_digest") or ""): item for item in current_events
+    }
+    completed = current_by_digest.get(USER_SCOPE_COMMITTED_EVENT_DIGEST, {})
+    completed_payload = dict(completed.get("payload") or ())
+    if (
+        len(current_events) != 4
+        or completed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or completed.get("event_type") != "completed"
+        or completed.get("sequence") != 3
+        or completed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or completed_payload.get("execution_artifact_digest")
+        != USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+        or completed_payload.get("publication_batch_digest")
+        != USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST
+        or completed_payload.get("registered_artifact_count") != 65
+        or completed_payload.get("workload_rerun") is not False
+        or completed_payload.get("formal_p3_mutated") is not False
+        or completed_payload.get("promotion_triggered") is not False
+    ):
+        raise IsolatedRunnerError("committed_recovery_completed_event_changed")
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    )
+    if len(registrations) != 65:
+        raise IsolatedRunnerError("committed_recovery_registration_count_changed")
+    facts = set(manifest.facts.artifacts)
+    if any(
+        fact.endswith((":SENT", ":UNCERTAIN"))
+        or "PASS_TO_P4" in fact
+        or "PASS_TO_P5" in fact
+        or "PROMOTION" in fact
+        for fact in facts
+    ):
+        raise IsolatedRunnerError("committed_recovery_forbidden_fact_present")
+    ledger_state = _user_scope_committed_ledger_state(repository=repository)
+    _p3_source_identity()
+    return manifest, context, ledger_state
+
+
 def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
     foundation = {
         "schema_version": "dehps-m4-isolated-v11-user-systemd-runtime-migration.v1",
@@ -3001,6 +3365,100 @@ def _user_scope_runtime_attestation(
     return path, body
 
 
+def recover_p3_user_scope_committed_batch(
+    *,
+    apply: bool,
+    repository: IsolatedChallengerRepository,
+    repaired_source_digest: str,
+    repaired_git_commit: str,
+) -> dict[str, Any]:
+    governance = validate_user_scope_committed_recovery_governance(
+        repository=AgentRequestRepository(),
+        source_contract=artifacts.load_source_contract(root_dir=ROOT_DIR),
+        repaired_source_digest=repaired_source_digest,
+        git_commit=repaired_git_commit,
+    )
+    manifest, task_context, ledger_state_before = (
+        _validate_user_scope_committed_live_state(repository=repository)
+    )
+    p3_before = _p3_source_identity()
+    supervisor = mainline.IsolatedChallengerSupervisor(
+        repository=repository,
+        context=task_context,
+        source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        git_commit=USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        simulation=False,
+    )
+    generic = supervisor.replay(
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    )
+    _verify_generic_replay(generic)
+    if not apply:
+        if _p3_source_identity() != p3_before:
+            raise IsolatedRunnerError(
+                "formal_p3_source_changed_during_committed_replay"
+            )
+        return {
+            "schema_version": (
+                "dehps-m4-isolated-v11-committed-replay-ledger-recovery.v1"
+            ),
+            "status": "COMMITTED_RECOVERY_DRY_RUN_VERIFIED",
+            "apply": False,
+            "manifest_digest": manifest.artifact_digest,
+            "task_key": USER_SCOPE_RESUME_TASK_KEY,
+            "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+            "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+            "completed_event_digest": USER_SCOPE_COMMITTED_EVENT_DIGEST,
+            "execution_artifact_digest": (
+                USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+            ),
+            "registered_artifact_count": 65,
+            "ledger_state": ledger_state_before,
+            "generic_replay": "REPLAY_VERIFIED",
+            "scientific_workloads_executed": 0,
+            "run_once_calls": 0,
+            "smtp_calls": 0,
+            "mandatory_mail_kinds": list(USER_SCOPE_MANDATORY_MAIL_KINDS),
+            "mail_integration": "PENDING_REAL_SCHEDULED_DATA250_RECEIPT_REPLAY",
+            "formal_p3_mutated": False,
+            "p4_p5_p6_or_promotion_triggered": False,
+            "governance": governance,
+        }
+    _mirror_search_batch_ledger(
+        repository=repository,
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+    )
+    ledger_state_after = _user_scope_committed_ledger_state(repository=repository)
+    if ledger_state_after != "MIRRORED":
+        raise IsolatedRunnerError("committed_recovery_ledger_mirror_incomplete")
+    if _p3_source_identity() != p3_before:
+        raise IsolatedRunnerError("formal_p3_source_changed_during_committed_recovery")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-committed-replay-ledger-recovery.v1",
+        "status": "BATCH_COMPLETE_AND_REPLAY_VERIFIED",
+        "apply": True,
+        "manifest_digest": manifest.artifact_digest,
+        "task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "completed_event_digest": USER_SCOPE_COMMITTED_EVENT_DIGEST,
+        "execution_artifact_digest": USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST,
+        "registered_artifact_count": 65,
+        "ledger_state_before": ledger_state_before,
+        "ledger_state_after": ledger_state_after,
+        "generic_replay": "REPLAY_VERIFIED",
+        "scientific_workloads_executed": 0,
+        "run_once_calls": 0,
+        "smtp_calls": 0,
+        "mandatory_mail_kinds": list(USER_SCOPE_MANDATORY_MAIL_KINDS),
+        "mail_integration": "PENDING_REAL_SCHEDULED_DATA250_RECEIPT_REPLAY",
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "governance": governance,
+    }
+
+
 def resume_p3_user_scope_running_batch(
     *,
     apply: bool,
@@ -3027,16 +3485,25 @@ def resume_p3_user_scope_running_batch(
         != repaired_git_commit
     ):
         raise IsolatedRunnerError("user_scope_repaired_commit_changed")
-    agent_repository = AgentRequestRepository()
+    repository = IsolatedChallengerRepository(
+        context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+    )
+    current_manifest = repository.load_manifest(
+        control_plane_key=contract.CONTROL_PLANE_KEY
+    )
+    if current_manifest.artifact_digest == USER_SCOPE_COMMITTED_MANIFEST_DIGEST:
+        return recover_p3_user_scope_committed_batch(
+            apply=apply,
+            repository=repository,
+            repaired_source_digest=repaired_source_digest,
+            repaired_git_commit=repaired_git_commit,
+        )
     governance = validate_user_scope_recovery_governance(
-        repository=agent_repository,
+        repository=AgentRequestRepository(),
         source_contract=source_contract,
         repaired_source_digest=repaired_source_digest,
         git_commit=repaired_git_commit,
         phase="resume",
-    )
-    repository = IsolatedChallengerRepository(
-        context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
     )
     manifest, task_context = _validate_user_scope_resume_live_state(
         repository=repository

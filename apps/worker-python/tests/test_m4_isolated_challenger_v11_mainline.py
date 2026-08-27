@@ -1605,3 +1605,74 @@ def test_supervisor_registers_every_frozen_capability_without_unkeyed_dispatch()
     expected = {item.capability for item in contract.TASK_TEMPLATES}
     assert expected.issubset(supervisor.capabilities)
     assert set(supervisor.isolated_capability_names) == expected
+
+
+def test_exact_committed_replay_route_never_calls_shared_generic_loader(
+    monkeypatch,
+) -> None:
+    context = _context()
+    supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
+    supervisor.isolated_context = context
+    supervisor.repository = object()
+    supervisor.root_dir = Path("/fixture")
+    expected = {
+        "status": "REPLAY_VERIFIED",
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "same_artifact_content": True,
+        "all_registrations_and_parent_chains_exact": True,
+        "manual_input_assembly": False,
+        "dispatch_performed": False,
+    }
+    observed = []
+
+    def exact(**kwargs):
+        observed.append(kwargs)
+        return expected
+
+    monkeypatch.setattr(mainline, "replay_exact_sequence3_committed_execution", exact)
+    monkeypatch.setattr(
+        mainline.ResearchEvidenceSupervisor,
+        "replay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("shared generic loader must not run")
+        ),
+    )
+    assert (
+        supervisor.replay(
+            task_key=mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+            execution_id=mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        )
+        == expected
+    )
+    assert observed == [
+        {"repository": supervisor.repository, "root_dir": Path("/fixture")}
+    ]
+
+
+def test_exact_committed_replay_route_requires_both_frozen_identities(
+    monkeypatch,
+) -> None:
+    context = _context()
+    supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
+    supervisor.isolated_context = context
+    supervisor.repository = object()
+    supervisor.root_dir = Path("/fixture")
+    monkeypatch.setattr(
+        mainline, "replay_exact_sequence3_committed_execution", lambda **_kwargs: {}
+    )
+    delegated = {"status": "DELEGATED"}
+    monkeypatch.setattr(
+        mainline.ResearchEvidenceSupervisor,
+        "replay",
+        lambda *_args, **_kwargs: delegated,
+    )
+    monkeypatch.setattr(
+        mainline, "load_completed_task_artifacts", lambda **_kwargs: ({},)
+    )
+    result = supervisor.replay(
+        task_key=mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+        execution_id="0" * 64,
+    )
+    assert result["status"] == "DELEGATED"
+    assert result["same_artifact_content"] is True
