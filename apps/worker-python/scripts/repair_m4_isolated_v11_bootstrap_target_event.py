@@ -231,6 +231,15 @@ FAILED_BATCH_OPERATOR_EXECUTION_ID = 597
 USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS = frozenset(
     BATCH_TIMESTAMP_COMPLETED_SOURCE_DIGESTS | {USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST}
 )
+USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST = (
+    "37343d79dc16bb78a2fdcb72b5c1c30683e97c76ce82b5915c2c0c82421a5526"
+)
+USER_SCOPE_POST_BATCH_REBOUND_SOURCE_DIGEST = (
+    "ecaf63edf57675398bb19b7331a5b97dcdf4b199b790ee68005c79aced864ce6"
+)
+USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST = (
+    "b677db9527c7819ffa15c9a04e829c566e6ace21c46636a7cae8a4f3de44dcb1"
+)
 
 
 class TargetEventRecoveryError(RuntimeError):
@@ -1092,6 +1101,14 @@ def build_user_scope_post_batch_rebind(
 ) -> ControlPlaneManifest:
     if source_digest in USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS:
         raise TargetEventRecoveryError("user_scope_post_batch_source_not_advanced")
+    if current.artifact_digest == USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST:
+        if source_digest != USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST:
+            raise TargetEventRecoveryError(
+                "user_scope_post_batch_source_transition_changed"
+            )
+        expected_uncompleted_source = USER_SCOPE_POST_BATCH_REBOUND_SOURCE_DIGEST
+    else:
+        expected_uncompleted_source = USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
     if (
         len(current.tasks) != 27
         or len(current.goals) != 1
@@ -1167,7 +1184,7 @@ def build_user_scope_post_batch_rebind(
             continue
         if (
             task.task_key not in expected_uncompleted_keys
-            or bound_source != USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+            or bound_source != expected_uncompleted_source
             or state.declared_status is not TaskStatus.DRAFT
             or state.completion_classification
             is not CompletionClassification.INTEGRATION_PENDING
