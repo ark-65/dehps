@@ -414,6 +414,141 @@ def test_roll_forward_before_preregistration_never_loads_completed_health(
     assert contract.FREEZE_FACT not in extended.facts.artifacts
 
 
+@pytest.mark.parametrize(
+    ("before", "after", "with_completion_fact"),
+    [
+        (TaskStatus.DRAFT, TaskStatus.RUNNING, False),
+        (TaskStatus.RUNNING, TaskStatus.FAILED, False),
+        (TaskStatus.RUNNING, TaskStatus.COMPLETED, True),
+    ],
+)
+def test_completion_verifier_accepts_only_exact_lifecycle_transition_shape(
+    monkeypatch, before: TaskStatus, after: TaskStatus, with_completion_fact: bool
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    payload, _ = runner.builder.build_bootstrap_manifest(
+        context=context,
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    base = ControlPlaneManifest.from_dict(payload)
+    states = list(base.task_states)
+    states[0] = replace(states[0], declared_status=before)
+    current = replace(base, task_states=tuple(states))
+    states[0] = replace(states[0], declared_status=after)
+    incoming = replace(base, task_states=tuple(states))
+    if with_completion_fact:
+        fact = (
+            f"mainline-execution:{base.tasks[0].task_key}:"
+            f"{'a' * 64}:{'b' * 64}:completed"
+        )
+        incoming = replace(
+            incoming,
+            facts=replace(incoming.facts, artifacts=frozenset({fact})),
+        )
+
+    class _Cursor:
+        def __init__(self):
+            self.result = None
+
+        def execute(self, statement, _params=None):
+            if "SELECT current_manifest_digest" in statement:
+                self.result = {"current_manifest_digest": current.artifact_digest}
+            elif "SELECT manifest_json" in statement:
+                self.result = {
+                    "manifest_json": current.to_dict(include_digest=True)
+                }
+            else:
+                raise AssertionError(statement)
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    repository = object.__new__(runner.IsolatedChallengerRepository)
+    repository._bootstrap_rebind_gate = None
+    monkeypatch.setattr(
+        runner.PostgresResearchOSRepository,
+        "_verify_mainline_completion_records",
+        lambda *_args, **_kwargs: None,
+    )
+
+    repository._verify_mainline_completion_records(
+        _Cursor(),
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        manifest=incoming,
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "with_fact"),
+    [
+        (TaskStatus.DRAFT, TaskStatus.RUNNING, True),
+        (TaskStatus.RUNNING, TaskStatus.FAILED, True),
+        (TaskStatus.RUNNING, TaskStatus.COMPLETED, False),
+        (TaskStatus.DRAFT, TaskStatus.COMPLETED, True),
+    ],
+)
+def test_completion_verifier_rejects_wrong_fact_or_transition(
+    monkeypatch, before: TaskStatus, after: TaskStatus, with_fact: bool
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    payload, _ = runner.builder.build_bootstrap_manifest(
+        context=_context(),
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    base = ControlPlaneManifest.from_dict(payload)
+    current_states = list(base.task_states)
+    current_states[0] = replace(current_states[0], declared_status=before)
+    current = replace(base, task_states=tuple(current_states))
+    incoming_states = list(current.task_states)
+    incoming_states[0] = replace(incoming_states[0], declared_status=after)
+    incoming = replace(current, task_states=tuple(incoming_states))
+    if with_fact:
+        fact = (
+            f"mainline-execution:{base.tasks[0].task_key}:"
+            f"{'a' * 64}:{'b' * 64}:completed"
+        )
+        incoming = replace(
+            incoming,
+            facts=replace(incoming.facts, artifacts=frozenset({fact})),
+        )
+
+    class _Cursor:
+        def __init__(self):
+            self.result = None
+
+        def execute(self, statement, _params=None):
+            self.result = (
+                {"current_manifest_digest": current.artifact_digest}
+                if "SELECT current_manifest_digest" in statement
+                else {"manifest_json": current.to_dict(include_digest=True)}
+            )
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    repository = object.__new__(runner.IsolatedChallengerRepository)
+    repository._bootstrap_rebind_gate = None
+    monkeypatch.setattr(
+        runner.PostgresResearchOSRepository,
+        "_verify_mainline_completion_records",
+        lambda *_args, **_kwargs: None,
+    )
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="atomic_completion_transition_changed",
+    ):
+        repository._verify_mainline_completion_records(
+            _Cursor(),
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            manifest=incoming,
+        )
+
+
 def test_fact_builder_rejects_formal_route_or_promotion() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
     context = _context()

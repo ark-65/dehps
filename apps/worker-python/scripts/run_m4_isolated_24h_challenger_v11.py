@@ -76,6 +76,7 @@ APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
     {
         PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
         "a13889100c0f83a315f5e3997ce53ac1fb8a86b661bcd1d522d3cec59adf4fc0",
+        "1d3a7766dfd7a3c09fd7cca0b54ec15ce154f5234bf1bbb97e61c63d55c92ada",
     }
 )
 
@@ -345,12 +346,25 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                     )
             added_facts = set(manifest.facts.artifacts) - set(current.facts.artifacts)
             if state_changes:
-                if (
-                    len(state_changes) != 1
-                    or state_changes[0][1:] != ("running", "completed")
-                    or len(added_facts) != 1
-                    or _MAINLINE_FACT.fullmatch(next(iter(added_facts))) is None
-                ):
+                if len(state_changes) != 1:
+                    raise ResearchOSValidationError(
+                        "isolated_v11_atomic_completion_transition_changed"
+                    )
+                transition = state_changes[0][1:]
+                if transition in {("draft", "running"), ("running", "failed")}:
+                    if added_facts:
+                        raise ResearchOSValidationError(
+                            "isolated_v11_atomic_completion_transition_changed"
+                        )
+                elif transition == ("running", "completed"):
+                    if (
+                        len(added_facts) != 1
+                        or _MAINLINE_FACT.fullmatch(next(iter(added_facts))) is None
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_atomic_completion_transition_changed"
+                        )
+                else:
                     raise ResearchOSValidationError(
                         "isolated_v11_atomic_completion_transition_changed"
                     )
