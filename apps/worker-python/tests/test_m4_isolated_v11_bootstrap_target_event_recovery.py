@@ -20,6 +20,7 @@ from dehps.research_os.models import (
     CompletionClassification,
     ControlPlaneManifest,
     DependencyFacts,
+    MainlineExecutionEvent,
     TaskStatus,
 )
 
@@ -1069,66 +1070,181 @@ def test_user_scope_post_batch_private_gate_is_one_shot(monkeypatch) -> None:
 
 
 def test_user_scope_post_batch_event_chain_is_exact() -> None:
-    registrations = (
-        {
-            "artifact_digest": "7" * 64,
-            "artifact_type": "research_os_mainline_execution",
-        },
-    )
-    common = {
+    shared = {
         "capability": "M4IsolatedSearchBatchCapabilityV11",
-        "execution_id": recovery.USER_SCOPE_RESUME_EXECUTION_ID,
-        "task_digest": recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+        "control_plane_key": contract.CONTROL_PLANE_KEY,
         "task_key": recovery.USER_SCOPE_RESUME_TASK_KEY,
     }
-    events = (
-        {
-            **common,
-            "event_digest": recovery.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
-            "manifest_digest": recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
-            "event_type": "started",
-            "sequence": 0,
-            "payload": (
+    records = (
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=runner.USER_SCOPE_HISTORICAL_EXECUTION_ID,
+            manifest_digest=runner.USER_SCOPE_HISTORICAL_MANIFEST_DIGEST,
+            task_digest=runner.USER_SCOPE_HISTORICAL_TASK_DIGEST,
+            event_type="started",
+            sequence=0,
+            recorded_at=runner.USER_SCOPE_HISTORICAL_STARTED_AT,
+            payload=(
+                (
+                    "input_artifact_digests",
+                    [runner.USER_SCOPE_HISTORICAL_SOURCE_DIGEST],
+                ),
+                ("git_commit", runner.USER_SCOPE_HISTORICAL_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=runner.USER_SCOPE_HISTORICAL_EXECUTION_ID,
+            manifest_digest=runner.USER_SCOPE_HISTORICAL_MANIFEST_DIGEST,
+            task_digest=runner.USER_SCOPE_HISTORICAL_TASK_DIGEST,
+            event_type="failed",
+            sequence=1,
+            recorded_at=runner.USER_SCOPE_HISTORICAL_FAILED_AT,
+            payload=(
+                ("error", "atomic_registration_artifact_content_changed"),
+                ("git_commit", runner.USER_SCOPE_HISTORICAL_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=recovery.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="started",
+            sequence=0,
+            recorded_at=runner.USER_SCOPE_RESUME_STARTED_AT,
+            payload=(
                 (
                     "input_artifact_digests",
                     [recovery.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST],
                 ),
                 ("git_commit", recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT),
             ),
-        },
-        {
-            **common,
-            "event_digest": "8" * 64,
-            "manifest_digest": recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
-            "event_type": "completed",
-            "sequence": 1,
-            "payload": tuple(
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=recovery.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="failed",
+            sequence=1,
+            recorded_at=runner.USER_SCOPE_RESUME_FAILED_AT,
+            payload=(
+                ("error", "atomic_registration_resume_changed"),
+                ("git_commit", recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=recovery.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="failed",
+            sequence=2,
+            recorded_at=runner.USER_SCOPE_GUARD_FAILED_AT,
+            payload=(
+                (
+                    "error",
+                    "M4-v2 atomic successor does not permit failed-execution recovery",
+                ),
+                ("git_commit", recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=recovery.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="completed",
+            sequence=3,
+            recorded_at="2026-08-27T22:43:51.392312+00:00",
+            payload=tuple(
                 sorted(
                     {
                         "actual_fold_count": contract.OUTER_FOLD_COUNT,
                         "additional_completed_task_keys": [],
                         "completion_facts": [],
-                        "execution_artifact_digest": "7" * 64,
+                        "execution_artifact_digest": (
+                            recovery.USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+                        ),
+                        "execution_artifact_path": (
+                            "runtime/isolated-24h-challenger-v11/artifacts/"
+                            "m4-isolated-24h-challenger-v11-search-batch-"
+                            "000000000000/"
+                            f"{recovery.USER_SCOPE_RESUME_EXECUTION_ID}/execution.json"
+                        ),
                         "formal_p3_mutated": False,
                         "git_commit": recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT,
                         "isolated_lineage": contract.LINEAGE_ID,
                         "promotion_triggered": False,
-                        "registered_artifact_count": 1,
+                        "publication_batch_digest": (
+                            recovery.USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST
+                        ),
+                        "registered_artifact_count": 65,
                         "simulation": False,
                         "task_template": "search_batch",
                         "workload_rerun": False,
                     }.items()
                 )
             ),
+        ),
+    )
+    expected_digests = (
+        runner.USER_SCOPE_HISTORICAL_STARTED_EVENT_DIGEST,
+        runner.USER_SCOPE_HISTORICAL_FAILED_EVENT_DIGEST,
+        recovery.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        recovery.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        recovery.USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
+        recovery.USER_SCOPE_COMMITTED_EVENT_DIGEST,
+    )
+    assert tuple(item.artifact_digest for item in records) == expected_digests
+    events = tuple(
+        {
+            "event_digest": item.artifact_digest,
+            "execution_id": item.execution_id,
+            "control_plane_key": item.control_plane_key,
+            "manifest_digest": item.manifest_digest,
+            "task_key": item.task_key,
+            "task_digest": item.task_digest,
+            "capability": item.capability,
+            "event_type": item.event_type,
+            "sequence": item.sequence,
+            "recorded_at": item.recorded_at,
+            "payload": list(item.payload),
+        }
+        for item in records
+    )
+    registrations = (
+        {
+            "artifact_digest": (
+                recovery.USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+            ),
+            "artifact_type": "research_os_mainline_execution",
         },
+        *(
+            {
+                "artifact_digest": f"{index:064x}",
+                "artifact_type": "isolated_challenger_fixture_artifact",
+            }
+            for index in range(1, 65)
+        ),
     )
     assert (
         recovery.validate_user_scope_post_batch_events(events, registrations)
-        == "8" * 64
+        == recovery.USER_SCOPE_COMMITTED_EVENT_DIGEST
     )
-    bad = (events[0], {**events[1], "sequence": 2})
-    with pytest.raises(recovery.TargetEventRecoveryError, match="identity"):
-        recovery.validate_user_scope_post_batch_events(bad, registrations)
+    with pytest.raises(recovery.TargetEventRecoveryError, match="count"):
+        recovery.validate_user_scope_post_batch_events(events[:-1], registrations)
+    with pytest.raises(recovery.TargetEventRecoveryError, match="integrity"):
+        recovery.validate_user_scope_post_batch_events(events[1:], registrations)
+    for field, changed in (
+        ("sequence", 4),
+        ("event_digest", "8" * 64),
+        ("payload", [("git_commit", "9" * 40)]),
+    ):
+        bad = (*events[:-1], {**events[-1], field: changed})
+        with pytest.raises(recovery.TargetEventRecoveryError, match="integrity"):
+            recovery.validate_user_scope_post_batch_events(bad, registrations)
 
 
 def test_ready_lineage_operator_scope_is_exact(monkeypatch) -> None:
