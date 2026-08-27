@@ -205,14 +205,26 @@ USER_SCOPE_SEQUENCE3_ENGINEERING_PAYLOAD_SHA256 = (
     "c8ea6f9583faba341e9e53a660d198c80ca123a6b11e8be7411718df3844f2f0"
 )
 USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT = "9d94a0142eca2fa27180f817d4000034f16bdf06"
-USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_KEY = (
     "engineering-m4-isolated-v11-second-terminal-event-guard-sequence3-fix-v1"
 )
-USER_SCOPE_ENGINEERING_REQUEST_ID = 757
-USER_SCOPE_ENGINEERING_DECISION_ID = 3217
-USER_SCOPE_ENGINEERING_EXECUTION_ID = 612
-USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_ID = 757
+USER_SCOPE_SECOND_GUARD_ENGINEERING_DECISION_ID = 3217
+USER_SCOPE_SECOND_GUARD_ENGINEERING_EXECUTION_ID = 612
+USER_SCOPE_SECOND_GUARD_ENGINEERING_PAYLOAD_SHA256 = (
     "11814f6b4c461befbe051f491658dfcf634db2badfedd1a7edeaa127468bf507"
+)
+USER_SCOPE_RUNNING_RESUME_REPAIR_BASE_COMMIT = (
+    "cdbba52de7b97b122fc3ec4ce7395c8f7588a5ef"
+)
+USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-exact-running-projection-resume-v1"
+)
+USER_SCOPE_ENGINEERING_REQUEST_ID = 759
+USER_SCOPE_ENGINEERING_DECISION_ID = 3227
+USER_SCOPE_ENGINEERING_EXECUTION_ID = 614
+USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+    "fa3c627a53d82ff65b94542cf6e25d9a46f19012c8d69033a2733797f523e77f"
 )
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
@@ -528,22 +540,62 @@ def validate_user_scope_recovery_governance(
             USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT
         ),
         "second_terminal_guard_repair_engineering_approval_decision_id": (
-            USER_SCOPE_ENGINEERING_DECISION_ID
+            USER_SCOPE_SECOND_GUARD_ENGINEERING_DECISION_ID
         ),
         "second_terminal_guard_repair_engineering_execution_id": (
-            USER_SCOPE_ENGINEERING_EXECUTION_ID
+            USER_SCOPE_SECOND_GUARD_ENGINEERING_EXECUTION_ID
         ),
         "second_terminal_guard_repair_engineering_request_id": (
-            USER_SCOPE_ENGINEERING_REQUEST_ID
+            USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_ID
         ),
         "second_terminal_guard_repair_engineering_request_key": (
-            USER_SCOPE_ENGINEERING_REQUEST_KEY
+            USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_KEY
         ),
         "second_terminal_guard_repair_engineering_request_payload_sha256": (
-            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+            USER_SCOPE_SECOND_GUARD_ENGINEERING_PAYLOAD_SHA256
         ),
     }:
         raise IsolatedRunnerError("user_scope_second_guard_source_binding_changed")
+    if {
+        "running_projection_resume_repair_base_merged_commit": bindings.get(
+            "running_projection_resume_repair_base_merged_commit"
+        ),
+        "running_projection_resume_repair_engineering_approval_decision_id": bindings.get(
+            "running_projection_resume_repair_engineering_approval_decision_id"
+        ),
+        "running_projection_resume_repair_engineering_execution_id": bindings.get(
+            "running_projection_resume_repair_engineering_execution_id"
+        ),
+        "running_projection_resume_repair_engineering_request_id": bindings.get(
+            "running_projection_resume_repair_engineering_request_id"
+        ),
+        "running_projection_resume_repair_engineering_request_key": bindings.get(
+            "running_projection_resume_repair_engineering_request_key"
+        ),
+        "running_projection_resume_repair_engineering_request_payload_sha256": bindings.get(
+            "running_projection_resume_repair_engineering_request_payload_sha256"
+        ),
+    } != {
+        "running_projection_resume_repair_base_merged_commit": (
+            USER_SCOPE_RUNNING_RESUME_REPAIR_BASE_COMMIT
+        ),
+        "running_projection_resume_repair_engineering_approval_decision_id": (
+            USER_SCOPE_ENGINEERING_DECISION_ID
+        ),
+        "running_projection_resume_repair_engineering_execution_id": (
+            USER_SCOPE_ENGINEERING_EXECUTION_ID
+        ),
+        "running_projection_resume_repair_engineering_request_id": (
+            USER_SCOPE_ENGINEERING_REQUEST_ID
+        ),
+        "running_projection_resume_repair_engineering_request_key": (
+            USER_SCOPE_ENGINEERING_REQUEST_KEY
+        ),
+        "running_projection_resume_repair_engineering_request_payload_sha256": (
+            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }:
+        raise IsolatedRunnerError("user_scope_running_resume_source_binding_changed")
     if source_contract.get("artifact_digest") != repaired_source_digest:
         raise IsolatedRunnerError("user_scope_repaired_source_changed")
 
@@ -569,7 +621,7 @@ def validate_user_scope_recovery_governance(
     ]
     if (
         engineering.id != USER_SCOPE_ENGINEERING_REQUEST_ID
-        or engineering.request_type is not AgentRequestType.ENGINEERING_BUG_FIX
+        or engineering.request_type is not AgentRequestType.ENGINEERING_RUNTIME_FIX
         or engineering.status is not AgentRequestStatus.COMPLETED
         or engineering.metadata.get("payload_sha256")
         != USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
@@ -2489,7 +2541,11 @@ def _validate_user_scope_resume_live_state(
     *, repository: IsolatedChallengerRepository
 ) -> tuple[ControlPlaneManifest, dict[str, str]]:
     manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
-    if manifest.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST:
+    expected_target_status = {
+        USER_SCOPE_FAILED_MANIFEST_DIGEST: TaskStatus.FAILED,
+        USER_SCOPE_RESUME_MANIFEST_DIGEST: TaskStatus.RUNNING,
+    }.get(manifest.artifact_digest)
+    if expected_target_status is None:
         raise IsolatedRunnerError("user_scope_resume_manifest_changed")
     if len(manifest.tasks) != 27:
         raise IsolatedRunnerError("user_scope_resume_task_count_changed")
@@ -2498,11 +2554,12 @@ def _validate_user_scope_resume_live_state(
         state_counts[state.declared_status] = (
             state_counts.get(state.declared_status, 0) + 1
         )
-    if state_counts != {
+    expected_state_counts = {
         TaskStatus.COMPLETED: 22,
         TaskStatus.DRAFT: 4,
-        TaskStatus.FAILED: 1,
-    }:
+        expected_target_status: 1,
+    }
+    if state_counts != expected_state_counts:
         raise IsolatedRunnerError("user_scope_resume_task_states_changed")
     matches = [
         task for task in manifest.tasks if task.task_key == USER_SCOPE_RESUME_TASK_KEY
@@ -2512,7 +2569,7 @@ def _validate_user_scope_resume_live_state(
     task = matches[0]
     state = manifest.task_state_by_digest[task.artifact_digest]
     if (
-        state.declared_status is not TaskStatus.FAILED
+        state.declared_status is not expected_target_status
         or state.completion_classification is not CompletionClassification.INTEGRATED
         or state.superseded_by_task_digest is not None
     ):
