@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_contract as contract,
 )
@@ -422,3 +423,89 @@ def test_database_schema_attestation_is_exact_and_idempotent() -> None:
         "contract_digest": contract.CONTRACT_DIGEST,
         "installed_git_commit": commit,
     }
+
+
+def test_repository_helper_does_not_shadow_base_task_validator() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    namespace = runner.IsolatedChallengerRepository.__dict__
+    assert "_verify_task_definition" not in namespace
+    assert "_verify_isolated_task_definition" in namespace
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_database_schema_attestation_accepts_only_ancestor_repair(
+    monkeypatch, returncode: int
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    installed = "a" * 40
+    current = "b" * 40
+    expected_insert = (
+        contract.DATABASE_SCHEMA_VERSION,
+        contract.CONTRACT_DIGEST,
+        current,
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, params=None):
+            if statement.startswith("INSERT"):
+                assert params == expected_insert
+            else:
+                assert statement.startswith("SELECT")
+                assert params is None
+            return self
+
+        @staticmethod
+        def fetchone():
+            return (
+                contract.DATABASE_SCHEMA_VERSION,
+                contract.CONTRACT_DIGEST,
+                installed,
+            )
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(list(command))
+        assert kwargs == {
+            "cwd": runner.ROOT_DIR,
+            "check": False,
+            "capture_output": True,
+            "text": True,
+        }
+        return SimpleNamespace(returncode=returncode)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    if returncode == 0:
+        assert runner._attest_database_schema(
+            repository=_Repository(), git_commit=current
+        )["installed_git_commit"] == installed
+    else:
+        with pytest.raises(runner.IsolatedRunnerError, match="not_ancestor"):
+            runner._attest_database_schema(
+                repository=_Repository(), git_commit=current
+            )
+    assert commands == [
+        ["git", "merge-base", "--is-ancestor", installed, current]
+    ]

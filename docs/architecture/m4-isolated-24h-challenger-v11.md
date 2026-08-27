@@ -176,7 +176,9 @@ paths, and rollback steps before any of the following may run.
 
 1. apply `003_m4_isolated_24h_challenger_v11.sql`;
 2. run the source loader and result-blind simulation; the additive install then
-   seals the exact database schema version, contract digest, and merged commit;
+   seals the exact database schema version, contract digest, and initial merged
+   commit. A reviewed descendant repair may reuse that immutable schema only
+   when Git proves the installation commit is its ancestor;
 3. install the independent control-plane manifest with `install --apply`;
 4. execute the mail TLS/AUTH/NOOP configuration task and verify the registered
    `VERIFIED` fact;

@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "850ba1c75f2a61c3d87b50d84d4fe3bb9200690a250cd5e2b22c60b2b840d799",
+  "artifact_digest": "e9bf934dd69b2893d0d1cfb2113a4de884a64c75721e97ae4b5b2abbd14d7dd7",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -9,6 +9,12 @@
     "engineering_request_id": 703,
     "engineering_request_key": "engineering-m4-isolated-24h-challenger-v11-lifecycle-producers-and-completion-v1",
     "engineering_request_payload_sha256": "aa9f457cc224ef49631a73805097217b01370f9b5bf7ade733ef1d6412947c3e",
+    "import_resume_repair_base_merged_commit": "435408f9f30b080be1fc7cb1554c02955b07308f",
+    "import_resume_repair_engineering_approval_decision_id": 2973,
+    "import_resume_repair_engineering_execution_id": 565,
+    "import_resume_repair_engineering_request_id": 707,
+    "import_resume_repair_engineering_request_key": "engineering-m4-isolated-v11-import-signature-and-schema-resume-fix-v1",
+    "import_resume_repair_engineering_request_payload_sha256": "3865e658ce4c7f7b6112d7da855199bad97db91e34644cd5f582493ec639ccd7",
     "lifecycle_research_approval_decision_id": 2949,
     "lifecycle_research_request_id": 702,
     "lifecycle_research_request_key": "research-m4-isolated-24h-challenger-v11-lifecycle-producer-addendum-v2",
@@ -74,9 +80,9 @@
       "sha256": "5596335493028fa369aef4acf2ebf0a025090a403006138a2356c4c1510168a7"
     },
     {
-      "bytes": 81827,
+      "bytes": 82412,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "5d7a19d0ed1e3d68c1315367b46107d35d5e04b23f3c0d0e709f57b7ad54e5a4"
+      "sha256": "3a70a85ab1658f9bad7763def8c84b1aee9b6278cf9aa7246fd9c9c781df31a2"
     },
     {
       "bytes": 17768,
@@ -139,5 +145,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "ec1b0369a370132987f3046ff27d2136ec9b06095cdc992589faa7647cdf7379"
+  "source_set_digest": "2606f3e4fac1323da7bc6f5c052afe9885b178150c4e382e9f5c50436b61f0f2"
 }
