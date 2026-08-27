@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "99f058e6df7e36ebd07bb411c7c1960989367230cb0a9344619442466112460a",
+  "artifact_digest": "5385fef192078045e64bd4a0e91854cd600dfcbc5f8402c5ff57f7b1fc70b857",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -19,6 +19,12 @@
     "import_resume_repair_engineering_request_id": 707,
     "import_resume_repair_engineering_request_key": "engineering-m4-isolated-v11-import-signature-and-schema-resume-fix-v1",
     "import_resume_repair_engineering_request_payload_sha256": "3865e658ce4c7f7b6112d7da855199bad97db91e34644cd5f582493ec639ccd7",
+    "install_result_repair_base_merged_commit": "c58aab2334d3dd5b8f8dc66636d01980f23559c3",
+    "install_result_repair_engineering_approval_decision_id": 3004,
+    "install_result_repair_engineering_execution_id": 570,
+    "install_result_repair_engineering_request_id": 714,
+    "install_result_repair_engineering_request_key": "engineering-m4-isolated-v11-install-result-manifest-digest-fix-v1",
+    "install_result_repair_engineering_request_payload_sha256": "2e1b5e45519836ace2f79989dd906be9de8a8252a70ac9314cb0c2a1b6a886ac",
     "lifecycle_research_approval_decision_id": 2949,
     "lifecycle_research_request_id": 702,
     "lifecycle_research_request_key": "research-m4-isolated-24h-challenger-v11-lifecycle-producer-addendum-v2",
@@ -96,7 +102,7 @@
     {
       "bytes": 84733,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "53cd3a3b4f4cf776474116d31f8c00ac907f7bbdf3d608b2f0a434baa10650f4"
+      "sha256": "3d28adf8debb720f3b7f94dfd8a33f173c8c3af199366d82cb28e22e3a676d70"
     },
     {
       "bytes": 17768,
@@ -159,5 +165,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "effd0ce958e731d7700ab5f0b6caa02f9f7be15bc90349f006bb2f8108e8f39f"
+  "source_set_digest": "a44769c4ec21423321d6cec2224cc30f4322381bf88e4d12d618903e552464f7"
 }

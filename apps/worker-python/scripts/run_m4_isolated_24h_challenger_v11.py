@@ -1574,7 +1574,7 @@ def install(
     )
     return {
         "status": "IMPORTED",
-        "manifest_digest": payload["artifact_digest"],
+        "manifest_digest": payload["manifest_digest"],
         "import_result": str(result),
         "database_schema_attestation": schema_attestation,
         "registered_source_contract_digest": registered_source["artifact_digest"],

@@ -69,6 +69,70 @@ def test_install_without_apply_is_non_mutating() -> None:
     assert result["formal_p3_mutated"] is False
 
 
+def test_install_apply_returns_imported_manifest_digest(monkeypatch) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    manifest_digest = "b" * 64
+    payload = {"manifest_digest": manifest_digest}
+    monkeypatch.setattr(
+        runner.builder,
+        "build_bootstrap_manifest",
+        lambda **_kwargs: (payload, {"status": "DRY_RUN"}),
+    )
+
+    class _Repository:
+        def __init__(self, **_kwargs):
+            self.imported = None
+
+        def ensure_schema(self):
+            return None
+
+        def import_manifest(self, **kwargs):
+            self.imported = kwargs
+            return "imported"
+
+    monkeypatch.setattr(runner, "IsolatedChallengerRepository", _Repository)
+    monkeypatch.setattr(
+        runner,
+        "_attest_database_schema",
+        lambda **_kwargs: {
+            "schema_version": contract.DATABASE_SCHEMA_VERSION,
+            "contract_digest": contract.CONTRACT_DIGEST,
+            "installed_git_commit": "c" * 40,
+        },
+    )
+    monkeypatch.setattr(
+        runner.artifacts,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": "a" * 64},
+    )
+    monkeypatch.setattr(
+        runner.mainline,
+        "build_registered_input",
+        lambda **_kwargs: {"artifact_digest": "d" * 64},
+    )
+    registered = iter(({"artifact_digest": "a" * 64}, {"artifact_digest": "d" * 64}))
+    monkeypatch.setattr(
+        runner.mainline,
+        "register_input_artifact",
+        lambda **_kwargs: next(registered),
+    )
+
+    result = runner.install(
+        apply=True,
+        context=_context(),
+        source_digest="a" * 64,
+        operator_configuration_authorized=True,
+        git_commit="c" * 40,
+    )
+
+    assert result["status"] == "IMPORTED"
+    assert result["manifest_digest"] == manifest_digest
+    assert result["import_result"] == "imported"
+    assert result["smtp_calls"] == 0
+    assert result["workloads"] == 0
+    assert result["formal_p3_mutated"] is False
+
+
 def test_fact_builder_rejects_formal_route_or_promotion() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
     context = _context()
