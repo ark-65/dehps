@@ -80,7 +80,9 @@ cannot obtain a lease unless a registered and replayed
 `m4-isolated-24h-challenger-v11-mail-configuration:VERIFIED`.
 
 Production configuration uses QQ SMTP with implicit TLS on `smtp.qq.com:465`.
-The Operator environment file must contain:
+The Operator-created user environment file
+`/home/ark/.config/dehps/m4-isolated-24h-challenger-v11.env` must be mode
+`0600` and contain:
 
 ```text
 DEHPS_ISOLATED_V11_MAIL_FROM=sender@qq.com

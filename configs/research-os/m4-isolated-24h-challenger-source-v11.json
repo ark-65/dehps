@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "dfbd7a1e465042165280f861cc64121d123fa78add1cb4f59322d9473df831da",
+  "artifact_digest": "850ba1c75f2a61c3d87b50d84d4fe3bb9200690a250cd5e2b22c60b2b840d799",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -13,6 +13,12 @@
     "lifecycle_research_request_id": 702,
     "lifecycle_research_request_key": "research-m4-isolated-24h-challenger-v11-lifecycle-producer-addendum-v2",
     "lifecycle_research_request_payload_sha256": "8f6d92347f53e43a1ec7eb869e015d6d78cc1e37feb5661657312bf9e90ebe49",
+    "mail_env_repair_base_merged_commit": "967d6e62ae83b24e4cb0eed629412c59fd1408f3",
+    "mail_env_repair_engineering_approval_decision_id": 2962,
+    "mail_env_repair_engineering_execution_id": 563,
+    "mail_env_repair_engineering_request_id": 705,
+    "mail_env_repair_engineering_request_key": "engineering-m4-isolated-v11-user-mail-environment-path-fix-v1",
+    "mail_env_repair_engineering_request_payload_sha256": "b9d1ab7dd70b6a4f8e712071b1add6a1ffbb08d03dca98cd5f0f5c405b291762",
     "repair_base_merged_commit": "ab1e8d0d71e7caca99c77d36e8fa92a8762e1854",
     "repair_engineering_approval_decision_id": 2957,
     "repair_engineering_execution_id": 562,
@@ -78,9 +84,9 @@
       "sha256": "86d5aab656866b369a908db2a7342255438371c01144c16483ecc28317439280"
     },
     {
-      "bytes": 1275,
+      "bytes": 1288,
       "path": "infra/systemd/dehps-m4-isolated-24h-challenger-v11.service",
-      "sha256": "f294393a54accecfe5eee6e4ca0af4fa3e901cdc0a247d7b0ee877d0bd72281f"
+      "sha256": "9864343c0821a1872cbac42a586cd434daeb5c2adba9718d0eb921f47aa8f3a2"
     },
     {
       "bytes": 253,
@@ -133,5 +139,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "7af6381f77ae69eb61f1997509b28b18d91153713a2f79f3ceca7b8554945047"
+  "source_set_digest": "ec1b0369a370132987f3046ff27d2136ec9b06095cdc992589faa7647cdf7379"
 }
