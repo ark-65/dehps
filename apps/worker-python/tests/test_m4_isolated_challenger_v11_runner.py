@@ -167,6 +167,7 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
         task,
         state=state,
         artifact_facts=frozenset({fact}),
+        partial_live_rebind=True,
     )
     with pytest.raises(
         runner.ResearchOSValidationError,
@@ -180,6 +181,7 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
                 completion_classification=CompletionClassification.INTEGRATION_PENDING,
             ),
             artifact_facts=frozenset({fact}),
+            partial_live_rebind=True,
         )
     with pytest.raises(
         runner.ResearchOSValidationError,
@@ -189,6 +191,7 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
             task,
             state=state,
             artifact_facts=frozenset(),
+            partial_live_rebind=True,
         )
     arbitrary_payload, _ = runner.builder.build_manifest(
         context=context,
@@ -212,6 +215,7 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
                     )
                 }
             ),
+            partial_live_rebind=True,
         )
 
 

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,9 @@ APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
 LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST = (
     "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1"
 )
+LIVE_PARTIAL_FROZEN_GOAL_DIGEST = (
+    "b13054b699c75325c3a0fbb27ccc697e0a3176568140a7f0d5e59c9aa362d69a"
+)
 
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
@@ -126,6 +130,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         *,
         state: Any,
         artifact_facts: frozenset[str],
+        partial_live_rebind: bool,
     ) -> None:
         try:
             metric = json.loads(task.metric_contract)
@@ -176,17 +181,45 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         )
         expected = ControlPlaneManifest.from_dict(expected_payload)
         matches = [item for item in expected.tasks if item.task_key == task.task_key]
-        if len(matches) != 1 or matches[0].artifact_digest != task.artifact_digest:
+        if len(matches) != 1:
+            raise ResearchOSValidationError("isolated_v11_task_definition_changed")
+        expected_task = matches[0]
+        if partial_live_rebind and bound_source_digest == self.source_digest:
+            expected_task = replace(
+                expected_task, goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            )
+        if expected_task.artifact_digest != task.artifact_digest:
             raise ResearchOSValidationError("isolated_v11_task_definition_changed")
 
     def _verify_exact_transition(self, incoming: ControlPlaneManifest) -> None:
         if len(incoming.tasks) != len({item.task_key for item in incoming.tasks}):
             raise ResearchOSValidationError("isolated_v11_task_set_changed")
+        bound_sources = {
+            str(json.loads(task.metric_contract).get("source_contract_digest") or "")
+            for task in incoming.tasks
+        }
+        historical_source_present = (
+            self.source_digest != LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST
+            and LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST in bound_sources
+        )
+        partial_live_rebind = historical_source_present and (
+            self.source_digest in bound_sources
+        )
+        if historical_source_present and (
+            not partial_live_rebind
+            or not bound_sources.issubset(
+                {LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST, self.source_digest}
+            )
+        ):
+            raise ResearchOSValidationError(
+                "isolated_v11_partial_live_source_set_changed"
+            )
         for task in incoming.tasks:
             self._verify_isolated_task_definition(
                 task,
                 state=incoming.task_state_by_digest[task.artifact_digest],
                 artifact_facts=incoming.facts.artifacts,
+                partial_live_rebind=partial_live_rebind,
             )
         operator_authorized = (
             builder.OPERATOR_CONFIGURATION_AUTHORITY in incoming.facts.authorities
