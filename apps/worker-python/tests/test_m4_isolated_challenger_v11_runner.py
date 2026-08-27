@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import importlib.util
+import inspect
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -913,6 +916,215 @@ def test_resource_probe_reads_exact_user_manager_formal_p3_unit(monkeypatch) -> 
         ]
     ]
     assert contract.formal_p3_activity_state(observation) == "QUIESCENT"
+
+
+def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    repaired_source = "d" * 64
+    repaired_commit = "e" * 40
+    source_contract = {
+        "artifact_digest": repaired_source,
+        "governance_bindings": {
+            "user_systemd_guard_repair_base_merged_commit": (
+                runner.USER_SCOPE_RESUME_ORIGIN_COMMIT
+            ),
+            "user_systemd_guard_repair_engineering_approval_decision_id": (
+                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+            ),
+            "user_systemd_guard_repair_engineering_execution_id": (
+                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+            ),
+            "user_systemd_guard_repair_engineering_request_id": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+            ),
+            "user_systemd_guard_repair_engineering_request_key": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+            ),
+            "user_systemd_guard_repair_engineering_request_payload_sha256": (
+                runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+            ),
+        },
+    }
+    engineering = SimpleNamespace(
+        id=runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
+        request_type=runner.AgentRequestType.ENGINEERING_RUNTIME_FIX,
+        status=runner.AgentRequestStatus.COMPLETED,
+        metadata={"payload_sha256": runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256},
+    )
+    engineering_approval = SimpleNamespace(
+        id=runner.USER_SCOPE_ENGINEERING_DECISION_ID,
+        decision_code="request_approved",
+        previous_status="under_review",
+        new_status="approved",
+        decided_by_role=runner.AgentRole.REVIEWER,
+    )
+    engineering_execution = SimpleNamespace(
+        id=runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        status=runner.AgentExecutionStatus.COMPLETED,
+        environment="isolated",
+        executor_role=runner.AgentRole.ENGINEERING,
+    )
+    recovery = {
+        "candidate_result_count": 0,
+        "current_manifest_digest": runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+        "engineering_approval_decision_id": (runner.USER_SCOPE_ENGINEERING_DECISION_ID),
+        "engineering_execution_id": runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        "engineering_request_id": runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
+        "execution_attempt_count": 0,
+        "origin_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "origin_source_contract_digest": (
+            runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+        ),
+        "registered_candidate_count": contract.ATTEMPTS_PER_BATCH,
+        "repaired_source_contract_digest": repaired_source,
+        "running_execution_id": runner.USER_SCOPE_RESUME_EXECUTION_ID,
+        "running_task_digest": runner.USER_SCOPE_RESUME_TASK_DIGEST,
+        "running_task_key": runner.USER_SCOPE_RESUME_TASK_KEY,
+        "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+    }
+    payload = {
+        "version": "m4-isolated-v11-user-systemd-running-batch-recovery-v1",
+        "commit": repaired_commit,
+        "checks": {"user_systemd_running_batch_recovery": recovery},
+        "mail_contract": {
+            "mandatory_kinds": list(runner.USER_SCOPE_MANDATORY_MAIL_KINDS),
+            "sent": (
+                "Only SMTP final DATA250 plus append-only exactly-once "
+                "receipt/artifact/replay projects SENT"
+            ),
+        },
+        "resource_contract": {
+            "continuous_24h": True,
+            "p3_mutation": False,
+            "p3_preempts": True,
+            "p4_p5_p6_or_promotion": False,
+            "workers_max": contract.WORKER_COUNT,
+        },
+        "ordered_operations": [
+            "resume-p3-user-scope-running-batch",
+            "recover-user-systemd-post-batch",
+        ],
+    }
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    operator = SimpleNamespace(
+        id=746,
+        parent_request_id=runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
+        request_type=runner.AgentRequestType.OPERATOR_RELEASE,
+        status=runner.AgentRequestStatus.EXECUTING,
+        payload=payload,
+        metadata={"payload_sha256": payload_sha},
+    )
+    operator_approval = SimpleNamespace(
+        id=3160,
+        decision_code="request_approved",
+        previous_status="under_review",
+        new_status="approved",
+        decided_by_role=runner.AgentRole.REVIEWER,
+    )
+    operator_execution = SimpleNamespace(
+        id=601,
+        status=runner.AgentExecutionStatus.RUNNING,
+        environment="production",
+        executor_role=runner.AgentRole.OPERATOR,
+    )
+
+    class _Repository:
+        def get_request(self, key):
+            return (
+                engineering
+                if key == runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                else operator
+            )
+
+        def list_decisions(self, key):
+            return (
+                [engineering_approval]
+                if key == runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                else [operator_approval]
+            )
+
+        def list_execution_metadata(self, key):
+            return (
+                [engineering_execution]
+                if key == runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                else [operator_execution]
+            )
+
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "operator")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "3160")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "601")
+    result = runner.validate_user_scope_recovery_governance(
+        repository=_Repository(),
+        source_contract=source_contract,
+        repaired_source_digest=repaired_source,
+        git_commit=repaired_commit,
+        phase="resume",
+    )
+    assert result["operator_payload_sha256"] == payload_sha
+    operator.payload = {
+        **payload,
+        "mail_contract": {
+            **payload["mail_contract"],
+            "mandatory_kinds": ["PREDRAW_TOP100"],
+        },
+    }
+    with pytest.raises(runner.IsolatedRunnerError, match="operator_scope"):
+        runner.validate_user_scope_recovery_governance(
+            repository=_Repository(),
+            source_contract=source_contract,
+            repaired_source_digest=repaired_source,
+            git_commit=repaired_commit,
+            phase="resume",
+        )
+
+
+def test_user_scope_resume_surface_is_single_task_and_attestation_is_deterministic() -> (
+    None
+):
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    source = inspect.getsource(runner.resume_p3_user_scope_running_batch)
+    tree = ast.parse(source)
+    run_once_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_once"
+    ]
+    assert len(run_once_calls) == 1
+    assert "cycle(" not in source
+    assert "_roll_forward(" not in source
+    assert "send_external_once" not in source
+    governance = {
+        "phase": "resume",
+        "engineering_request_id": runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
+        "engineering_decision_id": runner.USER_SCOPE_ENGINEERING_DECISION_ID,
+        "engineering_execution_id": runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        "operator_request_id": 746,
+        "operator_decision_id": 3160,
+        "operator_execution_id": 601,
+        "operator_payload_sha256": "f" * 64,
+    }
+    first_path, first = runner._user_scope_runtime_attestation(
+        repaired_source_digest="d" * 64,
+        repaired_git_commit="e" * 40,
+        governance=governance,
+    )
+    second_path, second = runner._user_scope_runtime_attestation(
+        repaired_source_digest="d" * 64,
+        repaired_git_commit="e" * 40,
+        governance=governance,
+    )
+    assert first_path == second_path
+    assert first == second
+    assert first["scientific_contract_changed"] is False
+    assert first["formal_p3_mutated"] is False
+    assert first["p4_p5_p6_or_promotion_triggered"] is False
+    assert first["parent_digests"][-1] == "f" * 64
 
 
 def test_completed_activation_recovery_replays_without_workload(monkeypatch) -> None:

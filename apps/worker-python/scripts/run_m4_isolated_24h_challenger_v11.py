@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -23,6 +24,13 @@ if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
 import build_m4_isolated_24h_challenger_v11_manifest as builder
+from dehps.agents.repository import AgentRequestRepository
+from dehps.agents.requests import (
+    AgentExecutionStatus,
+    AgentRequestStatus,
+    AgentRequestType,
+)
+from dehps.agents.roles import AgentRole
 from dehps.config import ROOT_DIR
 from dehps.research_os.information_theory.measurement_system_v2 import (
     forward_prequential_confirmatory as formal_p3,
@@ -43,11 +51,13 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_search as search,
 )
 from dehps.research_os.models import (
+    CompletionClassification,
     ControlPlaneManifest,
     ResearchOSValidationError,
     TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+from dehps.research_os.supervisor import _persist_immutable
 
 _MAINLINE_FACT = re.compile(
     r"^mainline-execution:m4-isolated-24h-challenger-v11-[^:]+:"
@@ -91,15 +101,239 @@ LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS = frozenset(
         "fb37933e24cc32677b13909e9f4689605b20eaf635a06ed364a4401ee768124c",
         "f067bc89f60826c15793e1ab6325a3dce088dd7c2af3e1c99e984d3aada50dd1",
         "5452fc522812220b6654c2bb8e54b8844b0c2fdab251d392c2af8de501e659ec",
+        "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011",
     }
 )
 LIVE_PARTIAL_FROZEN_GOAL_DIGEST = (
     "b13054b699c75325c3a0fbb27ccc697e0a3176568140a7f0d5e59c9aa362d69a"
 )
+USER_SCOPE_RESUME_MANIFEST_DIGEST = (
+    "96bf5c5b13b9f65fa48b0d8da119412f256a1ec657141be8ca8968b5fb12762f"
+)
+USER_SCOPE_RESUME_TASK_KEY = "m4-isolated-24h-challenger-v11-search-batch-000000000000"
+USER_SCOPE_RESUME_TASK_DIGEST = (
+    "fc6bacf51dfe3de513aabb908900a1d67b8f7f3b67b1042631bf2c8177860f0b"
+)
+USER_SCOPE_RESUME_EXECUTION_ID = (
+    "a493038f96f8b5657ae36642ce6d4007df1f1c9911071c8fb33047995e5816ef"
+)
+USER_SCOPE_RESUME_STARTED_EVENT_DIGEST = (
+    "13c3b265371482f3291c239f5af1a2523e88e4028505e18d42d06da3e81f8222"
+)
+USER_SCOPE_RESUME_ORIGIN_COMMIT = "443a1d72e3135b9a90912bc3e890566de4338f65"
+USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST = (
+    "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011"
+)
+USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-user-systemd-guard-equivalent-running-resume-v1"
+)
+USER_SCOPE_ENGINEERING_REQUEST_ID = 745
+USER_SCOPE_ENGINEERING_DECISION_ID = 3157
+USER_SCOPE_ENGINEERING_EXECUTION_ID = 600
+USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+    "defa8126b1a621932facd44b3dce0eeb5e9cd81655f0ad8c0a4d1ecb522b54b1"
+)
+USER_SCOPE_MANDATORY_MAIL_KINDS = (
+    "PREDRAW_TOP100",
+    "POSTDRAW_SETTLEMENT",
+    "DAILY_24H_RESEARCH_SUMMARY",
+    "IMMEDIATE_FAIL_CLOSED_INCIDENT",
+)
 
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
     pass
+
+
+def validate_user_scope_recovery_governance(
+    *,
+    repository: AgentRequestRepository,
+    source_contract: Mapping[str, Any],
+    repaired_source_digest: str,
+    git_commit: str,
+    phase: str,
+) -> dict[str, Any]:
+    if phase not in {"resume", "post_batch_rebind"}:
+        raise IsolatedRunnerError("user_scope_recovery_phase_changed")
+    bindings = source_contract.get("governance_bindings")
+    if not isinstance(bindings, dict) or {
+        "user_systemd_guard_repair_base_merged_commit": bindings.get(
+            "user_systemd_guard_repair_base_merged_commit"
+        ),
+        "user_systemd_guard_repair_engineering_approval_decision_id": bindings.get(
+            "user_systemd_guard_repair_engineering_approval_decision_id"
+        ),
+        "user_systemd_guard_repair_engineering_execution_id": bindings.get(
+            "user_systemd_guard_repair_engineering_execution_id"
+        ),
+        "user_systemd_guard_repair_engineering_request_id": bindings.get(
+            "user_systemd_guard_repair_engineering_request_id"
+        ),
+        "user_systemd_guard_repair_engineering_request_key": bindings.get(
+            "user_systemd_guard_repair_engineering_request_key"
+        ),
+        "user_systemd_guard_repair_engineering_request_payload_sha256": bindings.get(
+            "user_systemd_guard_repair_engineering_request_payload_sha256"
+        ),
+    } != {
+        "user_systemd_guard_repair_base_merged_commit": (
+            USER_SCOPE_RESUME_ORIGIN_COMMIT
+        ),
+        "user_systemd_guard_repair_engineering_approval_decision_id": (
+            USER_SCOPE_ENGINEERING_DECISION_ID
+        ),
+        "user_systemd_guard_repair_engineering_execution_id": (
+            USER_SCOPE_ENGINEERING_EXECUTION_ID
+        ),
+        "user_systemd_guard_repair_engineering_request_id": (
+            USER_SCOPE_ENGINEERING_REQUEST_ID
+        ),
+        "user_systemd_guard_repair_engineering_request_key": (
+            USER_SCOPE_ENGINEERING_REQUEST_KEY
+        ),
+        "user_systemd_guard_repair_engineering_request_payload_sha256": (
+            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }:
+        raise IsolatedRunnerError("user_scope_engineering_source_binding_changed")
+    if source_contract.get("artifact_digest") != repaired_source_digest:
+        raise IsolatedRunnerError("user_scope_repaired_source_changed")
+
+    engineering = repository.get_request(USER_SCOPE_ENGINEERING_REQUEST_KEY)
+    engineering_decisions = repository.list_decisions(
+        USER_SCOPE_ENGINEERING_REQUEST_KEY
+    )
+    engineering_executions = repository.list_execution_metadata(
+        USER_SCOPE_ENGINEERING_REQUEST_KEY
+    )
+    approval = [
+        item
+        for item in engineering_decisions
+        if item.id == USER_SCOPE_ENGINEERING_DECISION_ID
+        and item.decision_code == "request_approved"
+        and item.previous_status == "under_review"
+        and item.new_status == "approved"
+    ]
+    execution = [
+        item
+        for item in engineering_executions
+        if item.id == USER_SCOPE_ENGINEERING_EXECUTION_ID
+    ]
+    if (
+        engineering.id != USER_SCOPE_ENGINEERING_REQUEST_ID
+        or engineering.request_type is not AgentRequestType.ENGINEERING_RUNTIME_FIX
+        or engineering.status is not AgentRequestStatus.COMPLETED
+        or engineering.metadata.get("payload_sha256")
+        != USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+        or len(approval) != 1
+        or approval[0].decided_by_role is not AgentRole.REVIEWER
+        or len(execution) != 1
+        or execution[0].status is not AgentExecutionStatus.COMPLETED
+        or execution[0].environment != "isolated"
+        or execution[0].executor_role is not AgentRole.ENGINEERING
+    ):
+        raise IsolatedRunnerError("user_scope_engineering_governance_changed")
+
+    operator_key = os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "")
+    try:
+        operator_decision_id = int(
+            os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "")
+        )
+        operator_execution_id = int(
+            os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "")
+        )
+    except ValueError as exc:
+        raise IsolatedRunnerError("user_scope_operator_identity_invalid") from exc
+    if not operator_key or operator_decision_id < 1 or operator_execution_id < 1:
+        raise IsolatedRunnerError("user_scope_operator_identity_invalid")
+    operator = repository.get_request(operator_key)
+    operator_approvals = [
+        item
+        for item in repository.list_decisions(operator_key)
+        if item.id == operator_decision_id
+        and item.decision_code == "request_approved"
+        and item.previous_status == "under_review"
+        and item.new_status == "approved"
+    ]
+    operator_executions = [
+        item
+        for item in repository.list_execution_metadata(operator_key)
+        if item.id == operator_execution_id
+    ]
+    checks = operator.payload.get("checks")
+    recovery = (
+        checks.get("user_systemd_running_batch_recovery")
+        if isinstance(checks, dict)
+        else None
+    )
+    expected_recovery = {
+        "candidate_result_count": 0,
+        "current_manifest_digest": USER_SCOPE_RESUME_MANIFEST_DIGEST,
+        "engineering_approval_decision_id": USER_SCOPE_ENGINEERING_DECISION_ID,
+        "engineering_execution_id": USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        "engineering_request_id": USER_SCOPE_ENGINEERING_REQUEST_ID,
+        "execution_attempt_count": 0,
+        "origin_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "registered_candidate_count": contract.ATTEMPTS_PER_BATCH,
+        "repaired_source_contract_digest": repaired_source_digest,
+        "running_execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "running_task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "running_task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+    }
+    mail_contract = operator.payload.get("mail_contract")
+    resource_contract = operator.payload.get("resource_contract")
+    operations = operator.payload.get("ordered_operations")
+    if (
+        operator.request_type is not AgentRequestType.OPERATOR_RELEASE
+        or operator.status is not AgentRequestStatus.EXECUTING
+        or operator.parent_request_id != USER_SCOPE_ENGINEERING_REQUEST_ID
+        or len(operator_approvals) != 1
+        or operator_approvals[0].decided_by_role is not AgentRole.REVIEWER
+        or len(operator_executions) != 1
+        or operator_executions[0].status is not AgentExecutionStatus.RUNNING
+        or operator_executions[0].environment != "production"
+        or operator_executions[0].executor_role is not AgentRole.OPERATOR
+        or operator.payload.get("version")
+        != "m4-isolated-v11-user-systemd-running-batch-recovery-v1"
+        or operator.payload.get("commit") != git_commit
+        or recovery != expected_recovery
+        or not isinstance(mail_contract, dict)
+        or mail_contract.get("mandatory_kinds") != list(USER_SCOPE_MANDATORY_MAIL_KINDS)
+        or mail_contract.get("sent")
+        != (
+            "Only SMTP final DATA250 plus append-only exactly-once "
+            "receipt/artifact/replay projects SENT"
+        )
+        or resource_contract
+        != {
+            "continuous_24h": True,
+            "p3_mutation": False,
+            "p3_preempts": True,
+            "p4_p5_p6_or_promotion": False,
+            "workers_max": contract.WORKER_COUNT,
+        }
+        or not isinstance(operations, list)
+        or "resume-p3-user-scope-running-batch" not in operations
+        or "recover-user-systemd-post-batch" not in operations
+    ):
+        raise IsolatedRunnerError("user_scope_operator_scope_changed")
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(operator.payload).encode("utf-8")
+    ).hexdigest()
+    if operator.metadata.get("payload_sha256") != payload_sha:
+        raise IsolatedRunnerError("user_scope_operator_payload_sha_changed")
+    return {
+        "phase": phase,
+        "engineering_request_id": USER_SCOPE_ENGINEERING_REQUEST_ID,
+        "engineering_decision_id": USER_SCOPE_ENGINEERING_DECISION_ID,
+        "engineering_execution_id": USER_SCOPE_ENGINEERING_EXECUTION_ID,
+        "operator_request_id": operator.id,
+        "operator_decision_id": operator_decision_id,
+        "operator_execution_id": operator_execution_id,
+        "operator_payload_sha256": payload_sha,
+    }
 
 
 class IsolatedChallengerRepository(PostgresResearchOSRepository):
@@ -1812,6 +2046,350 @@ def _recover_completed_activations(
     return recovered
 
 
+def _validate_user_scope_resume_live_state(
+    *, repository: IsolatedChallengerRepository
+) -> tuple[ControlPlaneManifest, dict[str, str]]:
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    if manifest.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST:
+        raise IsolatedRunnerError("user_scope_resume_manifest_changed")
+    if len(manifest.tasks) != 27:
+        raise IsolatedRunnerError("user_scope_resume_task_count_changed")
+    state_counts: dict[TaskStatus, int] = {}
+    for state in manifest.task_states:
+        state_counts[state.declared_status] = (
+            state_counts.get(state.declared_status, 0) + 1
+        )
+    if state_counts != {
+        TaskStatus.COMPLETED: 22,
+        TaskStatus.DRAFT: 4,
+        TaskStatus.RUNNING: 1,
+    }:
+        raise IsolatedRunnerError("user_scope_resume_task_states_changed")
+    matches = [
+        task for task in manifest.tasks if task.task_key == USER_SCOPE_RESUME_TASK_KEY
+    ]
+    if len(matches) != 1 or matches[0].artifact_digest != USER_SCOPE_RESUME_TASK_DIGEST:
+        raise IsolatedRunnerError("user_scope_resume_task_changed")
+    task = matches[0]
+    state = manifest.task_state_by_digest[task.artifact_digest]
+    if (
+        state.declared_status is not TaskStatus.RUNNING
+        or state.completion_classification is not CompletionClassification.INTEGRATED
+        or state.superseded_by_task_digest is not None
+    ):
+        raise IsolatedRunnerError("user_scope_resume_running_state_changed")
+    context = _task_context(task)
+    if (
+        context["batch_seq"] != "000000000000"
+        or context["target_issue"] != "2026100"
+        or json.loads(task.metric_contract).get("source_contract_digest")
+        != USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+    ):
+        raise IsolatedRunnerError("user_scope_resume_task_context_changed")
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+    )
+    current_events = [
+        item
+        for item in events
+        if item.get("task_digest") == USER_SCOPE_RESUME_TASK_DIGEST
+    ]
+    if len(current_events) != 1:
+        raise IsolatedRunnerError("user_scope_resume_event_count_changed")
+    started = current_events[0]
+    if (
+        started.get("event_digest") != USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
+        or started.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or started.get("event_type") != "started"
+        or started.get("sequence") != 0
+        or started.get("capability") != task.requested_capability
+        or started.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or dict(started.get("payload") or ())
+        != {
+            "git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+            "input_artifact_digests": [USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST],
+        }
+    ):
+        raise IsolatedRunnerError("user_scope_resume_started_event_changed")
+    if repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    ):
+        raise IsolatedRunnerError("user_scope_resume_artifact_already_present")
+    facts = set(manifest.facts.artifacts)
+    if any(
+        fact.endswith((":SENT", ":UNCERTAIN"))
+        or "PASS_TO_P4" in fact
+        or "PASS_TO_P5" in fact
+        or "PROMOTION" in fact
+        for fact in facts
+    ):
+        raise IsolatedRunnerError("user_scope_resume_forbidden_fact_present")
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        batches = cursor.execute(
+            "SELECT registration_seq,batch_seq,target_issue,registration_execution_id,"
+            "m_before,m_after,candidate_count FROM "
+            "m4_isolated_v11.registration_batches ORDER BY registration_seq"
+        ).fetchall()
+        candidates = cursor.execute(
+            "SELECT registration_seq,state,source_contract_digest,count(*) FROM "
+            "m4_isolated_v11.candidate_registrations GROUP BY "
+            "registration_seq,state,source_contract_digest"
+        ).fetchall()
+        attempts = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.execution_attempts"
+            ).fetchone()[0]
+        )
+        results = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.candidate_results"
+            ).fetchone()[0]
+        )
+        deliveries = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger"
+            ).fetchone()[0]
+        )
+        head = cursor.execute(
+            "SELECT registration_seq,m_total FROM m4_isolated_v11.multiplicity_head "
+            "WHERE singleton=TRUE"
+        ).fetchone()
+    if batches != [
+        (
+            0,
+            0,
+            "2026100",
+            USER_SCOPE_RESUME_EXECUTION_ID,
+            0,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+        )
+    ]:
+        raise IsolatedRunnerError("user_scope_resume_registration_batch_changed")
+    if candidates != [
+        (
+            0,
+            "REGISTERED",
+            USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            contract.ATTEMPTS_PER_BATCH,
+        )
+    ]:
+        raise IsolatedRunnerError("user_scope_resume_candidates_changed")
+    if attempts != 0 or results != 0 or deliveries != 0 or head != (0, 18):
+        raise IsolatedRunnerError("user_scope_resume_ledger_changed")
+    _p3_source_identity()
+    return manifest, context
+
+
+def _user_scope_runtime_attestation(
+    *,
+    repaired_source_digest: str,
+    repaired_git_commit: str,
+    governance: Mapping[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    body = {
+        "schema_version": "dehps-m4-isolated-v11-user-systemd-runtime-migration.v1",
+        "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
+        "artifact_digest": "",
+        "scientific_contract_changed": False,
+        "workload_definition_changed": False,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        "origin_git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "runtime_git_commit": repaired_git_commit,
+        "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "runtime_source_contract_digest": repaired_source_digest,
+        "repair": "SYSTEMD_SYSTEM_MANAGER_TO_EXACT_USER_MANAGER_QUERY",
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_before_resume": 0,
+        "candidate_results_before_resume": 0,
+        "mail_delivery_before_resume": 0,
+        "governance": dict(governance),
+        "parent_digests": [
+            USER_SCOPE_RESUME_TASK_DIGEST,
+            USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+            USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            repaired_source_digest,
+            str(governance["operator_payload_sha256"]),
+        ],
+    }
+    identity = dict(body)
+    identity.pop("artifact_digest")
+    body["artifact_digest"] = contract.domain_digest(
+        identity,
+        domain="dehps.m4.isolated-24h-challenger.user-systemd-runtime-migration.v11",
+    )
+    path = (
+        ROOT_DIR
+        / "runtime/research-os/mainline/tasks"
+        / USER_SCOPE_RESUME_TASK_KEY
+        / USER_SCOPE_RESUME_EXECUTION_ID
+        / "runtime-migrations"
+        / str(body["artifact_digest"])
+        / "user-systemd-runtime-migration.json"
+    )
+    return path, body
+
+
+def resume_p3_user_scope_running_batch(
+    *,
+    apply: bool,
+    context: Mapping[str, str],
+    repaired_source_digest: str,
+    repaired_git_commit: str,
+) -> dict[str, Any]:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise IsolatedRunnerError("dirty_worktree")
+    source_contract = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    if source_contract["artifact_digest"] != repaired_source_digest:
+        raise IsolatedRunnerError("user_scope_repaired_source_changed")
+    if (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+        ).strip()
+        != repaired_git_commit
+    ):
+        raise IsolatedRunnerError("user_scope_repaired_commit_changed")
+    agent_repository = AgentRequestRepository()
+    governance = validate_user_scope_recovery_governance(
+        repository=agent_repository,
+        source_contract=source_contract,
+        repaired_source_digest=repaired_source_digest,
+        git_commit=repaired_git_commit,
+        phase="resume",
+    )
+    repository = IsolatedChallengerRepository(
+        context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+    )
+    manifest, task_context = _validate_user_scope_resume_live_state(
+        repository=repository
+    )
+    attestation_path, attestation = _user_scope_runtime_attestation(
+        repaired_source_digest=repaired_source_digest,
+        repaired_git_commit=repaired_git_commit,
+        governance=governance,
+    )
+    if not apply:
+        return {
+            "schema_version": "dehps-m4-isolated-v11-user-systemd-resume.v1",
+            "status": "DRY_RUN_VERIFIED",
+            "apply": False,
+            "manifest_digest": manifest.artifact_digest,
+            "task_key": USER_SCOPE_RESUME_TASK_KEY,
+            "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+            "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+            "attestation_digest": attestation["artifact_digest"],
+            "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+            "execution_attempts": 0,
+            "candidate_results": 0,
+            "smtp_calls": 0,
+            "formal_p3_mutated": False,
+            "p4_p5_p6_or_promotion_triggered": False,
+        }
+    _persist_immutable(attestation_path, attestation)
+    p3_before = _p3_source_identity()
+    supervisor = mainline.IsolatedChallengerSupervisor(
+        repository=repository,
+        context=task_context,
+        source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        git_commit=USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        simulation=False,
+    )
+    result = supervisor.run_once(task_key=USER_SCOPE_RESUME_TASK_KEY)
+    if (
+        result.get("status") != "COMPLETE"
+        or result.get("task_key") != USER_SCOPE_RESUME_TASK_KEY
+        or result.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+    ):
+        raise IsolatedRunnerError("user_scope_resume_completion_changed")
+    generic = supervisor.replay(
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    )
+    _verify_generic_replay(generic)
+    template = mainline.template_for_task_key(
+        USER_SCOPE_RESUME_TASK_KEY, context=task_context
+    )
+    activated = _activation_facts(
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+        template=template,
+        context=task_context,
+        repository=repository,
+    )
+    if activated:
+        raise IsolatedRunnerError("user_scope_resume_unexpected_activation_fact")
+    if _p3_source_identity() != p3_before:
+        raise IsolatedRunnerError("formal_p3_source_changed_during_user_scope_resume")
+    completed = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    completed_task = next(
+        item for item in completed.tasks if item.task_key == USER_SCOPE_RESUME_TASK_KEY
+    )
+    completed_state = completed.task_state_by_digest[completed_task.artifact_digest]
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        attempts = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.execution_attempts"
+            ).fetchone()[0]
+        )
+        terminal = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.candidate_registrations "
+                "WHERE state='TERMINAL'"
+            ).fetchone()[0]
+        )
+        results = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.candidate_results"
+            ).fetchone()[0]
+        )
+        deliveries = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger"
+            ).fetchone()[0]
+        )
+    if (
+        completed_state.declared_status is not TaskStatus.COMPLETED
+        or completed_state.completion_classification
+        is not CompletionClassification.COMPLETE
+        or not contract.ATTEMPTS_PER_BATCH <= attempts <= 54
+        or terminal != contract.ATTEMPTS_PER_BATCH
+        or results != contract.ATTEMPTS_PER_BATCH
+        or deliveries != 0
+    ):
+        raise IsolatedRunnerError("user_scope_resume_postcondition_changed")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-user-systemd-resume.v1",
+        "status": "BATCH_COMPLETE_AND_REPLAY_VERIFIED",
+        "apply": True,
+        "manifest_digest": completed.artifact_digest,
+        "task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "attestation_digest": attestation["artifact_digest"],
+        "attestation_path": str(attestation_path.relative_to(ROOT_DIR)),
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts": attempts,
+        "candidate_results": results,
+        "generic_replay": "REPLAY_VERIFIED",
+        "smtp_calls": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def install(
     *,
     apply: bool,
@@ -2300,7 +2878,16 @@ def _parallel_equivalence_bundle(
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("status", "simulate", "install", "cycle"))
+    parser.add_argument(
+        "command",
+        choices=(
+            "status",
+            "simulate",
+            "install",
+            "cycle",
+            "resume-p3-user-scope-running-batch",
+        ),
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--source-max-issue")
     parser.add_argument("--source-max-draw-date")
@@ -2361,6 +2948,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "simulate":
         result = simulation(
             context=context, source_digest=source_digest, git_commit=git_commit
+        )
+    elif args.command == "resume-p3-user-scope-running-batch":
+        result = resume_p3_user_scope_running_batch(
+            apply=args.apply,
+            context=context,
+            repaired_source_digest=source_digest,
+            repaired_git_commit=git_commit,
         )
     elif args.command == "install":
         result = install(

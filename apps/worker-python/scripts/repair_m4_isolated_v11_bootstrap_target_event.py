@@ -46,9 +46,18 @@ from dehps.research_os.models import (
 from dehps.research_os.repository import PostgresResearchOSRepository
 from run_m4_isolated_24h_challenger_v11 import (
     LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+    USER_SCOPE_RESUME_EXECUTION_ID,
+    USER_SCOPE_RESUME_MANIFEST_DIGEST,
+    USER_SCOPE_RESUME_ORIGIN_COMMIT,
+    USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+    USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+    USER_SCOPE_RESUME_TASK_DIGEST,
+    USER_SCOPE_RESUME_TASK_KEY,
     IsolatedChallengerRepository,
     _latest_history_identity,
     _task_context,
+    _verify_generic_replay,
+    validate_user_scope_recovery_governance,
 )
 
 EVENT = "TARGET_PROJECTION_INPUT"
@@ -212,6 +221,9 @@ FAILED_BATCH_OPERATOR_REQUEST_KEY = (
 )
 FAILED_BATCH_OPERATOR_REQUEST_ID = 742
 FAILED_BATCH_OPERATOR_EXECUTION_ID = 597
+USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS = frozenset(
+    BATCH_TIMESTAMP_COMPLETED_SOURCE_DIGESTS | {USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST}
+)
 
 
 class TargetEventRecoveryError(RuntimeError):
@@ -1066,6 +1078,141 @@ def build_batch_timestamp_rebind(
     return incoming
 
 
+def build_user_scope_post_batch_rebind(
+    current: ControlPlaneManifest,
+    *,
+    source_digest: str,
+) -> ControlPlaneManifest:
+    if source_digest in USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS:
+        raise TargetEventRecoveryError("user_scope_post_batch_source_not_advanced")
+    if (
+        len(current.tasks) != 27
+        or len(current.goals) != 1
+        or current.goals[0].artifact_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        or any(
+            task.goal_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            for task in current.tasks
+        )
+    ):
+        raise TargetEventRecoveryError("user_scope_post_batch_shape_changed")
+    batch = next(
+        (item for item in current.tasks if item.task_key == USER_SCOPE_RESUME_TASK_KEY),
+        None,
+    )
+    if batch is None or batch.artifact_digest != USER_SCOPE_RESUME_TASK_DIGEST:
+        raise TargetEventRecoveryError("user_scope_post_batch_task_changed")
+    batch_state = current.task_state_by_digest[batch.artifact_digest]
+    batch_completion_prefix = (
+        f"mainline-execution:{batch.task_key}:{batch.artifact_digest}:"
+    )
+    if (
+        batch_state.declared_status is not TaskStatus.COMPLETED
+        or batch_state.completion_classification
+        is not CompletionClassification.COMPLETE
+        or batch_state.superseded_by_task_digest is not None
+        or not any(
+            fact.startswith(batch_completion_prefix) and fact.endswith(":completed")
+            for fact in current.facts.artifacts
+        )
+    ):
+        raise TargetEventRecoveryError("user_scope_post_batch_completion_changed")
+
+    expected_uncompleted_keys = {
+        "m4-isolated-24h-challenger-v11-search-batch-000000000000-replay",
+        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000000",
+        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000000-replay",
+        "m4-isolated-24h-challenger-v11-multiplicity-risk-limit",
+    }
+    tasks = []
+    states = []
+    rebuilt_keys: set[str] = set()
+    completed_count = 0
+    for task in current.tasks:
+        state = current.task_state_by_digest[task.artifact_digest]
+        try:
+            bound_source = str(
+                json.loads(task.metric_contract)["source_contract_digest"]
+            )
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise TargetEventRecoveryError(
+                "user_scope_post_batch_task_source_changed"
+            ) from exc
+        if state.declared_status is TaskStatus.COMPLETED:
+            completion_prefix = (
+                f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            )
+            if (
+                bound_source not in USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS
+                or state.completion_classification
+                is not CompletionClassification.COMPLETE
+                or state.superseded_by_task_digest is not None
+                or not any(
+                    fact.startswith(completion_prefix) and fact.endswith(":completed")
+                    for fact in current.facts.artifacts
+                )
+            ):
+                raise TargetEventRecoveryError(
+                    "user_scope_post_batch_completed_task_changed"
+                )
+            tasks.append(task)
+            states.append(state)
+            completed_count += 1
+            continue
+        if (
+            task.task_key not in expected_uncompleted_keys
+            or bound_source != USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+            or state.declared_status is not TaskStatus.DRAFT
+            or state.completion_classification
+            is not CompletionClassification.INTEGRATION_PENDING
+            or state.superseded_by_task_digest is not None
+        ):
+            raise TargetEventRecoveryError(
+                "user_scope_post_batch_uncompleted_task_changed"
+            )
+        context = _task_context(task)
+        expected_payload, _ = builder.build_manifest(
+            context=context,
+            source_digest=source_digest,
+            operator_configuration_authorized=True,
+            simulation_events=False,
+        )
+        expected = ControlPlaneManifest.from_dict(expected_payload)
+        matches = [item for item in expected.tasks if item.task_key == task.task_key]
+        if len(matches) != 1:
+            raise TargetEventRecoveryError("user_scope_post_batch_definition_missing")
+        rebound = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        tasks.append(rebound)
+        states.append(
+            TaskState(
+                task_digest=rebound.artifact_digest,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+                superseded_by_task_digest=None,
+            )
+        )
+        rebuilt_keys.add(task.task_key)
+    if completed_count != 23 or rebuilt_keys != expected_uncompleted_keys:
+        raise TargetEventRecoveryError("user_scope_post_batch_counts_changed")
+    incoming = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=tuple(tasks),
+        goal_states=current.goal_states,
+        task_states=tuple(states),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    if (
+        incoming.goals != current.goals
+        or incoming.goal_states != current.goal_states
+        or incoming.facts != current.facts
+        or len(incoming.tasks) != len(current.tasks)
+        or [item.task_key for item in incoming.tasks]
+        != [item.task_key for item in current.tasks]
+    ):
+        raise TargetEventRecoveryError("user_scope_post_batch_delta_changed")
+    return incoming
+
+
 def validate_failed_target_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
@@ -1257,6 +1404,71 @@ def validate_batch_timestamp_events(
         }
     ):
         raise TargetEventRecoveryError("batch_timestamp_event_identity_changed")
+
+
+def validate_user_scope_post_batch_events(
+    events: Sequence[Mapping[str, Any]],
+    registrations: Sequence[Mapping[str, Any]],
+) -> str:
+    current = [
+        item
+        for item in events
+        if item.get("task_digest") == USER_SCOPE_RESUME_TASK_DIGEST
+    ]
+    if len(current) != 2:
+        raise TargetEventRecoveryError("user_scope_post_batch_event_count_changed")
+    by_type = {str(item.get("event_type")): item for item in current}
+    if set(by_type) != {"started", "completed"}:
+        raise TargetEventRecoveryError("user_scope_post_batch_event_types_changed")
+    started = by_type["started"]
+    completed = by_type["completed"]
+    if (
+        started.get("event_digest") != USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
+        or started.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or completed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or started.get("task_key") != USER_SCOPE_RESUME_TASK_KEY
+        or completed.get("task_key") != USER_SCOPE_RESUME_TASK_KEY
+        or started.get("capability") != "M4IsolatedSearchBatchCapabilityV11"
+        or completed.get("capability") != "M4IsolatedSearchBatchCapabilityV11"
+        or started.get("sequence") != 0
+        or completed.get("sequence") != 1
+        or started.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or completed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or dict(started.get("payload") or ())
+        != {
+            "git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+            "input_artifact_digests": [USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST],
+        }
+    ):
+        raise TargetEventRecoveryError("user_scope_post_batch_event_identity_changed")
+    completed_payload = dict(completed.get("payload") or ())
+    execution_registrations = [
+        item
+        for item in registrations
+        if item.get("artifact_type") == "research_os_mainline_execution"
+    ]
+    if (
+        completed_payload.get("git_commit") != USER_SCOPE_RESUME_ORIGIN_COMMIT
+        or completed_payload.get("workload_rerun") is not False
+        or completed_payload.get("actual_fold_count") != contract.OUTER_FOLD_COUNT
+        or completed_payload.get("registered_artifact_count") != len(registrations)
+        or completed_payload.get("completion_facts") != []
+        or completed_payload.get("additional_completed_task_keys") != []
+        or completed_payload.get("formal_p3_mutated") is not False
+        or completed_payload.get("promotion_triggered") is not False
+        or completed_payload.get("isolated_lineage") != contract.LINEAGE_ID
+        or completed_payload.get("task_template") != "search_batch"
+        or completed_payload.get("simulation") is not False
+        or len(execution_registrations) != 1
+        or completed_payload.get("execution_artifact_digest")
+        != execution_registrations[0].get("artifact_digest")
+    ):
+        raise TargetEventRecoveryError(
+            "user_scope_post_batch_completion_payload_changed"
+        )
+    if not registrations:
+        raise TargetEventRecoveryError("user_scope_post_batch_artifacts_missing")
+    return str(completed.get("event_digest") or "")
 
 
 def _validate_failed_target_operator(repository: AgentRequestRepository) -> None:
@@ -2120,6 +2332,91 @@ class BatchTimestampRecoveryRepository(IsolatedChallengerRepository):
             self._batch_timestamp_gate = None
 
 
+class UserScopePostBatchRecoveryRepository(IsolatedChallengerRepository):
+    def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
+        super().__init__(context=context, source_digest=source_digest)
+        self._user_scope_post_batch_gate: dict[str, Any] | None = None
+
+    def _verify_exact_transition(self, incoming: ControlPlaneManifest) -> None:
+        gate = self._user_scope_post_batch_gate
+        if gate is None:
+            return super()._verify_exact_transition(incoming)
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_user_scope_post_batch_rebind(
+            current, source_digest=self.source_digest
+        )
+        if (
+            gate.get("consumed") is not False
+            or gate.get("current_manifest_digest") != current.artifact_digest
+            or gate.get("incoming_manifest_digest") != incoming.artifact_digest
+            or expected.to_dict(include_digest=True)
+            != incoming.to_dict(include_digest=True)
+        ):
+            raise ResearchOSValidationError("user_scope_post_batch_gate_changed")
+        gate["consumed"] = True
+
+    def _verify_mainline_completion_records(
+        self,
+        cursor: Any,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
+    ) -> None:
+        gate = self._user_scope_post_batch_gate
+        if gate is None:
+            return super()._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+            )
+        if (
+            control_plane_key != contract.CONTROL_PLANE_KEY
+            or gate.get("consumed") is not True
+            or gate.get("incoming_manifest_digest") != manifest.artifact_digest
+        ):
+            raise ResearchOSValidationError(
+                "user_scope_post_batch_completion_gate_changed"
+            )
+        PostgresResearchOSRepository._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
+
+    def apply_user_scope_post_batch_rebind(self, incoming: ControlPlaneManifest) -> Any:
+        if self._user_scope_post_batch_gate is not None:
+            raise TargetEventRecoveryError("user_scope_post_batch_gate_reentrant")
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_user_scope_post_batch_rebind(
+            current, source_digest=self.source_digest
+        )
+        if incoming.to_dict(include_digest=True) != expected.to_dict(
+            include_digest=True
+        ):
+            raise TargetEventRecoveryError("user_scope_post_batch_manifest_changed")
+        self._user_scope_post_batch_gate = {
+            "consumed": False,
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": incoming.artifact_digest,
+        }
+        try:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-v11-user-systemd-post-batch-rebind-v1",
+            )
+            if self._user_scope_post_batch_gate.get("consumed") is not True:
+                raise TargetEventRecoveryError(
+                    "user_scope_post_batch_gate_not_consumed"
+                )
+            return result
+        finally:
+            self._user_scope_post_batch_gate = None
+
+
 def run(*, apply: bool) -> dict[str, Any]:
     dirty = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -2810,6 +3107,151 @@ def run_batch_timestamp_rebind(*, apply: bool) -> dict[str, Any]:
     }
 
 
+def run_user_scope_post_batch_rebind(*, apply: bool) -> dict[str, Any]:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise TargetEventRecoveryError("dirty_worktree")
+    git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+    ).strip()
+    source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    source_digest = str(source["artifact_digest"])
+    if source_digest in USER_SCOPE_POST_BATCH_COMPLETED_SOURCE_DIGESTS:
+        raise TargetEventRecoveryError("user_scope_post_batch_source_not_advanced")
+    source_issue, source_date = _latest_history_identity()
+    context = contract.render_context(
+        source_max_issue=source_issue, source_max_draw_date=source_date
+    )
+    repository = UserScopePostBatchRecoveryRepository(
+        context=context, source_digest=source_digest
+    )
+    current = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    incoming = build_user_scope_post_batch_rebind(current, source_digest=source_digest)
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+    )
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    )
+    completed_event_digest = validate_user_scope_post_batch_events(
+        events, registrations
+    )
+    completed_execution = [
+        item
+        for item in registrations
+        if item.get("artifact_type") == "research_os_mainline_execution"
+    ]
+    if len(completed_execution) != 1:
+        raise TargetEventRecoveryError(
+            "user_scope_post_batch_execution_artifact_changed"
+        )
+    replay_repository = IsolatedChallengerRepository(
+        context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+    )
+    replay_supervisor = mainline.IsolatedChallengerSupervisor(
+        repository=replay_repository,
+        context=context,
+        source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        git_commit=USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        simulation=False,
+    )
+    generic = replay_supervisor.replay(
+        task_key=USER_SCOPE_RESUME_TASK_KEY,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+    )
+    _verify_generic_replay(generic)
+    agent_repository = AgentRequestRepository()
+    governance = validate_user_scope_recovery_governance(
+        repository=agent_repository,
+        source_contract=source,
+        repaired_source_digest=source_digest,
+        git_commit=git_commit,
+        phase="post_batch_rebind",
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        counts = cursor.execute(
+            "SELECT "
+            "(SELECT count(*) FROM m4_isolated_v11.registration_batches),"
+            "(SELECT count(*) FROM m4_isolated_v11.candidate_registrations),"
+            "(SELECT count(*) FROM m4_isolated_v11.candidate_registrations "
+            " WHERE state='TERMINAL'),"
+            "(SELECT count(*) FROM m4_isolated_v11.execution_attempts),"
+            "(SELECT count(*) FROM m4_isolated_v11.execution_attempts "
+            " WHERE artifact_committed),"
+            "(SELECT count(*) FROM m4_isolated_v11.candidate_results),"
+            "(SELECT count(*) FROM m4_isolated_v11.delivery_ledger)"
+        ).fetchone()
+        head = cursor.execute(
+            "SELECT registration_seq,m_total FROM m4_isolated_v11.multiplicity_head "
+            "WHERE singleton=TRUE"
+        ).fetchone()
+    if (
+        counts is None
+        or tuple(map(int, counts[:3])) != (1, 18, 18)
+        or not 18 <= int(counts[3]) <= 54
+        or int(counts[4]) != int(counts[3])
+        or int(counts[5]) != 18
+        or int(counts[6]) != 0
+        or head != (0, 18)
+    ):
+        raise TargetEventRecoveryError("user_scope_post_batch_ledger_changed")
+    registered_source = None
+    imported = None
+    if apply:
+        registered_source = mainline.register_input_artifact(
+            repository=repository,
+            payload=source,
+            git_commit=git_commit,
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+        )
+        imported = repository.apply_user_scope_post_batch_rebind(incoming)
+    snapshot = repository.control_plane.resolve(incoming)
+    ready = [item.task_key for item in snapshot.ready_queue]
+    expected_ready = ["m4-isolated-24h-challenger-v11-search-batch-000000000000-replay"]
+    if ready != expected_ready:
+        raise TargetEventRecoveryError("user_scope_post_batch_ready_changed")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-user-systemd-post-batch-rebind.v1",
+        "status": "POST_BATCH_REBOUND_TO_REPLAY_READY" if apply else "DRY_RUN_VERIFIED",
+        "apply": apply,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+        "completed_event_digest": completed_event_digest,
+        "completed_execution_artifact_digest": completed_execution[0][
+            "artifact_digest"
+        ],
+        "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "source_contract_digest": source_digest,
+        "source_contract_registered": (
+            None if registered_source is None else registered_source["artifact_digest"]
+        ),
+        "completed_historical_task_count": 23,
+        "rebound_uncompleted_task_count": 4,
+        "ready_queue": ready,
+        "multiplicity_m_total": 18,
+        "candidate_results": 18,
+        "generic_replay": "REPLAY_VERIFIED",
+        "facts_changed": False,
+        "goals_changed": False,
+        "governance": governance,
+        "import_result": None if imported is None else str(imported),
+        "workloads": 0,
+        "smtp_calls": 0,
+        "external_sends": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -2822,6 +3264,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "recover-history-common-field",
             "recover-genesis-common-field",
             "recover-batch-timestamp",
+            "recover-user-systemd-post-batch",
         ),
     )
     parser.add_argument("--apply", action="store_true")
@@ -2842,8 +3285,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = run_history_common_field_rebind(apply=bool(args.apply))
     elif args.command == "recover-genesis-common-field":
         result = run_genesis_common_field_rebind(apply=bool(args.apply))
-    else:
+    elif args.command == "recover-batch-timestamp":
         result = run_batch_timestamp_rebind(apply=bool(args.apply))
+    else:
+        result = run_user_scope_post_batch_rebind(apply=bool(args.apply))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

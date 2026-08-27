@@ -26,6 +26,77 @@ def _context():
     )
 
 
+def test_inner_resource_probe_reads_exact_user_manager_formal_p3_unit(
+    monkeypatch,
+) -> None:
+    observed: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        observed.append(list(command))
+        assert kwargs == {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "timeout": 2,
+        }
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "LoadState=loaded\n"
+                "ActiveState=inactive\n"
+                "SubState=dead\n"
+                "MainPID=0\n"
+                "ControlPID=0\n"
+            ),
+        )
+
+    monkeypatch.setattr(mainline.subprocess, "run", fake_run)
+    observation = mainline.formal_p3_resource_observation()
+    assert observed == [
+        [
+            "systemctl",
+            "--user",
+            "show",
+            contract.FORMAL_P3_UNIT,
+            "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
+            "--no-pager",
+        ]
+    ]
+    assert contract.formal_p3_activity_state(observation) == "QUIESCENT"
+
+
+def test_inner_resource_probe_remains_fail_closed_for_active_or_missing_user_unit(
+    monkeypatch,
+) -> None:
+    def observation(stdout: str, *, returncode: int = 0) -> str:
+        monkeypatch.setattr(
+            mainline.subprocess,
+            "run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=returncode, stdout=stdout
+            ),
+        )
+        return contract.formal_p3_activity_state(
+            mainline.formal_p3_resource_observation()
+        )
+
+    assert (
+        observation(
+            "LoadState=loaded\nActiveState=active\nSubState=running\n"
+            "MainPID=42\nControlPID=0\n"
+        )
+        == "PREEMPT"
+    )
+    assert (
+        observation(
+            "LoadState=not-found\nActiveState=inactive\nSubState=dead\n"
+            "MainPID=0\nControlPID=0\n",
+            returncode=1,
+        )
+        == "PREEMPT"
+    )
+
+
 def test_simulated_chain_covers_all_tasks_and_never_creates_sent() -> None:
     result = mainline.simulate_artifact_chain(
         context=_context(), git_commit="a" * 40, source_digest="b" * 64

@@ -11,6 +11,7 @@ from dehps.agents.requests import (
     AgentRequestType,
 )
 from dehps.agents.roles import AgentRole
+from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_contract as contract,
 )
@@ -935,6 +936,192 @@ def test_batch_timestamp_private_gate_is_one_shot(monkeypatch) -> None:
     assert repository._batch_timestamp_gate["consumed"] is True
     with pytest.raises(recovery.ResearchOSValidationError, match="gate"):
         repository._verify_exact_transition(incoming)
+
+
+def _user_scope_post_batch_manifest() -> ControlPlaneManifest:
+    current = recovery.build_batch_timestamp_rebind(
+        _batch_timestamp_manifest(),
+        source_digest=recovery.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        expected_manifest_digest=_batch_timestamp_manifest().artifact_digest,
+    )
+    context = {
+        **runner._task_context(current.tasks[0]),
+        "minute": "202608280355",
+    }
+    current = ControlPlaneManifest.from_dict(
+        runner.builder.extend_manifest(
+            current.to_dict(include_digest=True),
+            context=context,
+            source_digest=recovery.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            template_names=frozenset({"runtime_health"}),
+        )
+    )
+    batch = next(
+        item
+        for item in current.tasks
+        if item.task_key == recovery.USER_SCOPE_RESUME_TASK_KEY
+    )
+    assert batch.artifact_digest == recovery.USER_SCOPE_RESUME_TASK_DIGEST
+    health = next(
+        item
+        for item in current.tasks
+        if item.task_key.endswith("runtime-health-202608280355")
+    )
+    completed_digests = {batch.artifact_digest, health.artifact_digest}
+    states = tuple(
+        replace(
+            state,
+            declared_status=TaskStatus.COMPLETED,
+            completion_classification=CompletionClassification.COMPLETE,
+        )
+        if state.task_digest in completed_digests
+        else state
+        for state in current.task_states
+    )
+    state_by_digest = {state.task_digest: state for state in states}
+    completion_facts = set(current.facts.artifacts)
+    for task in current.tasks:
+        if (
+            state_by_digest[task.artifact_digest].declared_status
+            is not TaskStatus.COMPLETED
+        ):
+            continue
+        prefix = f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+        completion_facts.difference_update(
+            {
+                fact
+                for fact in completion_facts
+                if fact.startswith(prefix) and fact.endswith(":completed")
+            }
+        )
+        completion_facts.add(
+            f"{prefix}{hashlib.sha256(task.artifact_digest.encode()).hexdigest()}:completed"
+        )
+    return replace(
+        current,
+        task_states=states,
+        facts=replace(
+            current.facts,
+            artifacts=frozenset(completion_facts),
+        ),
+    )
+
+
+def test_user_scope_post_batch_rebind_preserves_23_and_rebuilds_only_4() -> None:
+    current = _user_scope_post_batch_manifest()
+    incoming = recovery.build_user_scope_post_batch_rebind(
+        current, source_digest="e" * 64
+    )
+    before = {item.task_key: item for item in current.tasks}
+    after = {item.task_key: item for item in incoming.tasks}
+    completed = 0
+    rebound = 0
+    for key, task in after.items():
+        state = incoming.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.COMPLETED:
+            completed += 1
+            assert task == before[key]
+        else:
+            rebound += 1
+            assert state.declared_status is TaskStatus.DRAFT
+            assert task.artifact_digest != before[key].artifact_digest
+            assert (
+                __import__("json").loads(task.metric_contract)["source_contract_digest"]
+                == "e" * 64
+            )
+    assert completed == 23
+    assert rebound == 4
+    assert incoming.facts == current.facts
+    assert [
+        item.task_key for item in ResearchOSControlPlane().resolve(incoming).ready_queue
+    ] == ["m4-isolated-24h-challenger-v11-search-batch-000000000000-replay"]
+
+
+def test_user_scope_post_batch_private_gate_is_one_shot(monkeypatch) -> None:
+    current = _user_scope_post_batch_manifest()
+    incoming = recovery.build_user_scope_post_batch_rebind(
+        current, source_digest="e" * 64
+    )
+    repository = object.__new__(recovery.UserScopePostBatchRecoveryRepository)
+    repository.source_digest = "e" * 64
+    repository._user_scope_post_batch_gate = {
+        "consumed": False,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+    }
+    repository.load_manifest = lambda **_kwargs: current
+    monkeypatch.setattr(
+        recovery,
+        "build_user_scope_post_batch_rebind",
+        lambda *_args, **_kwargs: incoming,
+    )
+    repository._verify_exact_transition(incoming)
+    assert repository._user_scope_post_batch_gate["consumed"] is True
+    with pytest.raises(recovery.ResearchOSValidationError, match="gate"):
+        repository._verify_exact_transition(incoming)
+
+
+def test_user_scope_post_batch_event_chain_is_exact() -> None:
+    registrations = (
+        {
+            "artifact_digest": "7" * 64,
+            "artifact_type": "research_os_mainline_execution",
+        },
+    )
+    common = {
+        "capability": "M4IsolatedSearchBatchCapabilityV11",
+        "execution_id": recovery.USER_SCOPE_RESUME_EXECUTION_ID,
+        "task_digest": recovery.USER_SCOPE_RESUME_TASK_DIGEST,
+        "task_key": recovery.USER_SCOPE_RESUME_TASK_KEY,
+    }
+    events = (
+        {
+            **common,
+            "event_digest": recovery.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+            "manifest_digest": recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            "event_type": "started",
+            "sequence": 0,
+            "payload": (
+                (
+                    "input_artifact_digests",
+                    [recovery.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST],
+                ),
+                ("git_commit", recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT),
+            ),
+        },
+        {
+            **common,
+            "event_digest": "8" * 64,
+            "manifest_digest": recovery.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            "event_type": "completed",
+            "sequence": 1,
+            "payload": tuple(
+                sorted(
+                    {
+                        "actual_fold_count": contract.OUTER_FOLD_COUNT,
+                        "additional_completed_task_keys": [],
+                        "completion_facts": [],
+                        "execution_artifact_digest": "7" * 64,
+                        "formal_p3_mutated": False,
+                        "git_commit": recovery.USER_SCOPE_RESUME_ORIGIN_COMMIT,
+                        "isolated_lineage": contract.LINEAGE_ID,
+                        "promotion_triggered": False,
+                        "registered_artifact_count": 1,
+                        "simulation": False,
+                        "task_template": "search_batch",
+                        "workload_rerun": False,
+                    }.items()
+                )
+            ),
+        },
+    )
+    assert (
+        recovery.validate_user_scope_post_batch_events(events, registrations)
+        == "8" * 64
+    )
+    bad = (events[0], {**events[1], "sequence": 2})
+    with pytest.raises(recovery.TargetEventRecoveryError, match="identity"):
+        recovery.validate_user_scope_post_batch_events(bad, registrations)
 
 
 def test_ready_lineage_operator_scope_is_exact(monkeypatch) -> None:
