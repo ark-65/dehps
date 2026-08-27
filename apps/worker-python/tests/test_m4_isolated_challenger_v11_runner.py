@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,9 +87,10 @@ def test_install_apply_returns_imported_manifest_digest(monkeypatch) -> None:
         def ensure_schema(self):
             return None
 
-        def import_manifest(self, **kwargs):
+        def import_bootstrap_manifest(self, manifest):
+            kwargs = {"payload": manifest}
             self.imported = kwargs
-            return "imported"
+            return "imported", manifest["manifest_digest"]
 
     monkeypatch.setattr(runner, "IsolatedChallengerRepository", _Repository)
     monkeypatch.setattr(
@@ -131,6 +133,207 @@ def test_install_apply_returns_imported_manifest_digest(monkeypatch) -> None:
     assert result["smtp_calls"] == 0
     assert result["workloads"] == 0
     assert result["formal_p3_mutated"] is False
+
+
+def _bootstrap_rebind_fixture(runner):
+    current_context = contract.render_context(
+        source_max_issue="2026100",
+        source_max_draw_date="2026-08-30",
+        projection_time="2026-08-30T16:00:00+08:00",
+    )
+    incoming_context = contract.render_context(
+        source_max_issue="2026100",
+        source_max_draw_date="2026-08-30",
+        projection_time="2026-08-30T16:30:00+08:00",
+    )
+    predecessor_payload, _ = runner.builder.build_bootstrap_manifest(
+        context=current_context,
+        source_digest=runner.PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
+        operator_configuration_authorized=True,
+    )
+    incoming_payload, _ = runner.builder.build_bootstrap_manifest(
+        context=incoming_context,
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    return (
+        current_context,
+        incoming_context,
+        ControlPlaneManifest.from_dict(predecessor_payload),
+        incoming_payload,
+    )
+
+
+def _bootstrap_rebind_repository(runner, *, current, context, events=()):
+    class _Cursor:
+        def __init__(self):
+            self.result = None
+
+        def execute(self, statement, _params=None):
+            if "SELECT current_manifest_digest" in statement:
+                self.result = {"current_manifest_digest": current.artifact_digest}
+            elif "SELECT manifest_json" in statement:
+                self.result = {
+                    "manifest_json": current.to_dict(include_digest=True)
+                }
+            else:
+                raise AssertionError(statement)
+            return self
+
+        def fetchone(self):
+            return self.result
+
+    class _Repository(runner.IsolatedChallengerRepository):
+        def __init__(self):
+            self.context = dict(context)
+            self.source_digest = "f" * 64
+            self._fact_gate = None
+            self._definition_gate = None
+            self._bootstrap_rebind_gate = None
+            self.current = current
+
+        def load_manifest(self, *, control_plane_key):
+            assert control_plane_key == contract.CONTROL_PLANE_KEY
+            return self.current
+
+        def list_mainline_execution_event_metadata(self, **_kwargs):
+            return tuple(events)
+
+        def import_manifest(self, *, control_plane_key, payload, source="native"):
+            assert control_plane_key == contract.CONTROL_PLANE_KEY
+            assert source in {
+                "native",
+                "m4-isolated-24h-challenger-v11-operator-install",
+                "m4-isolated-24h-challenger-v11-exact-bootstrap-rebind",
+            }
+            incoming = ControlPlaneManifest.from_dict(payload)
+            self._verify_exact_transition(incoming)
+            self._verify_mainline_completion_records(
+                _Cursor(),
+                control_plane_key=control_plane_key,
+                manifest=incoming,
+            )
+            self.current = incoming
+            return "imported"
+
+    return _Repository()
+
+
+def test_repository_rebinds_only_exact_unexecuted_predecessor_bootstrap() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
+        runner
+    )
+    repository = _bootstrap_rebind_repository(
+        runner, current=current, context=incoming_context
+    )
+
+    result, digest = repository.import_bootstrap_manifest(incoming_payload)
+
+    assert result == "imported"
+    assert digest == repository.current.artifact_digest
+    assert digest != ControlPlaneManifest.from_dict(incoming_payload).artifact_digest
+    assert repository._bootstrap_rebind_gate is None
+    assert all(
+        state.declared_status is TaskStatus.DRAFT
+        for state in repository.current.task_states
+    )
+
+
+@pytest.mark.parametrize("corruption", ["state", "fact", "event", "source"])
+def test_repository_bootstrap_rebind_rejects_nonpristine_predecessor(
+    corruption: str,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    current_context, incoming_context, current, incoming_payload = (
+        _bootstrap_rebind_fixture(runner)
+    )
+    events = ()
+    if corruption == "state":
+        states = list(current.task_states)
+        states[0] = replace(states[0], declared_status=TaskStatus.RUNNING)
+        current = replace(current, task_states=tuple(states))
+    elif corruption == "fact":
+        current = replace(
+            current,
+            facts=replace(
+                current.facts,
+                artifacts=frozenset({"forged-bootstrap:COMPLETE"}),
+            ),
+        )
+    elif corruption == "event":
+        events = ({"event_type": "started"},)
+    else:
+        wrong_payload, _ = runner.builder.build_bootstrap_manifest(
+            context=current_context,
+            source_digest="e" * 64,
+            operator_configuration_authorized=True,
+        )
+        current = ControlPlaneManifest.from_dict(wrong_payload)
+    repository = _bootstrap_rebind_repository(
+        runner,
+        current=current,
+        context=incoming_context,
+        events=events,
+    )
+
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="bootstrap_rebind_precondition_changed",
+    ):
+        repository.import_bootstrap_manifest(incoming_payload)
+    assert repository._bootstrap_rebind_gate is None
+
+
+def test_repository_bootstrap_rebind_rejects_target_change_and_direct_import() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
+        runner
+    )
+    repository = _bootstrap_rebind_repository(
+        runner, current=current, context=incoming_context
+    )
+    changed_context = contract.render_context(
+        source_max_issue="2026100",
+        source_max_draw_date="2026-08-30",
+        batch_seq=1,
+        projection_time="2026-08-30T16:30:00+08:00",
+    )
+    changed_payload, _ = runner.builder.build_bootstrap_manifest(
+        context=changed_context,
+        source_digest="f" * 64,
+        operator_configuration_authorized=True,
+    )
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="bootstrap_rebind_target_changed",
+    ):
+        repository.import_bootstrap_manifest(changed_payload)
+
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="goal_transition_changed",
+    ):
+        repository.import_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            payload=incoming_payload,
+        )
+
+
+def test_repository_bootstrap_rebind_gate_is_nonreentrant() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
+        runner
+    )
+    repository = _bootstrap_rebind_repository(
+        runner, current=current, context=incoming_context
+    )
+    repository._bootstrap_rebind_gate = {"consumed": False}
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="bootstrap_rebind_gate_reentrant",
+    ):
+        repository.import_bootstrap_manifest(incoming_payload)
 
 
 def test_fact_builder_rejects_formal_route_or_promotion() -> None:
