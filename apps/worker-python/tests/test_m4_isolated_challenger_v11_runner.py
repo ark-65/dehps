@@ -361,6 +361,11 @@ def test_service_outer_bound_keeps_mail_windows_recoverable() -> None:
     assert "TimeoutStartSec=1h45min" in service
     assert "CPUQuota=1800%" in service
     assert "MemoryMax=24G" in service
+    assert (
+        "EnvironmentFile=/home/ark/.config/dehps/"
+        "m4-isolated-24h-challenger-v11.env"
+    ) in service
+    assert "/etc/dehps/" not in service
     assert "CREATE TRIGGER delivery_ledger_append_only" in migration
     assert "CREATE TRIGGER schema_identity_append_only" in migration
     assert "CREATE TRIGGER registered_inputs_append_only" in migration
