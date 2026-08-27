@@ -843,6 +843,11 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
         execution_id=mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
         terminal_sequence=2,
     )
+    assert supervisor._is_valid_atomic_terminal_event_set(
+        task=task,
+        events=events,
+        terminal_sequence=2,
+    )
     for changed in (
         {"execution_id": "f" * 64},
         {"terminal_sequence": 3},
@@ -897,6 +902,25 @@ def test_isolated_completion_hook_delegates_when_no_recovery_token(monkeypatch) 
         terminal_sequence=3,
     )
     assert observed == [(task, "b" * 64, 3)]
+
+    terminal_observed: list[tuple[object, object, int]] = []
+
+    def terminal_delegated(self, *, task, events, terminal_sequence):
+        terminal_observed.append((task, events, terminal_sequence))
+        return True
+
+    monkeypatch.setattr(
+        mainline.supervisor_module.ResearchEvidenceSupervisor,
+        "_is_valid_atomic_terminal_event_set",
+        terminal_delegated,
+    )
+    ordinary_events = ({"event_type": "started", "sequence": 0},)
+    assert supervisor._is_valid_atomic_terminal_event_set(
+        task=task,
+        events=ordinary_events,
+        terminal_sequence=1,
+    )
+    assert terminal_observed == [(task, ordinary_events, 1)]
 
 
 def test_terminal_attempt_crash_resume_performs_zero_new_training() -> None:
@@ -1113,6 +1137,16 @@ def test_exact_sequence3_guard_recovery_binds_three_events_and_attestation(
         execution_id=mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
         terminal_sequence=3,
     )
+    assert supervisor._is_valid_atomic_terminal_event_set(
+        task=task,
+        events=events,
+        terminal_sequence=3,
+    )
+    assert not supervisor._is_valid_atomic_terminal_event_set(
+        task=task,
+        events=events,
+        terminal_sequence=2,
+    )
     corrupted = list(events)
     corrupted[2] = {**corrupted[2], "recorded_at": "2026-08-27T21:48:34+00:00"}
     with pytest.raises(
@@ -1122,6 +1156,15 @@ def test_exact_sequence3_guard_recovery_binds_three_events_and_attestation(
         supervisor._validated_additional_failed_recovery_event(
             task=task,
             events=tuple(corrupted),
+        )
+    with pytest.raises(
+        mainline.MainlineSupervisorError,
+        match="digest changed|guard event changed",
+    ):
+        supervisor._is_valid_atomic_terminal_event_set(
+            task=task,
+            events=tuple(corrupted),
+            terminal_sequence=3,
         )
 
 

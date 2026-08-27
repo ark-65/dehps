@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "ed40998bfcd53d3529884f975e8e1394114dfd9acc81dfeb1119dda68180cec2",
+  "artifact_digest": "a14103b8f7e40563bd97fb939c47d96da6eb3045b1f75210f3757d3bd7318e1a",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -43,6 +43,12 @@
     "sequence3_guard_recovery_engineering_request_id": 753,
     "sequence3_guard_recovery_engineering_request_key": "engineering-m4-isolated-v11-sequence3-guard-failure-resume-v1",
     "sequence3_guard_recovery_engineering_request_payload_sha256": "c8ea6f9583faba341e9e53a660d198c80ca123a6b11e8be7411718df3844f2f0",
+    "second_terminal_guard_repair_base_merged_commit": "9d94a0142eca2fa27180f817d4000034f16bdf06",
+    "second_terminal_guard_repair_engineering_approval_decision_id": 3217,
+    "second_terminal_guard_repair_engineering_execution_id": 612,
+    "second_terminal_guard_repair_engineering_request_id": 757,
+    "second_terminal_guard_repair_engineering_request_key": "engineering-m4-isolated-v11-second-terminal-event-guard-sequence3-fix-v1",
+    "second_terminal_guard_repair_engineering_request_payload_sha256": "11814f6b4c461befbe051f491658dfcf634db2badfedd1a7edeaa127468bf507",
     "input_identity_repair_base_merged_commit": "f44678604ba1413785bb6c7b57570396cdf5261d",
     "input_identity_repair_engineering_approval_decision_id": 3114,
     "input_identity_repair_engineering_execution_id": 592,
@@ -182,9 +188,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 257010,
+      "bytes": 258423,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "f7f8d58755e5507f62b0a09e3a0cde3958579ecfc3b92b8227c57baeeafc7977"
+      "sha256": "fc4d5c5a59793a2ca74df7c81679371693880bfdac4b2f4136f04a185bf9f50b"
     },
     {
       "bytes": 9947,
@@ -202,9 +208,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 151679,
+      "bytes": 154066,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "117b8a45803875a469a0990f0127006a741d0bef52a69034aea4cc1d8aebc44e"
+      "sha256": "265bb2ff8d4af45e62d62587da4f983518e3b9eaeb80cb563597213f73dbbe00"
     },
     {
       "bytes": 17768,
@@ -267,5 +273,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "e6e2bf79072bef9b7e9f2615d6e1d8b0855069090ffe5be3bd1a5e354b09fe70"
+  "source_set_digest": "66cbde052b58790571a56f70245192212d51981be655cddf2c60854a8798689e"
 }
