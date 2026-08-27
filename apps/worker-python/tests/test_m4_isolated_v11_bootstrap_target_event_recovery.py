@@ -1039,6 +1039,67 @@ def test_user_scope_post_batch_rebind_preserves_23_and_rebuilds_only_4() -> None
     ] == ["m4-isolated-24h-challenger-v11-search-batch-000000000000-replay"]
 
 
+def test_user_scope_post_batch_rebind_accepts_only_exact_ecaf_to_b677(
+    monkeypatch,
+) -> None:
+    committed = _user_scope_post_batch_manifest()
+    rebound = recovery.build_user_scope_post_batch_rebind(
+        committed,
+        source_digest=recovery.USER_SCOPE_POST_BATCH_REBOUND_SOURCE_DIGEST,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST",
+        rebound.artifact_digest,
+    )
+    repaired = recovery.build_user_scope_post_batch_rebind(
+        rebound,
+        source_digest=recovery.USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST,
+    )
+    before = {item.task_key: item for item in rebound.tasks}
+    completed = 0
+    rebuilt = 0
+    for task in repaired.tasks:
+        state = repaired.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.COMPLETED:
+            completed += 1
+            assert task == before[task.task_key]
+            continue
+        rebuilt += 1
+        assert state.declared_status is TaskStatus.DRAFT
+        assert task.artifact_digest != before[task.task_key].artifact_digest
+        assert (
+            __import__("json").loads(task.metric_contract)["source_contract_digest"]
+            == recovery.USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST
+        )
+    assert completed == 23
+    assert rebuilt == 4
+    assert repaired.goals == rebound.goals
+    assert repaired.goal_states == rebound.goal_states
+    assert repaired.facts == rebound.facts
+    assert [
+        item.task_key for item in ResearchOSControlPlane().resolve(repaired).ready_queue
+    ] == ["m4-isolated-24h-challenger-v11-search-batch-000000000000-replay"]
+
+    with pytest.raises(recovery.TargetEventRecoveryError, match="transition_changed"):
+        recovery.build_user_scope_post_batch_rebind(
+            rebound,
+            source_digest="f" * 64,
+        )
+    drifted = replace(
+        rebound,
+        facts=replace(
+            rebound.facts,
+            external_events=rebound.facts.external_events | {"UNAUTHORIZED"},
+        ),
+    )
+    with pytest.raises(recovery.TargetEventRecoveryError, match="changed"):
+        recovery.build_user_scope_post_batch_rebind(
+            drifted,
+            source_digest=recovery.USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST,
+        )
+
+
 def test_user_scope_post_batch_uses_only_committed_recovery_governance() -> None:
     source = inspect.getsource(recovery.run_user_scope_post_batch_rebind)
     assert "validate_user_scope_committed_recovery_governance(" in source
