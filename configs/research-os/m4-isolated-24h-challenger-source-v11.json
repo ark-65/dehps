@@ -1,0 +1,131 @@
+{
+  "artifact_digest": "ec1631883f8303fc7831f5a8caf11d564e99e9641e3870c1e014bd8bddc368d3",
+  "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
+  "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
+  "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
+  "governance_bindings": {
+    "engineering_approval_decision_id": 2952,
+    "engineering_execution_id": 561,
+    "engineering_request_id": 703,
+    "engineering_request_key": "engineering-m4-isolated-24h-challenger-v11-lifecycle-producers-and-completion-v1",
+    "engineering_request_payload_sha256": "aa9f457cc224ef49631a73805097217b01370f9b5bf7ade733ef1d6412947c3e",
+    "lifecycle_research_approval_decision_id": 2949,
+    "lifecycle_research_request_id": 702,
+    "lifecycle_research_request_key": "research-m4-isolated-24h-challenger-v11-lifecycle-producer-addendum-v2",
+    "lifecycle_research_request_payload_sha256": "8f6d92347f53e43a1ec7eb869e015d6d78cc1e37feb5661657312bf9e90ebe49",
+    "research_approval_decision_id": 2925,
+    "research_request_id": 694,
+    "research_request_key": "research-m4-isolated-24h-challenger-factory-contract-v11",
+    "research_request_payload_sha256": "36dd9176a6e7648caff2327a9d87af814eadaa60cb9dab78879e831c6ad90aa6"
+  },
+  "runtime_versions": {
+    "numpy": "2.4.6",
+    "python": "3.14.4",
+    "scikit_learn": "1.9.0",
+    "scipy": "1.18.0"
+  },
+  "schema_version": "dehps-m4-isolated-24h-challenger-source-contract.v11",
+  "source_entries": [
+    {
+      "bytes": 26425,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_contract.py",
+      "sha256": "6e06c72e4518fff2bda49645f7d634adfd2a4a9ffd4d57a1b5b3162732340924"
+    },
+    {
+      "bytes": 23282,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_artifacts.py",
+      "sha256": "d64e6c4a1701c8e40d27ff064ef18c9650fedaceabe028b8da62115dc9051e43"
+    },
+    {
+      "bytes": 88877,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_search.py",
+      "sha256": "407278a7b4854d49138ed2dcae4a5cf1ab4f12e0032d2282332f1475c2dfecc8"
+    },
+    {
+      "bytes": 240769,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
+      "sha256": "8bcce52dddff402a2b0cc4e8a8d971ac9dac30a4003aeaf46f243e3307b25c5b"
+    },
+    {
+      "bytes": 9947,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_reporting.py",
+      "sha256": "b81499122e77bd2bbffd156af178aaf4fd112534114202a90efbaec9cc37afbf"
+    },
+    {
+      "bytes": 24300,
+      "path": "apps/worker-python/dehps/notifications/isolated_challenger_v11.py",
+      "sha256": "19cc9e17709f8bd177a676dfa7d7ec2b2aa7df3c59db87ca73f480defdefcea2"
+    },
+    {
+      "bytes": 22021,
+      "path": "apps/worker-python/scripts/build_m4_isolated_24h_challenger_v11_manifest.py",
+      "sha256": "5596335493028fa369aef4acf2ebf0a025090a403006138a2356c4c1510168a7"
+    },
+    {
+      "bytes": 81809,
+      "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
+      "sha256": "fd65f982cd0b24aeed1e6f27f4766d2cdf18421c5569f75558fd9cb6290cd906"
+    },
+    {
+      "bytes": 17768,
+      "path": "infra/postgres/migrations/003_m4_isolated_24h_challenger_v11.sql",
+      "sha256": "86d5aab656866b369a908db2a7342255438371c01144c16483ecc28317439280"
+    },
+    {
+      "bytes": 1275,
+      "path": "infra/systemd/dehps-m4-isolated-24h-challenger-v11.service",
+      "sha256": "f294393a54accecfe5eee6e4ca0af4fa3e901cdc0a247d7b0ee877d0bd72281f"
+    },
+    {
+      "bytes": 253,
+      "path": "infra/systemd/dehps-m4-isolated-24h-challenger-v11.timer",
+      "sha256": "5661276f92005fe0fc675c2f3032f45dfc42cc3c2ca2cb7dba8923818b89e208"
+    },
+    {
+      "bytes": 12177,
+      "path": "apps/worker-python/dehps/input_contracts/feature_contract.py",
+      "sha256": "24a3ed65c2495ccf45377c4971067e22a2be00a6802e75bd40fc331e7bfc661d"
+    },
+    {
+      "bytes": 8351,
+      "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/feature_view.py",
+      "sha256": "0fb8e93dd0fba9df2993a597245e52e70ff1b6b0917ceaf53d77ecd0efc850d9"
+    },
+    {
+      "bytes": 15699,
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/logistic_regression.py",
+      "sha256": "86f362d42d10b897302eaf3389b194266289148dd80d1370c3931b99cdf9d80b"
+    },
+    {
+      "bytes": 13610,
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/naive_bayes.py",
+      "sha256": "fdd4d9edfa7de29e783d5a8132a904e7b6110659a8708682760a75169d80eb8e"
+    },
+    {
+      "bytes": 18056,
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+      "sha256": "32b5426eb6f7aaad0c570454e677bf3214a1f47a8e74547fe5f528271618b94d"
+    },
+    {
+      "bytes": 27565,
+      "path": "apps/worker-python/dehps/models/frequency_ranker.py",
+      "sha256": "28694b92534d9878dee73eebfb3e2341282eeee1bb8729ecee9a0988fea9fecd"
+    },
+    {
+      "bytes": 56661,
+      "path": "apps/worker-python/dehps/notifications/p3_top100.py",
+      "sha256": "49d455163684ef4f8babe02bc45a2f9828f21326cae7255cc2ce045b37759d90"
+    },
+    {
+      "bytes": 40111,
+      "path": "infra/postgres/init/001_init.sql",
+      "sha256": "257e0540f51c0c7a3e036971961aa63b652858eb1d1fefaf24eab5b2263fe899"
+    },
+    {
+      "bytes": 37796,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/bounded_operational_forward.py",
+      "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
+    }
+  ],
+  "source_set_digest": "36af7b522c8619e3ff50704fc02c338bedce768d49b55c56c49a928fb968b391"
+}

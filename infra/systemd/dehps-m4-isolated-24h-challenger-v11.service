@@ -1,0 +1,38 @@
+[Unit]
+Description=DEHPS M4 isolated 24-hour challenger research factory V11
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/home/ark/workspace/dehps/configs/research-os/m4-isolated-24h-challenger-source-v11.json
+
+[Service]
+Type=oneshot
+User=ark
+Group=ark
+WorkingDirectory=/home/ark/workspace/dehps
+EnvironmentFile=/etc/dehps/m4-isolated-24h-challenger-v11.env
+Environment=PYTHONUNBUFFERED=1
+Environment=DEHPS_ISOLATED_V11_WORKERS=18
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python /home/ark/workspace/dehps/apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py cycle --apply
+CPUQuota=1800%
+MemoryHigh=20G
+MemoryMax=24G
+TasksMax=256
+Nice=19
+CPUSchedulingPolicy=idle
+CPUWeight=1
+IOSchedulingClass=idle
+IOWeight=1
+KillMode=control-group
+# Three 30-minute deterministic attempts fit inside this bound. If a resource
+# guard remains blocked, release the timer slot before the mail blackout ends.
+TimeoutStartSec=1h45min
+TimeoutStopSec=7s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ark/workspace/dehps/runtime
