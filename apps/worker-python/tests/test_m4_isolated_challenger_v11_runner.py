@@ -933,25 +933,61 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
                 runner.USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT
             ),
             "failed_state_recovery_gate_engineering_approval_decision_id": (
-                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+                runner.USER_SCOPE_FAILED_STATE_ENGINEERING_DECISION_ID
             ),
             "failed_state_recovery_gate_engineering_execution_id": (
-                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+                runner.USER_SCOPE_FAILED_STATE_ENGINEERING_EXECUTION_ID
             ),
             "failed_state_recovery_gate_engineering_request_id": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+                runner.USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_ID
             ),
             "failed_state_recovery_gate_engineering_request_key": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                runner.USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_KEY
             ),
             "failed_state_recovery_gate_engineering_request_payload_sha256": (
+                runner.USER_SCOPE_FAILED_STATE_ENGINEERING_PAYLOAD_SHA256
+            ),
+            "sequence2_completion_gate_base_merged_commit": (
+                runner.USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
+            ),
+            "sequence2_completion_gate_engineering_approval_decision_id": (
+                runner.USER_SCOPE_SEQUENCE2_ENGINEERING_DECISION_ID
+            ),
+            "sequence2_completion_gate_engineering_execution_id": (
+                runner.USER_SCOPE_SEQUENCE2_ENGINEERING_EXECUTION_ID
+            ),
+            "sequence2_completion_gate_engineering_request_id": (
+                runner.USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_ID
+            ),
+            "sequence2_completion_gate_engineering_request_key": (
+                runner.USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_KEY
+            ),
+            "sequence2_completion_gate_engineering_request_payload_sha256": (
+                runner.USER_SCOPE_SEQUENCE2_ENGINEERING_PAYLOAD_SHA256
+            ),
+            "sequence3_guard_recovery_base_merged_commit": (
+                runner.USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
+            ),
+            "sequence3_guard_recovery_engineering_approval_decision_id": (
+                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+            ),
+            "sequence3_guard_recovery_engineering_execution_id": (
+                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+            ),
+            "sequence3_guard_recovery_engineering_request_id": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+            ),
+            "sequence3_guard_recovery_engineering_request_key": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+            ),
+            "sequence3_guard_recovery_engineering_request_payload_sha256": (
                 runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
             ),
         },
     }
     engineering = SimpleNamespace(
         id=runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
-        request_type=runner.AgentRequestType.ENGINEERING_RUNTIME_FIX,
+        request_type=runner.AgentRequestType.ENGINEERING_IMPLEMENTATION,
         status=runner.AgentRequestStatus.COMPLETED,
         metadata={"payload_sha256": runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256},
     )
@@ -965,7 +1001,7 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
     engineering_execution = SimpleNamespace(
         id=runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
         status=runner.AgentExecutionStatus.COMPLETED,
-        environment="isolated",
+        environment="development",
         executor_role=runner.AgentRole.ENGINEERING,
     )
     recovery = {
@@ -974,7 +1010,7 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
         "engineering_approval_decision_id": (runner.USER_SCOPE_ENGINEERING_DECISION_ID),
         "engineering_execution_id": runner.USER_SCOPE_ENGINEERING_EXECUTION_ID,
         "engineering_request_id": runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
-        "execution_attempt_count": 0,
+        "execution_attempt_count": contract.ATTEMPTS_PER_BATCH,
         "origin_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
         "origin_source_contract_digest": (
             runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
@@ -985,13 +1021,15 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
         "running_task_digest": runner.USER_SCOPE_RESUME_TASK_DIGEST,
         "running_task_key": runner.USER_SCOPE_RESUME_TASK_KEY,
         "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
-        "failed_event_digest": runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "failed_event_digest": runner.USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
+        "prior_failed_event_digest": runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "next_completion_sequence": 3,
         "predecessor_attestation_digest": (
             runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST
         ),
     }
     payload = {
-        "version": "m4-isolated-v11-failed-state-gated-recovery-v3",
+        "version": "m4-isolated-v11-sequence3-guard-recovery-v4",
         "commit": repaired_commit,
         "checks": {"user_systemd_running_batch_recovery": recovery},
         "mail_contract": {
@@ -1194,7 +1232,7 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
             "dehps-m4-isolated-v11-same-key-event-isolation-runtime-migration.v2"
         ),
         "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
-        "artifact_digest": runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "artifact_digest": runner.USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
         "scientific_contract_changed": False,
         "workload_definition_changed": False,
         "formal_p3_mutated": False,
@@ -1238,7 +1276,56 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
             "4a44a44bb4805bb80d9a026dd7a1556f2cbf9b98498095d13a8acfdc98186c8f",
         ],
     }
-    for payload in (foundation, latest):
+    guard = {
+        "schema_version": (
+            "dehps-m4-isolated-v11-utc-registration-failed-event-runtime-migration.v3"
+        ),
+        "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
+        "artifact_digest": runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "scientific_contract_changed": False,
+        "workload_definition_changed": False,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "task_key": runner.USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": runner.USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": runner.USER_SCOPE_RESUME_EXECUTION_ID,
+        "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        "failed_event_digest": runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "origin_git_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "runtime_git_commit": "c30db93efb428198b4d7c0c0548feefbd315ba59",
+        "origin_source_contract_digest": runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "runtime_source_contract_digest": (
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780"
+        ),
+        "repair": "UTC_REGISTRATION_RESUME_AND_EXACT_FAILED_EVENT_RECOVERY",
+        "predecessor_attestation_digest": runner.USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_before_resume": 0,
+        "candidate_results_before_resume": 0,
+        "mail_delivery_before_resume": 0,
+        "governance": {
+            "phase": "resume",
+            "engineering_request_id": 750,
+            "engineering_decision_id": 3182,
+            "engineering_execution_id": 605,
+            "operator_request_id": 751,
+            "operator_decision_id": 3187,
+            "operator_execution_id": 606,
+            "operator_payload_sha256": (
+                "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5"
+            ),
+        },
+        "parent_digests": [
+            runner.USER_SCOPE_RESUME_TASK_DIGEST,
+            runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+            runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+            runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780",
+            runner.USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
+            "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5",
+        ],
+    }
+    for payload in (foundation, latest, guard):
         path = (
             tmp_path
             / "runtime/research-os/mainline/tasks"
@@ -1251,9 +1338,9 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(runner, "ROOT_DIR", tmp_path)
-    assert runner._load_user_scope_predecessor_attestation() == latest
-    latest["governance"]["operator_execution_id"] = 999
-    path.write_text(json.dumps(latest), encoding="utf-8")
+    assert runner._load_user_scope_predecessor_attestation() == guard
+    guard["governance"]["operator_execution_id"] = 999
+    path.write_text(json.dumps(guard), encoding="utf-8")
     with pytest.raises(runner.IsolatedRunnerError, match="attestation_changed"):
         runner._load_user_scope_predecessor_attestation()
 
@@ -1339,6 +1426,22 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
                 ("git_commit", runner.USER_SCOPE_RESUME_ORIGIN_COMMIT),
             ),
         ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=runner.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=runner.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="failed",
+            sequence=2,
+            recorded_at=runner.USER_SCOPE_GUARD_FAILED_AT,
+            payload=(
+                (
+                    "error",
+                    "M4-v2 atomic successor does not permit failed-execution recovery",
+                ),
+                ("git_commit", runner.USER_SCOPE_RESUME_ORIGIN_COMMIT),
+            ),
+        ),
     ]
     assert (
         records[0].artifact_digest == runner.USER_SCOPE_HISTORICAL_STARTED_EVENT_DIGEST
@@ -1348,6 +1451,7 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
     )
     assert records[2].artifact_digest == runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
     assert records[3].artifact_digest == runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST
+    assert records[4].artifact_digest == runner.USER_SCOPE_GUARD_FAILED_EVENT_DIGEST
     if completed:
         records.append(
             MainlineExecutionEvent(
@@ -1356,7 +1460,7 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
                 manifest_digest=runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
                 task_digest=runner.USER_SCOPE_RESUME_TASK_DIGEST,
                 event_type="completed",
-                sequence=2,
+                sequence=3,
                 recorded_at="2026-08-28T05:00:00+08:00",
                 payload=tuple(
                     sorted(
@@ -1400,9 +1504,7 @@ def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
     completed_states = [
         SimpleNamespace(declared_status=TaskStatus.COMPLETED) for _ in range(22)
     ]
-    draft_states = [
-        SimpleNamespace(declared_status=TaskStatus.DRAFT) for _ in range(4)
-    ]
+    draft_states = [SimpleNamespace(declared_status=TaskStatus.DRAFT) for _ in range(4)]
     failed_state = SimpleNamespace(
         declared_status=TaskStatus.FAILED,
         completion_classification=CompletionClassification.INTEGRATED,
@@ -1447,7 +1549,7 @@ def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
             return [
                 (
                     0,
-                    "REGISTERED",
+                    "TERMINAL",
                     runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
                     contract.ATTEMPTS_PER_BATCH,
                 )
@@ -1456,6 +1558,19 @@ def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
         def fetchone(self):
             if "multiplicity_head" in self.statement:
                 return (0, contract.ATTEMPTS_PER_BATCH)
+            if "worker_started_at IS NOT NULL" in self.statement:
+                return (
+                    contract.ATTEMPTS_PER_BATCH,
+                    contract.ATTEMPTS_PER_BATCH,
+                    contract.ATTEMPTS_PER_BATCH,
+                    contract.ATTEMPTS_PER_BATCH,
+                    contract.ATTEMPTS_PER_BATCH,
+                    contract.ATTEMPTS_PER_BATCH,
+                    0,
+                    0,
+                )
+            if "execution_attempts" in self.statement:
+                return (contract.ATTEMPTS_PER_BATCH,)
             return (0,)
 
     class _Connection:
@@ -1516,6 +1631,7 @@ def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
         )
         assert [item["event_type"] for item in current] == [
             "started",
+            "failed",
             "failed",
             "completed",
         ]
@@ -1596,9 +1712,7 @@ def test_failed_to_running_transition_requires_exact_two_phase_user_scope_gate(
         runner, "USER_SCOPE_RESUME_MANIFEST_DIGEST", incoming.artifact_digest
     )
     monkeypatch.setattr(runner, "USER_SCOPE_RESUME_TASK_KEY", task.task_key)
-    monkeypatch.setattr(
-        runner, "USER_SCOPE_RESUME_TASK_DIGEST", task.artifact_digest
-    )
+    monkeypatch.setattr(runner, "USER_SCOPE_RESUME_TASK_DIGEST", task.artifact_digest)
     monkeypatch.setattr(
         runner.PostgresResearchOSRepository,
         "_verify_mainline_completion_records",

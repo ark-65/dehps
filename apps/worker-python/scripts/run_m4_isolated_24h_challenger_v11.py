@@ -132,6 +132,9 @@ USER_SCOPE_RESUME_STARTED_EVENT_DIGEST = (
 USER_SCOPE_RESUME_FAILED_EVENT_DIGEST = (
     "71d714427c8c5e9219b8424095fa80a3fedfb7b97107dae19af79a03c47d501c"
 )
+USER_SCOPE_GUARD_FAILED_EVENT_DIGEST = (
+    "84c7988b8442969f2c8a910a2f32116b820800ebe5dffe993ee4fb4cc2e26e43"
+)
 USER_SCOPE_HISTORICAL_MANIFEST_DIGEST = (
     "7ad51501ebce593745c8cd2789868d96456e719c129e74081c03f1fdff356b9a"
 )
@@ -155,6 +158,7 @@ USER_SCOPE_HISTORICAL_STARTED_AT = "2026-08-27T19:41:59.920157+00:00"
 USER_SCOPE_HISTORICAL_FAILED_AT = "2026-08-27T19:42:00.101801+00:00"
 USER_SCOPE_RESUME_STARTED_AT = "2026-08-27T19:56:35.300063+00:00"
 USER_SCOPE_RESUME_FAILED_AT = "2026-08-27T20:59:52.863000+00:00"
+USER_SCOPE_GUARD_FAILED_AT = "2026-08-27T21:48:34.466338+00:00"
 USER_SCOPE_RESUME_ORIGIN_COMMIT = "443a1d72e3135b9a90912bc3e890566de4338f65"
 USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST = (
     "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011"
@@ -162,23 +166,43 @@ USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST = (
 USER_SCOPE_FOUNDATION_ATTESTATION_DIGEST = (
     "4d2c037b172beaa525de05c855d0d0e1ad72e8978c271f3cdf68fb9d23aa6452"
 )
-USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST = (
+USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST = (
     "2810d17a645483fbfb368334c20ba5264e9dcbca937908ed5dbd9471144d73e1"
 )
-USER_SCOPE_EVENT_ISOLATION_RUNTIME_COMMIT = (
-    "103aa7585257accf727020ea6454a3c1cc383267"
+USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST = (
+    "d71b6076cb56cd2933df1e2381fc5f62034a3f2ae0299cfa044302e092481432"
 )
+USER_SCOPE_EVENT_ISOLATION_RUNTIME_COMMIT = "103aa7585257accf727020ea6454a3c1cc383267"
 USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT = (
     "c790ef74c99b1b0a691821d1825a84c19a6c89be"
 )
-USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_KEY = (
     "engineering-m4-isolated-v11-failed-state-to-running-recovery-gate-v1"
 )
-USER_SCOPE_ENGINEERING_REQUEST_ID = 750
-USER_SCOPE_ENGINEERING_DECISION_ID = 3182
-USER_SCOPE_ENGINEERING_EXECUTION_ID = 605
-USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_ID = 750
+USER_SCOPE_FAILED_STATE_ENGINEERING_DECISION_ID = 3182
+USER_SCOPE_FAILED_STATE_ENGINEERING_EXECUTION_ID = 605
+USER_SCOPE_FAILED_STATE_ENGINEERING_PAYLOAD_SHA256 = (
     "db00234098f0f27d68c05deb427c4c2897a0406860343adbc5bad281b474071b"
+)
+USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT = "c30db93efb428198b4d7c0c0548feefbd315ba59"
+USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-sequence2-atomic-completion-gate-v1"
+)
+USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_ID = 752
+USER_SCOPE_SEQUENCE2_ENGINEERING_DECISION_ID = 3192
+USER_SCOPE_SEQUENCE2_ENGINEERING_EXECUTION_ID = 607
+USER_SCOPE_SEQUENCE2_ENGINEERING_PAYLOAD_SHA256 = (
+    "8be2ab76cb27cf5fff1d99519eaf8f760063d17b987585ffed1dbb4dfc37972d"
+)
+USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-sequence3-guard-failure-resume-v1"
+)
+USER_SCOPE_ENGINEERING_REQUEST_ID = 753
+USER_SCOPE_ENGINEERING_DECISION_ID = 3197
+USER_SCOPE_ENGINEERING_EXECUTION_ID = 608
+USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+    "c8ea6f9583faba341e9e53a660d198c80ca123a6b11e8be7411718df3844f2f0"
 )
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
@@ -208,6 +232,7 @@ def _validate_user_scope_resume_event_set(
         USER_SCOPE_HISTORICAL_FAILED_EVENT_DIGEST,
         USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
         USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
     }
     if not required.issubset(records):
         raise IsolatedRunnerError("user_scope_resume_required_event_missing")
@@ -290,6 +315,21 @@ def _validate_user_scope_resume_event_set(
             "git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
         },
     )
+    require_exact(
+        USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
+        execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
+        manifest_digest=USER_SCOPE_RESUME_MANIFEST_DIGEST,
+        task_digest=USER_SCOPE_RESUME_TASK_DIGEST,
+        event_type="failed",
+        sequence=2,
+        recorded_at=USER_SCOPE_GUARD_FAILED_AT,
+        payload={
+            "error": (
+                "M4-v2 atomic successor does not permit failed-execution recovery"
+            ),
+            "git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        },
+    )
     additional = set(records) - required
     if additional and (not allow_completed or len(additional) != 1):
         raise IsolatedRunnerError("user_scope_resume_unexpected_event")
@@ -310,7 +350,7 @@ def _validate_user_scope_resume_event_set(
             or completed.task_digest != USER_SCOPE_RESUME_TASK_DIGEST
             or completed.capability != USER_SCOPE_RESUME_CAPABILITY
             or completed.event_type != "completed"
-            or completed.sequence != 2
+            or completed.sequence != 3
             or completed_at.tzinfo is None
             or completed_payload.get("git_commit") != USER_SCOPE_RESUME_ORIGIN_COMMIT
             or not isinstance(completed_payload.get("execution_artifact_digest"), str)
@@ -358,22 +398,102 @@ def validate_user_scope_recovery_governance(
             USER_SCOPE_FAILED_STATE_RECOVERY_BASE_COMMIT
         ),
         "failed_state_recovery_gate_engineering_approval_decision_id": (
-            USER_SCOPE_ENGINEERING_DECISION_ID
+            USER_SCOPE_FAILED_STATE_ENGINEERING_DECISION_ID
         ),
         "failed_state_recovery_gate_engineering_execution_id": (
-            USER_SCOPE_ENGINEERING_EXECUTION_ID
+            USER_SCOPE_FAILED_STATE_ENGINEERING_EXECUTION_ID
         ),
         "failed_state_recovery_gate_engineering_request_id": (
-            USER_SCOPE_ENGINEERING_REQUEST_ID
+            USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_ID
         ),
         "failed_state_recovery_gate_engineering_request_key": (
-            USER_SCOPE_ENGINEERING_REQUEST_KEY
+            USER_SCOPE_FAILED_STATE_ENGINEERING_REQUEST_KEY
         ),
         "failed_state_recovery_gate_engineering_request_payload_sha256": (
-            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+            USER_SCOPE_FAILED_STATE_ENGINEERING_PAYLOAD_SHA256
         ),
     }:
         raise IsolatedRunnerError("user_scope_engineering_source_binding_changed")
+    if {
+        "sequence2_completion_gate_base_merged_commit": bindings.get(
+            "sequence2_completion_gate_base_merged_commit"
+        ),
+        "sequence2_completion_gate_engineering_approval_decision_id": bindings.get(
+            "sequence2_completion_gate_engineering_approval_decision_id"
+        ),
+        "sequence2_completion_gate_engineering_execution_id": bindings.get(
+            "sequence2_completion_gate_engineering_execution_id"
+        ),
+        "sequence2_completion_gate_engineering_request_id": bindings.get(
+            "sequence2_completion_gate_engineering_request_id"
+        ),
+        "sequence2_completion_gate_engineering_request_key": bindings.get(
+            "sequence2_completion_gate_engineering_request_key"
+        ),
+        "sequence2_completion_gate_engineering_request_payload_sha256": bindings.get(
+            "sequence2_completion_gate_engineering_request_payload_sha256"
+        ),
+    } != {
+        "sequence2_completion_gate_base_merged_commit": (
+            USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
+        ),
+        "sequence2_completion_gate_engineering_approval_decision_id": (
+            USER_SCOPE_SEQUENCE2_ENGINEERING_DECISION_ID
+        ),
+        "sequence2_completion_gate_engineering_execution_id": (
+            USER_SCOPE_SEQUENCE2_ENGINEERING_EXECUTION_ID
+        ),
+        "sequence2_completion_gate_engineering_request_id": (
+            USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_ID
+        ),
+        "sequence2_completion_gate_engineering_request_key": (
+            USER_SCOPE_SEQUENCE2_ENGINEERING_REQUEST_KEY
+        ),
+        "sequence2_completion_gate_engineering_request_payload_sha256": (
+            USER_SCOPE_SEQUENCE2_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }:
+        raise IsolatedRunnerError("user_scope_completion_source_binding_changed")
+    if {
+        "sequence3_guard_recovery_base_merged_commit": bindings.get(
+            "sequence3_guard_recovery_base_merged_commit"
+        ),
+        "sequence3_guard_recovery_engineering_approval_decision_id": bindings.get(
+            "sequence3_guard_recovery_engineering_approval_decision_id"
+        ),
+        "sequence3_guard_recovery_engineering_execution_id": bindings.get(
+            "sequence3_guard_recovery_engineering_execution_id"
+        ),
+        "sequence3_guard_recovery_engineering_request_id": bindings.get(
+            "sequence3_guard_recovery_engineering_request_id"
+        ),
+        "sequence3_guard_recovery_engineering_request_key": bindings.get(
+            "sequence3_guard_recovery_engineering_request_key"
+        ),
+        "sequence3_guard_recovery_engineering_request_payload_sha256": bindings.get(
+            "sequence3_guard_recovery_engineering_request_payload_sha256"
+        ),
+    } != {
+        "sequence3_guard_recovery_base_merged_commit": (
+            USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
+        ),
+        "sequence3_guard_recovery_engineering_approval_decision_id": (
+            USER_SCOPE_ENGINEERING_DECISION_ID
+        ),
+        "sequence3_guard_recovery_engineering_execution_id": (
+            USER_SCOPE_ENGINEERING_EXECUTION_ID
+        ),
+        "sequence3_guard_recovery_engineering_request_id": (
+            USER_SCOPE_ENGINEERING_REQUEST_ID
+        ),
+        "sequence3_guard_recovery_engineering_request_key": (
+            USER_SCOPE_ENGINEERING_REQUEST_KEY
+        ),
+        "sequence3_guard_recovery_engineering_request_payload_sha256": (
+            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }:
+        raise IsolatedRunnerError("user_scope_guard_recovery_source_binding_changed")
     if source_contract.get("artifact_digest") != repaired_source_digest:
         raise IsolatedRunnerError("user_scope_repaired_source_changed")
 
@@ -399,7 +519,7 @@ def validate_user_scope_recovery_governance(
     ]
     if (
         engineering.id != USER_SCOPE_ENGINEERING_REQUEST_ID
-        or engineering.request_type is not AgentRequestType.ENGINEERING_RUNTIME_FIX
+        or engineering.request_type is not AgentRequestType.ENGINEERING_IMPLEMENTATION
         or engineering.status is not AgentRequestStatus.COMPLETED
         or engineering.metadata.get("payload_sha256")
         != USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
@@ -407,7 +527,7 @@ def validate_user_scope_recovery_governance(
         or approval[0].decided_by_role is not AgentRole.REVIEWER
         or len(execution) != 1
         or execution[0].status is not AgentExecutionStatus.COMPLETED
-        or execution[0].environment != "isolated"
+        or execution[0].environment != "development"
         or execution[0].executor_role is not AgentRole.ENGINEERING
     ):
         raise IsolatedRunnerError("user_scope_engineering_governance_changed")
@@ -450,7 +570,7 @@ def validate_user_scope_recovery_governance(
         "engineering_approval_decision_id": USER_SCOPE_ENGINEERING_DECISION_ID,
         "engineering_execution_id": USER_SCOPE_ENGINEERING_EXECUTION_ID,
         "engineering_request_id": USER_SCOPE_ENGINEERING_REQUEST_ID,
-        "execution_attempt_count": 0,
+        "execution_attempt_count": contract.ATTEMPTS_PER_BATCH,
         "origin_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
         "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         "registered_candidate_count": contract.ATTEMPTS_PER_BATCH,
@@ -459,7 +579,9 @@ def validate_user_scope_recovery_governance(
         "running_task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
         "running_task_key": USER_SCOPE_RESUME_TASK_KEY,
         "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
-        "failed_event_digest": USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "failed_event_digest": USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
+        "prior_failed_event_digest": USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "next_completion_sequence": 3,
         "predecessor_attestation_digest": USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
     }
     mail_contract = operator.payload.get("mail_contract")
@@ -476,7 +598,7 @@ def validate_user_scope_recovery_governance(
         or operator_executions[0].environment != "production"
         or operator_executions[0].executor_role is not AgentRole.OPERATOR
         or operator.payload.get("version")
-        != "m4-isolated-v11-failed-state-gated-recovery-v3"
+        != "m4-isolated-v11-sequence3-guard-recovery-v4"
         or operator.payload.get("commit") != git_commit
         or recovery != expected_recovery
         or not isinstance(mail_contract, dict)
@@ -533,9 +655,10 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
 
     @contextmanager
     def user_scope_resume_event_view(self) -> Iterator[None]:
-        if self._user_scope_resume_event_gate or getattr(
-            self, "_user_scope_failed_transition_gate", None
-        ) is not None:
+        if (
+            self._user_scope_resume_event_gate
+            or getattr(self, "_user_scope_failed_transition_gate", None) is not None
+        ):
             raise IsolatedRunnerError("user_scope_resume_event_gate_reentrant")
         self._user_scope_resume_event_gate = True
         self._user_scope_failed_transition_gate = {
@@ -913,10 +1036,8 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                         gate is None
                         or gate.get("router_consumed") is not True
                         or gate.get("completion_consumed") is not False
-                        or current.artifact_digest
-                        != USER_SCOPE_FAILED_MANIFEST_DIGEST
-                        or manifest.artifact_digest
-                        != USER_SCOPE_RESUME_MANIFEST_DIGEST
+                        or current.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST
+                        or manifest.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST
                         or state_changes[0][0] != USER_SCOPE_RESUME_TASK_KEY
                         or added_facts
                     ):
@@ -2364,13 +2485,14 @@ def _validate_user_scope_resume_live_state(
         for item in events
         if item.get("task_digest") == USER_SCOPE_RESUME_TASK_DIGEST
     ]
-    if len(current_events) != 2:
+    if len(current_events) != 3:
         raise IsolatedRunnerError("user_scope_resume_event_count_changed")
     current_by_digest = {
         str(item.get("event_digest") or ""): item for item in current_events
     }
     started = current_by_digest.get(USER_SCOPE_RESUME_STARTED_EVENT_DIGEST, {})
     failed = current_by_digest.get(USER_SCOPE_RESUME_FAILED_EVENT_DIGEST, {})
+    guard_failed = current_by_digest.get(USER_SCOPE_GUARD_FAILED_EVENT_DIGEST, {})
     if (
         started.get("event_digest") != USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
         or started.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
@@ -2399,6 +2521,23 @@ def _validate_user_scope_resume_live_state(
         }
     ):
         raise IsolatedRunnerError("user_scope_resume_failed_event_changed")
+    if (
+        guard_failed.get("event_digest") != USER_SCOPE_GUARD_FAILED_EVENT_DIGEST
+        or guard_failed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or guard_failed.get("event_type") != "failed"
+        or guard_failed.get("sequence") != 2
+        or guard_failed.get("recorded_at") != USER_SCOPE_GUARD_FAILED_AT
+        or guard_failed.get("capability") != task.requested_capability
+        or guard_failed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or dict(guard_failed.get("payload") or ())
+        != {
+            "error": (
+                "M4-v2 atomic successor does not permit failed-execution recovery"
+            ),
+            "git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        }
+    ):
+        raise IsolatedRunnerError("user_scope_guard_failed_event_changed")
     if repository.list_mainline_artifacts(
         control_plane_key=contract.CONTROL_PLANE_KEY,
         execution_id=USER_SCOPE_RESUME_EXECUTION_ID,
@@ -2429,6 +2568,16 @@ def _validate_user_scope_resume_live_state(
                 "SELECT count(*) FROM m4_isolated_v11.execution_attempts"
             ).fetchone()[0]
         )
+        attempt_state = cursor.execute(
+            "SELECT count(*),"
+            "count(*) FILTER (WHERE worker_started_at IS NOT NULL),"
+            "count(*) FILTER (WHERE terminal_at IS NOT NULL),"
+            "count(*) FILTER (WHERE status IN ('SUCCEEDED','FAILED')) ,"
+            "count(*) FILTER (WHERE artifact_digest IS NULL),"
+            "count(*) FILTER (WHERE artifact_committed=FALSE),"
+            "min(retry_ordinal),max(retry_ordinal) FROM "
+            "m4_isolated_v11.execution_attempts"
+        ).fetchone()
         results = int(
             cursor.execute(
                 "SELECT count(*) FROM m4_isolated_v11.candidate_results"
@@ -2458,13 +2607,29 @@ def _validate_user_scope_resume_live_state(
     if candidates != [
         (
             0,
-            "REGISTERED",
+            "TERMINAL",
             USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
             contract.ATTEMPTS_PER_BATCH,
         )
     ]:
         raise IsolatedRunnerError("user_scope_resume_candidates_changed")
-    if attempts != 0 or results != 0 or deliveries != 0 or head != (0, 18):
+    if (
+        attempts != contract.ATTEMPTS_PER_BATCH
+        or attempt_state
+        != (
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+            contract.ATTEMPTS_PER_BATCH,
+            0,
+            0,
+        )
+        or results != 0
+        or deliveries != 0
+        or head != (0, 18)
+    ):
         raise IsolatedRunnerError("user_scope_resume_ledger_changed")
     _p3_source_identity()
     return manifest, context
@@ -2519,7 +2684,7 @@ def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
             "dehps-m4-isolated-v11-same-key-event-isolation-runtime-migration.v2"
         ),
         "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
-        "artifact_digest": USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "artifact_digest": USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
         "scientific_contract_changed": False,
         "workload_definition_changed": False,
         "formal_p3_mutated": False,
@@ -2561,6 +2726,55 @@ def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
             "4a44a44bb4805bb80d9a026dd7a1556f2cbf9b98498095d13a8acfdc98186c8f",
         ],
     }
+    guard = {
+        "schema_version": (
+            "dehps-m4-isolated-v11-utc-registration-failed-event-runtime-migration.v3"
+        ),
+        "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
+        "artifact_digest": USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "scientific_contract_changed": False,
+        "workload_definition_changed": False,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "task_key": USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
+        "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        "failed_event_digest": USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "origin_git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "runtime_git_commit": "c30db93efb428198b4d7c0c0548feefbd315ba59",
+        "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "runtime_source_contract_digest": (
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780"
+        ),
+        "repair": "UTC_REGISTRATION_RESUME_AND_EXACT_FAILED_EVENT_RECOVERY",
+        "predecessor_attestation_digest": USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_before_resume": 0,
+        "candidate_results_before_resume": 0,
+        "mail_delivery_before_resume": 0,
+        "governance": {
+            "phase": "resume",
+            "engineering_request_id": 750,
+            "engineering_decision_id": 3182,
+            "engineering_execution_id": 605,
+            "operator_request_id": 751,
+            "operator_decision_id": 3187,
+            "operator_execution_id": 606,
+            "operator_payload_sha256": (
+                "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5"
+            ),
+        },
+        "parent_digests": [
+            USER_SCOPE_RESUME_TASK_DIGEST,
+            USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+            USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+            USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780",
+            USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
+            "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5",
+        ],
+    }
     expected_chain = (
         (
             foundation,
@@ -2569,10 +2783,18 @@ def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
         ),
         (
             latest,
-            USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+            USER_SCOPE_SEQUENCE2_ATTESTATION_DIGEST,
             (
                 "dehps.m4.isolated-24h-challenger."
                 "same-key-event-isolation-runtime-migration.v11"
+            ),
+        ),
+        (
+            guard,
+            USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+            (
+                "dehps.m4.isolated-24h-challenger."
+                "utc-registration-failed-event-runtime-migration.v11"
             ),
         ),
     )
@@ -2601,7 +2823,7 @@ def _load_user_scope_predecessor_attestation() -> dict[str, Any]:
             or contract.domain_digest(identity, domain=domain) != digest
         ):
             raise IsolatedRunnerError("user_scope_predecessor_attestation_changed")
-    return latest
+    return guard
 
 
 def _user_scope_runtime_attestation(
@@ -2615,7 +2837,7 @@ def _user_scope_runtime_attestation(
         raise IsolatedRunnerError("user_scope_predecessor_attestation_changed")
     body = {
         "schema_version": (
-            "dehps-m4-isolated-v11-utc-registration-failed-event-runtime-migration.v3"
+            "dehps-m4-isolated-v11-sequence3-guard-failure-runtime-migration.v4"
         ),
         "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
         "artifact_digest": "",
@@ -2627,15 +2849,16 @@ def _user_scope_runtime_attestation(
         "task_digest": USER_SCOPE_RESUME_TASK_DIGEST,
         "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
         "started_event_digest": USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
-        "failed_event_digest": USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "failed_event_digest": USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
+        "prior_failed_event_digest": USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
         "origin_git_commit": USER_SCOPE_RESUME_ORIGIN_COMMIT,
         "runtime_git_commit": repaired_git_commit,
         "origin_source_contract_digest": USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         "runtime_source_contract_digest": repaired_source_digest,
-        "repair": "UTC_REGISTRATION_RESUME_AND_EXACT_FAILED_EVENT_RECOVERY",
+        "repair": "EXACT_SEQUENCE3_GUARD_FAILURE_ZERO_RETRAINING_RECOVERY",
         "predecessor_attestation_digest": predecessor_attestation_digest,
         "registered_candidates": contract.ATTEMPTS_PER_BATCH,
-        "execution_attempts_before_resume": 0,
+        "execution_attempts_before_resume": contract.ATTEMPTS_PER_BATCH,
         "candidate_results_before_resume": 0,
         "mail_delivery_before_resume": 0,
         "governance": dict(governance),
@@ -2643,6 +2866,7 @@ def _user_scope_runtime_attestation(
             USER_SCOPE_RESUME_TASK_DIGEST,
             USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
             USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+            USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
             USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
             repaired_source_digest,
             predecessor_attestation_digest,
@@ -2655,7 +2879,7 @@ def _user_scope_runtime_attestation(
         identity,
         domain=(
             "dehps.m4.isolated-24h-challenger."
-            "utc-registration-failed-event-runtime-migration.v11"
+            "sequence3-guard-failure-runtime-migration.v11"
         ),
     )
     path = (
@@ -2728,7 +2952,7 @@ def resume_p3_user_scope_running_batch(
             "execution_id": USER_SCOPE_RESUME_EXECUTION_ID,
             "attestation_digest": attestation["artifact_digest"],
             "registered_candidates": contract.ATTEMPTS_PER_BATCH,
-            "execution_attempts": 0,
+            "execution_attempts": contract.ATTEMPTS_PER_BATCH,
             "candidate_results": 0,
             "smtp_calls": 0,
             "formal_p3_mutated": False,
@@ -2742,7 +2966,7 @@ def resume_p3_user_scope_running_batch(
         source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         git_commit=USER_SCOPE_RESUME_ORIGIN_COMMIT,
         simulation=False,
-        failed_recovery_event_digest=USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        failed_recovery_event_digest=USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
         failed_recovery_attestation_digest=(USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST),
     )
     with repository.user_scope_resume_event_view():
