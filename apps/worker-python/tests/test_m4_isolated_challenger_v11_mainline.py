@@ -568,6 +568,24 @@ def test_literal_production_type_bodies_never_repeat_common_envelope_fields() ->
     assert overlaps == []
 
 
+def test_atomic_registration_timestamp_compares_aware_instants() -> None:
+    expected = "2026-08-27T19:41:59.920157+00:00"
+    same_instant = datetime.fromisoformat("2026-08-28T03:41:59.920157+08:00")
+    assert mainline._same_aware_timestamp_instant(same_instant, expected) is True
+    assert (
+        mainline._same_aware_timestamp_instant(
+            datetime.fromisoformat("2026-08-28T03:41:59.920158+08:00"), expected
+        )
+        is False
+    )
+    assert (
+        mainline._same_aware_timestamp_instant(
+            datetime.fromisoformat("2026-08-28T03:41:59.920157"), expected
+        )
+        is False
+    )
+
+
 def test_registered_input_persistence_is_exact_and_idempotent() -> None:
     source = "1" * 64
     commit = "a" * 40

@@ -532,16 +532,20 @@ def test_input_collision_rebind_preserves_13_and_rebuilds_9() -> None:
 
 def test_input_collision_rebind_requires_completed_attestation() -> None:
     current = _input_collision_manifest()
-    completion = next(
-        fact
-        for fact in current.facts.artifacts
-        if fact.startswith("mainline-execution:")
+    completed_task = next(
+        task
+        for task in current.tasks
+        if current.task_state_by_digest[task.artifact_digest].declared_status
+        is TaskStatus.COMPLETED
     )
+    prefix = f"mainline-execution:{completed_task.task_key}:{completed_task.artifact_digest}:"
+    completions = {fact for fact in current.facts.artifacts if fact.startswith(prefix)}
+    assert completions
     corrupted = replace(
         current,
         facts=replace(
             current.facts,
-            artifacts=current.facts.artifacts - {completion},
+            artifacts=current.facts.artifacts - completions,
         ),
     )
     with pytest.raises(
@@ -798,6 +802,137 @@ def test_genesis_common_field_private_gate_is_one_shot(monkeypatch) -> None:
     )
     repository._verify_exact_transition(incoming)
     assert repository._genesis_rebind_gate["consumed"] is True
+    with pytest.raises(recovery.ResearchOSValidationError, match="gate"):
+        repository._verify_exact_transition(incoming)
+
+
+def _batch_timestamp_manifest() -> ControlPlaneManifest:
+    current = _genesis_common_field_manifest()
+    current = recovery.build_genesis_common_field_rebind(
+        current,
+        source_digest=recovery.BATCH_TIMESTAMP_PREDECESSOR_SOURCE_DIGEST,
+        expected_manifest_digest=current.artifact_digest,
+    )
+    contexts = (
+        {**runner._task_context(current.tasks[0]), "minute": "202608280339"},
+        {**runner._task_context(current.tasks[0]), "minute": "202608280341"},
+    )
+    for context in contexts:
+        current = ControlPlaneManifest.from_dict(
+            runner.builder.extend_manifest(
+                current.to_dict(include_digest=True),
+                context=context,
+                source_digest=recovery.BATCH_TIMESTAMP_PREDECESSOR_SOURCE_DIGEST,
+                template_names=frozenset({"runtime_health"}),
+            )
+        )
+    genesis = next(
+        item for item in current.tasks if item.task_key == recovery.GENESIS_TASK_KEY
+    )
+    genesis_replay = next(
+        item
+        for item in current.tasks
+        if item.task_key.endswith("search-genesis-replay")
+    )
+    batch = next(
+        item
+        for item in current.tasks
+        if item.task_key == recovery.BATCH_TIMESTAMP_TASK_KEY
+    )
+    runtimes = tuple(
+        item
+        for item in current.tasks
+        if item.task_key.endswith("runtime-health-202608280339")
+        or item.task_key.endswith("runtime-health-202608280341")
+    )
+    completed_tasks = (genesis, genesis_replay, *runtimes)
+    completed_digests = {item.artifact_digest for item in completed_tasks}
+    states = tuple(
+        replace(
+            state,
+            declared_status=TaskStatus.COMPLETED,
+            completion_classification=CompletionClassification.COMPLETE,
+        )
+        if state.task_digest in completed_digests
+        else replace(
+            state,
+            declared_status=TaskStatus.FAILED,
+            completion_classification=CompletionClassification.INTEGRATED,
+        )
+        if state.task_digest == batch.artifact_digest
+        else state
+        for state in current.task_states
+    )
+    completion_facts = {
+        (
+            f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            f"{hashlib.sha256(task.artifact_digest.encode()).hexdigest()}:completed"
+        )
+        for task in completed_tasks
+    }
+    return replace(
+        current,
+        task_states=states,
+        facts=replace(
+            current.facts,
+            artifacts=current.facts.artifacts | completion_facts,
+        ),
+    )
+
+
+def test_batch_timestamp_rebind_preserves_21_and_rebuilds_5() -> None:
+    current = _batch_timestamp_manifest()
+    incoming = recovery.build_batch_timestamp_rebind(
+        current,
+        source_digest="c" * 64,
+        expected_manifest_digest=current.artifact_digest,
+    )
+    before = {item.task_key: item for item in current.tasks}
+    after = {item.task_key: item for item in incoming.tasks}
+    completed = 0
+    rebound = 0
+    for key, task in after.items():
+        state = incoming.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.COMPLETED:
+            completed += 1
+            assert task == before[key]
+        else:
+            rebound += 1
+            assert state.declared_status is TaskStatus.DRAFT
+            assert task.artifact_digest != before[key].artifact_digest
+    assert completed == 21
+    assert rebound == 5
+    assert (
+        incoming.task_state_by_digest[
+            after[recovery.BATCH_TIMESTAMP_TASK_KEY].artifact_digest
+        ].declared_status
+        is TaskStatus.DRAFT
+    )
+    assert incoming.facts == current.facts
+
+
+def test_batch_timestamp_private_gate_is_one_shot(monkeypatch) -> None:
+    current = _batch_timestamp_manifest()
+    incoming = recovery.build_batch_timestamp_rebind(
+        current,
+        source_digest="c" * 64,
+        expected_manifest_digest=current.artifact_digest,
+    )
+    repository = object.__new__(recovery.BatchTimestampRecoveryRepository)
+    repository.source_digest = "c" * 64
+    repository._batch_timestamp_gate = {
+        "consumed": False,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+    }
+    repository.load_manifest = lambda **_kwargs: current
+    monkeypatch.setattr(
+        recovery,
+        "build_batch_timestamp_rebind",
+        lambda *_args, **_kwargs: incoming,
+    )
+    repository._verify_exact_transition(incoming)
+    assert repository._batch_timestamp_gate["consumed"] is True
     with pytest.raises(recovery.ResearchOSValidationError, match="gate"):
         repository._verify_exact_transition(incoming)
 
@@ -1333,6 +1468,120 @@ def test_genesis_common_field_operator_scope_is_exact(monkeypatch) -> None:
     request.payload = {**payload, "commit": "b" * 40}
     with pytest.raises(recovery.TargetEventRecoveryError, match="scope"):
         recovery.validate_genesis_common_field_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )
+
+
+def _batch_timestamp_events():
+    common = {
+        "execution_id": recovery.BATCH_TIMESTAMP_EXECUTION_ID,
+        "task_digest": recovery.BATCH_TIMESTAMP_TASK_DIGEST,
+        "task_key": recovery.BATCH_TIMESTAMP_TASK_KEY,
+    }
+    return (
+        {
+            **common,
+            "event_digest": recovery.BATCH_TIMESTAMP_STARTED_EVENT_DIGEST,
+            "event_type": "started",
+            "sequence": 0,
+            "payload": (
+                (
+                    "input_artifact_digests",
+                    [recovery.BATCH_TIMESTAMP_PREDECESSOR_SOURCE_DIGEST],
+                ),
+                ("git_commit", recovery.BATCH_TIMESTAMP_GIT_COMMIT),
+            ),
+        },
+        {
+            **common,
+            "event_digest": recovery.BATCH_TIMESTAMP_FAILED_EVENT_DIGEST,
+            "event_type": "failed",
+            "sequence": 1,
+            "payload": (
+                ("error", "atomic_registration_artifact_content_changed"),
+                ("git_commit", recovery.BATCH_TIMESTAMP_GIT_COMMIT),
+            ),
+        },
+    )
+
+
+def test_batch_timestamp_event_chain_is_exact_and_artifact_free() -> None:
+    recovery.validate_batch_timestamp_events(_batch_timestamp_events(), ())
+    bad = list(_batch_timestamp_events())
+    bad[-1] = {**bad[-1], "event_digest": "0" * 64}
+    with pytest.raises(recovery.TargetEventRecoveryError, match="identity"):
+        recovery.validate_batch_timestamp_events(bad, ())
+
+
+def test_batch_timestamp_operator_scope_is_exact(monkeypatch) -> None:
+    source_digest = "c" * 64
+    git_commit = "a" * 40
+    recovery_contract = {
+        "completed_source_contract_digests": sorted(
+            recovery.BATCH_TIMESTAMP_COMPLETED_SOURCE_DIGESTS
+        ),
+        "current_manifest_digest": recovery.BATCH_TIMESTAMP_MANIFEST_DIGEST,
+        "failed_execution_id": recovery.BATCH_TIMESTAMP_EXECUTION_ID,
+        "failed_task_digest": recovery.BATCH_TIMESTAMP_TASK_DIGEST,
+        "failed_task_key": recovery.BATCH_TIMESTAMP_TASK_KEY,
+        "frozen_goal_digest": recovery.LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (
+            recovery.BATCH_TIMESTAMP_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+    }
+    payload = {
+        "version": "batch-timestamp-recovery",
+        "commit": git_commit,
+        "checks": {"batch_timestamp_failure_recovery": recovery_contract},
+        "rollback": {},
+    }
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    request = SimpleNamespace(
+        id=744,
+        request_type=AgentRequestType.OPERATOR_RELEASE,
+        status=AgentRequestStatus.EXECUTING,
+        payload=payload,
+        metadata={"payload_sha256": payload_sha},
+    )
+    repository = SimpleNamespace(
+        get_request=lambda _: request,
+        list_decisions=lambda _: [
+            SimpleNamespace(
+                id=3150,
+                decision_code="request_approved",
+                previous_status="under_review",
+                new_status="approved",
+                decided_by_role=AgentRole.REVIEWER,
+            )
+        ],
+        list_execution_metadata=lambda _: [
+            SimpleNamespace(
+                id=599,
+                status=AgentExecutionStatus.RUNNING,
+                environment="production",
+                executor_role=AgentRole.OPERATOR,
+            )
+        ],
+    )
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "operator")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "3150")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "599")
+    assert (
+        recovery.validate_batch_timestamp_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )["payload_sha256"]
+        == payload_sha
+    )
+    request.payload = {**payload, "commit": "b" * 40}
+    with pytest.raises(recovery.TargetEventRecoveryError, match="scope"):
+        recovery.validate_batch_timestamp_operator_scope(
             repository=repository,
             source_digest=source_digest,
             git_commit=git_commit,
