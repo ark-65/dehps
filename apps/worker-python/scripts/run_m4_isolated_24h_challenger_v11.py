@@ -248,6 +248,16 @@ USER_SCOPE_COMMITTED_ENGINEERING_EXECUTION_ID = 617
 USER_SCOPE_COMMITTED_ENGINEERING_PAYLOAD_SHA256 = (
     "1279b78cfdf498c6107ede9b351e8baf080b1ad9a6eee15e212a180d0e948637"
 )
+MIRROR_COMPLETENESS_REPAIR_BASE_COMMIT = "da54f0d0a31b456ab6e9b2ea694948772c7342af"
+MIRROR_COMPLETENESS_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-dict-row-mirror-completeness-fix-v1"
+)
+MIRROR_COMPLETENESS_ENGINEERING_REQUEST_ID = 767
+MIRROR_COMPLETENESS_ENGINEERING_DECISION_ID = 3267
+MIRROR_COMPLETENESS_ENGINEERING_EXECUTION_ID = 622
+MIRROR_COMPLETENESS_ENGINEERING_PAYLOAD_SHA256 = (
+    "0b77f38eece1d87745e2ab559a80a0958c0b1cfc585c79fed4e3687680366f81"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -258,6 +268,37 @@ USER_SCOPE_MANDATORY_MAIL_KINDS = (
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
     pass
+
+
+def _validate_mirror_completeness_repair_source_binding(
+    source_contract: Mapping[str, Any],
+) -> None:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "mirror_completeness_repair_base_merged_commit": (
+            MIRROR_COMPLETENESS_REPAIR_BASE_COMMIT
+        ),
+        "mirror_completeness_repair_engineering_approval_decision_id": (
+            MIRROR_COMPLETENESS_ENGINEERING_DECISION_ID
+        ),
+        "mirror_completeness_repair_engineering_execution_id": (
+            MIRROR_COMPLETENESS_ENGINEERING_EXECUTION_ID
+        ),
+        "mirror_completeness_repair_engineering_request_id": (
+            MIRROR_COMPLETENESS_ENGINEERING_REQUEST_ID
+        ),
+        "mirror_completeness_repair_engineering_request_key": (
+            MIRROR_COMPLETENESS_ENGINEERING_REQUEST_KEY
+        ),
+        "mirror_completeness_repair_engineering_request_payload_sha256": (
+            MIRROR_COMPLETENESS_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+    ):
+        raise IsolatedRunnerError("mirror_completeness_repair_binding_changed")
 
 
 def _validate_user_scope_resume_event_set(
@@ -2607,23 +2648,40 @@ def _search_batch_mirror_complete(
         counts = cursor.execute(
             "SELECT "
             "(SELECT count(*) FROM m4_isolated_v11.candidate_registrations "
-            " WHERE registration_seq=%s),"
+            " WHERE registration_seq=%s) AS candidates,"
             "(SELECT count(*) FROM m4_isolated_v11.candidate_registrations "
-            " WHERE registration_seq=%s AND state='TERMINAL'),"
+            " WHERE registration_seq=%s AND state='TERMINAL') AS terminal,"
             "(SELECT count(*) FROM m4_isolated_v11.candidate_results x JOIN "
             " m4_isolated_v11.candidate_registrations r USING(candidate_id) "
-            " WHERE r.registration_seq=%s),"
+            " WHERE r.registration_seq=%s) AS results,"
             "(SELECT count(*) FROM m4_isolated_v11.execution_attempts a JOIN "
             " m4_isolated_v11.candidate_registrations r USING(candidate_id) "
-            " WHERE r.registration_seq=%s),"
+            " WHERE r.registration_seq=%s) AS attempts,"
             "(SELECT count(*) FROM m4_isolated_v11.execution_attempts a JOIN "
             " m4_isolated_v11.candidate_registrations r USING(candidate_id) "
-            " WHERE r.registration_seq=%s AND a.artifact_committed)",
+            " WHERE r.registration_seq=%s AND a.artifact_committed) "
+            "AS committed_attempts",
             (int(batch["registration_seq"]),) * 5,
         ).fetchone()
     if counts is None:
         return False
-    candidates, terminal, results, attempts, committed_attempts = map(int, counts)
+    expected_count_keys = {
+        "candidates",
+        "terminal",
+        "results",
+        "attempts",
+        "committed_attempts",
+    }
+    if not isinstance(counts, Mapping) or set(counts) != expected_count_keys:
+        raise IsolatedRunnerError("search_batch_mirror_count_row_changed")
+    try:
+        candidates = int(counts["candidates"])
+        terminal = int(counts["terminal"])
+        results = int(counts["results"])
+        attempts = int(counts["attempts"])
+        committed_attempts = int(counts["committed_attempts"])
+    except (TypeError, ValueError) as exc:
+        raise IsolatedRunnerError("search_batch_mirror_count_value_changed") from exc
     return bool(
         candidates == contract.ATTEMPTS_PER_BATCH
         and terminal == candidates
@@ -4177,6 +4235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    _validate_mirror_completeness_repair_source_binding(source)
     source_digest = str(source["artifact_digest"])
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True

@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "ecaf63edf57675398bb19b7331a5b97dcdf4b199b790ee68005c79aced864ce6",
+  "artifact_digest": "b677db9527c7819ffa15c9a04e829c566e6ace21c46636a7cae8a4f3de44dcb1",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -61,6 +61,12 @@
     "committed_replay_repair_engineering_request_id": 762,
     "committed_replay_repair_engineering_request_key": "engineering-m4-isolated-v11-exact-sequence3-committed-replay-ledger-recovery-v1",
     "committed_replay_repair_engineering_request_payload_sha256": "1279b78cfdf498c6107ede9b351e8baf080b1ad9a6eee15e212a180d0e948637",
+    "mirror_completeness_repair_base_merged_commit": "da54f0d0a31b456ab6e9b2ea694948772c7342af",
+    "mirror_completeness_repair_engineering_approval_decision_id": 3267,
+    "mirror_completeness_repair_engineering_execution_id": 622,
+    "mirror_completeness_repair_engineering_request_id": 767,
+    "mirror_completeness_repair_engineering_request_key": "engineering-m4-isolated-v11-dict-row-mirror-completeness-fix-v1",
+    "mirror_completeness_repair_engineering_request_payload_sha256": "0b77f38eece1d87745e2ab559a80a0958c0b1cfc585c79fed4e3687680366f81",
     "input_identity_repair_base_merged_commit": "f44678604ba1413785bb6c7b57570396cdf5261d",
     "input_identity_repair_engineering_approval_decision_id": 3114,
     "input_identity_repair_engineering_execution_id": 592,
@@ -220,9 +226,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 177467,
+      "bytes": 179879,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "e0106ebe604aee05efad251924138eb9348355b5e6da9c1d9bb336367633fcaa"
+      "sha256": "6e192275d04b8dced1ded92d743b17cadf3fbc492363d9dcd05e74a2b7d5ce8b"
     },
     {
       "bytes": 17768,
@@ -285,5 +291,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "f3a3c33f532b5463088d87ac633e42daa926b0fd029a699c3dfbd2be1885d44f"
+  "source_set_digest": "0942e7b6095e6197e149da4b246b1702dcc61e3f21f138736fa3c0318dcc9cb8"
 }
