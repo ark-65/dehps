@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780",
+  "artifact_digest": "ed40998bfcd53d3529884f975e8e1394114dfd9acc81dfeb1119dda68180cec2",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -31,6 +31,18 @@
     "failed_state_recovery_gate_engineering_request_id": 750,
     "failed_state_recovery_gate_engineering_request_key": "engineering-m4-isolated-v11-failed-state-to-running-recovery-gate-v1",
     "failed_state_recovery_gate_engineering_request_payload_sha256": "db00234098f0f27d68c05deb427c4c2897a0406860343adbc5bad281b474071b",
+    "sequence2_completion_gate_base_merged_commit": "c30db93efb428198b4d7c0c0548feefbd315ba59",
+    "sequence2_completion_gate_engineering_approval_decision_id": 3192,
+    "sequence2_completion_gate_engineering_execution_id": 607,
+    "sequence2_completion_gate_engineering_request_id": 752,
+    "sequence2_completion_gate_engineering_request_key": "engineering-m4-isolated-v11-sequence2-atomic-completion-gate-v1",
+    "sequence2_completion_gate_engineering_request_payload_sha256": "8be2ab76cb27cf5fff1d99519eaf8f760063d17b987585ffed1dbb4dfc37972d",
+    "sequence3_guard_recovery_base_merged_commit": "c30db93efb428198b4d7c0c0548feefbd315ba59",
+    "sequence3_guard_recovery_engineering_approval_decision_id": 3197,
+    "sequence3_guard_recovery_engineering_execution_id": 608,
+    "sequence3_guard_recovery_engineering_request_id": 753,
+    "sequence3_guard_recovery_engineering_request_key": "engineering-m4-isolated-v11-sequence3-guard-failure-resume-v1",
+    "sequence3_guard_recovery_engineering_request_payload_sha256": "c8ea6f9583faba341e9e53a660d198c80ca123a6b11e8be7411718df3844f2f0",
     "input_identity_repair_base_merged_commit": "f44678604ba1413785bb6c7b57570396cdf5261d",
     "input_identity_repair_engineering_approval_decision_id": 3114,
     "input_identity_repair_engineering_execution_id": 592,
@@ -170,9 +182,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 251167,
+      "bytes": 257010,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "429b712b3c4eb2fbce0e1683ec7aa18af83509cf005923f8b913f06b49e1c52f"
+      "sha256": "f7f8d58755e5507f62b0a09e3a0cde3958579ecfc3b92b8227c57baeeafc7977"
     },
     {
       "bytes": 9947,
@@ -190,9 +202,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 141493,
+      "bytes": 151679,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "dff6d974a0b6ef7740cb868f4bcc80e5a0ee67609963a846a106952c687ded2f"
+      "sha256": "117b8a45803875a469a0990f0127006a741d0bef52a69034aea4cc1d8aebc44e"
     },
     {
       "bytes": 17768,
@@ -255,5 +267,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "ae38625bfe9af94c99365d657a88a1338da5ffaa49831a9f97321e8fb4240ee4"
+  "source_set_digest": "e6e2bf79072bef9b7e9f2615d6e1d8b0855069090ffe5be3bd1a5e354b09fe70"
 }

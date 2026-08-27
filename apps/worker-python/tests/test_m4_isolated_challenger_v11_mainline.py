@@ -729,13 +729,13 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
     assert (
         started.artifact_digest == mainline._EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST
     )
-    assert failed.artifact_digest == mainline._EXACT_FAILED_RECOVERY_EVENT_DIGEST
+    assert failed.artifact_digest == mainline._EXACT_SEQUENCE2_FAILED_EVENT_DIGEST
     attestation = {
         "schema_version": (
             "dehps-m4-isolated-v11-same-key-event-isolation-runtime-migration.v2"
         ),
         "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
-        "artifact_digest": mainline._EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST,
+        "artifact_digest": mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST,
         "scientific_contract_changed": False,
         "workload_definition_changed": False,
         "formal_p3_mutated": False,
@@ -791,7 +791,7 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
                 "same-key-event-isolation-runtime-migration.v11"
             ),
         )
-        == mainline._EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+        == mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST
     )
     path = (
         tmp_path
@@ -799,7 +799,7 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
         / mainline._EXACT_FAILED_RECOVERY_TASK_KEY
         / mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID
         / "runtime-migrations"
-        / mainline._EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+        / mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST
         / "user-systemd-runtime-migration.json"
     )
     path.parent.mkdir(parents=True)
@@ -810,10 +810,10 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
         mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
     )
     supervisor.failed_recovery_event_digest = (
-        mainline._EXACT_FAILED_RECOVERY_EVENT_DIGEST
+        mainline._EXACT_SEQUENCE2_FAILED_EVENT_DIGEST
     )
     supervisor.failed_recovery_attestation_digest = (
-        mainline._EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+        mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST
     )
     task = SimpleNamespace(
         task_key=mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
@@ -821,16 +821,308 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
         input_artifact_digests=(mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,),
     )
     events = (event_payload(started), event_payload(failed))
+
+    class _Repository:
+        @staticmethod
+        def list_mainline_execution_events(**kwargs):
+            assert kwargs == {
+                "control_plane_key": contract.CONTROL_PLANE_KEY,
+                "task_key": mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+                "execution_id": mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+            }
+            return events
+
+    supervisor.repository = _Repository()
+    supervisor.control_plane_key = contract.CONTROL_PLANE_KEY
     assert (
         supervisor._validated_additional_failed_recovery_event(task=task, events=events)
         == events[1]
     )
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        terminal_sequence=2,
+    )
+    for changed in (
+        {"execution_id": "f" * 64},
+        {"terminal_sequence": 3},
+        {
+            "task": SimpleNamespace(
+                task_key="changed",
+                artifact_digest=mainline._EXACT_FAILED_RECOVERY_TASK_DIGEST,
+                input_artifact_digests=(
+                    mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,
+                ),
+            )
+        },
+    ):
+        arguments = {
+            "task": task,
+            "execution_id": mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+            "terminal_sequence": 2,
+            **changed,
+        }
+        with pytest.raises(
+            mainline.MainlineSupervisorError,
+            match="completion authorization changed",
+        ):
+            supervisor._has_validated_m4_p3_runtime_recovery(**arguments)
     path.write_text(json.dumps({**attestation, "repair": "changed"}), encoding="utf-8")
     with pytest.raises(
         mainline.MainlineSupervisorError,
         match="attestation changed",
     ):
         supervisor._validated_additional_failed_recovery_event(task=task, events=events)
+
+
+def test_isolated_completion_hook_delegates_when_no_recovery_token(monkeypatch) -> None:
+    supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
+    supervisor.failed_recovery_event_digest = ""
+    supervisor.failed_recovery_attestation_digest = ""
+    task = SimpleNamespace(task_key="ordinary", artifact_digest="a" * 64)
+    observed: list[tuple[object, str, int]] = []
+
+    def delegated(self, *, task, execution_id, terminal_sequence=2):
+        observed.append((task, execution_id, terminal_sequence))
+        return True
+
+    monkeypatch.setattr(
+        mainline.supervisor_module.ResearchEvidenceSupervisor,
+        "_has_validated_m4_p3_runtime_recovery",
+        delegated,
+    )
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id="b" * 64,
+        terminal_sequence=3,
+    )
+    assert observed == [(task, "b" * 64, 3)]
+
+
+def test_terminal_attempt_crash_resume_performs_zero_new_training() -> None:
+    configurations = mainline.search.base_configurations(
+        snapshot_digest="1" * 64,
+        source_contract_digest="2" * 64,
+    )
+    jobs = mainline.search.plan_batch(configurations, cursor=0)
+    initial_outcomes = {
+        job.candidate_id: mainline.search.deterministic_candidate_result(job)
+        for job in jobs
+    }
+    initial_attempts = tuple(
+        mainline.search.CandidateAttemptOutcome(
+            candidate_id=job.candidate_id,
+            retry_ordinal=0,
+            status=initial_outcomes[job.candidate_id].status,
+            reason=initial_outcomes[job.candidate_id].error_code,
+        )
+        for job in jobs
+    )
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("terminal attempts must not be leased or executed again")
+
+    outcomes, attempts = mainline.search.execute_history_jobs_with_retries(
+        jobs,
+        history=(),
+        activity_probe=forbidden,
+        quiescence_waiter=forbidden,
+        initial_outcomes=initial_outcomes,
+        initial_attempts=initial_attempts,
+        on_lease=forbidden,
+        on_started=forbidden,
+        on_unstarted=forbidden,
+        on_heartbeat=forbidden,
+        on_attempt=forbidden,
+        preemption_reason_probe=forbidden,
+    )
+    assert outcomes == tuple(initial_outcomes[job.candidate_id] for job in jobs)
+    assert attempts == initial_attempts
+    assert len(outcomes) == contract.ATTEMPTS_PER_BATCH
+
+
+def test_exact_sequence3_guard_recovery_binds_three_events_and_attestation(
+    tmp_path: Path,
+) -> None:
+    shared = {
+        "control_plane_key": contract.CONTROL_PLANE_KEY,
+        "manifest_digest": mainline._EXACT_FAILED_RECOVERY_MANIFEST_DIGEST,
+        "task_key": mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+        "task_digest": mainline._EXACT_FAILED_RECOVERY_TASK_DIGEST,
+        "capability": "M4IsolatedSearchBatchCapabilityV11",
+        "execution_id": mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+    }
+    records = (
+        MainlineExecutionEvent(
+            **shared,
+            event_type="started",
+            sequence=0,
+            recorded_at="2026-08-27T19:56:35.300063+00:00",
+            payload=(
+                (
+                    "input_artifact_digests",
+                    [mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST],
+                ),
+                ("git_commit", mainline._EXACT_FAILED_RECOVERY_ORIGIN_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            event_type="failed",
+            sequence=1,
+            recorded_at="2026-08-27T20:59:52.863000+00:00",
+            payload=(
+                ("error", "atomic_registration_resume_changed"),
+                ("git_commit", mainline._EXACT_FAILED_RECOVERY_ORIGIN_COMMIT),
+            ),
+        ),
+        MainlineExecutionEvent(
+            **shared,
+            event_type="failed",
+            sequence=2,
+            recorded_at="2026-08-27T21:48:34.466338+00:00",
+            payload=(
+                (
+                    "error",
+                    "M4-v2 atomic successor does not permit failed-execution recovery",
+                ),
+                ("git_commit", mainline._EXACT_FAILED_RECOVERY_ORIGIN_COMMIT),
+            ),
+        ),
+    )
+
+    def payload(event: MainlineExecutionEvent) -> dict[str, object]:
+        return {
+            "event_digest": event.artifact_digest,
+            "execution_id": event.execution_id,
+            "control_plane_key": event.control_plane_key,
+            "manifest_digest": event.manifest_digest,
+            "task_key": event.task_key,
+            "task_digest": event.task_digest,
+            "capability": event.capability,
+            "event_type": event.event_type,
+            "sequence": event.sequence,
+            "recorded_at": event.recorded_at,
+            "payload": list(event.payload),
+        }
+
+    events = tuple(payload(item) for item in records)
+    assert records[2].artifact_digest == mainline._EXACT_SEQUENCE3_FAILED_EVENT_DIGEST
+    attestation = {
+        "schema_version": (
+            "dehps-m4-isolated-v11-utc-registration-failed-event-runtime-migration.v3"
+        ),
+        "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
+        "artifact_digest": mainline._EXACT_SEQUENCE3_ATTESTATION_DIGEST,
+        "scientific_contract_changed": False,
+        "workload_definition_changed": False,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "task_key": mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+        "task_digest": mainline._EXACT_FAILED_RECOVERY_TASK_DIGEST,
+        "execution_id": mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        "started_event_digest": mainline._EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST,
+        "failed_event_digest": mainline._EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
+        "origin_git_commit": mainline._EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+        "runtime_git_commit": "c30db93efb428198b4d7c0c0548feefbd315ba59",
+        "origin_source_contract_digest": (
+            mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
+        ),
+        "runtime_source_contract_digest": (
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780"
+        ),
+        "repair": "UTC_REGISTRATION_RESUME_AND_EXACT_FAILED_EVENT_RECOVERY",
+        "predecessor_attestation_digest": (
+            mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST
+        ),
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_before_resume": 0,
+        "candidate_results_before_resume": 0,
+        "mail_delivery_before_resume": 0,
+        "governance": {
+            "phase": "resume",
+            "engineering_request_id": 750,
+            "engineering_decision_id": 3182,
+            "engineering_execution_id": 605,
+            "operator_request_id": 751,
+            "operator_decision_id": 3187,
+            "operator_execution_id": 606,
+            "operator_payload_sha256": (
+                "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5"
+            ),
+        },
+        "parent_digests": [
+            mainline._EXACT_FAILED_RECOVERY_TASK_DIGEST,
+            mainline._EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST,
+            mainline._EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
+            mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,
+            "7ef55ac4b726e39d1cfe5a0a6f3382d435c5d123c10618b4aee91a51454c1780",
+            mainline._EXACT_SEQUENCE2_ATTESTATION_DIGEST,
+            "9b533534e88b9b0476f9becd02456863cd70e8385c19053e19f023c2e5e123a5",
+        ],
+    }
+    identity = dict(attestation)
+    identity.pop("artifact_digest")
+    assert (
+        contract.domain_digest(
+            identity,
+            domain=(
+                "dehps.m4.isolated-24h-challenger."
+                "utc-registration-failed-event-runtime-migration.v11"
+            ),
+        )
+        == mainline._EXACT_SEQUENCE3_ATTESTATION_DIGEST
+    )
+    path = (
+        tmp_path
+        / "runtime/research-os/mainline/tasks"
+        / mainline._EXACT_FAILED_RECOVERY_TASK_KEY
+        / mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID
+        / "runtime-migrations"
+        / mainline._EXACT_SEQUENCE3_ATTESTATION_DIGEST
+        / "user-systemd-runtime-migration.json"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+
+    class _Repository:
+        @staticmethod
+        def list_mainline_execution_events(**_kwargs):
+            return events
+
+    supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
+    supervisor.root_dir = tmp_path
+    supervisor.repository = _Repository()
+    supervisor.control_plane_key = contract.CONTROL_PLANE_KEY
+    supervisor.isolated_source_digest = (
+        mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
+    )
+    supervisor.failed_recovery_event_digest = (
+        mainline._EXACT_SEQUENCE3_FAILED_EVENT_DIGEST
+    )
+    supervisor.failed_recovery_attestation_digest = (
+        mainline._EXACT_SEQUENCE3_ATTESTATION_DIGEST
+    )
+    task = SimpleNamespace(
+        task_key=mainline._EXACT_FAILED_RECOVERY_TASK_KEY,
+        artifact_digest=mainline._EXACT_FAILED_RECOVERY_TASK_DIGEST,
+        input_artifact_digests=(mainline._EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,),
+    )
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=mainline._EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        terminal_sequence=3,
+    )
+    corrupted = list(events)
+    corrupted[2] = {**corrupted[2], "recorded_at": "2026-08-27T21:48:34+00:00"}
+    with pytest.raises(
+        mainline.MainlineSupervisorError,
+        match="digest changed|guard event changed",
+    ):
+        supervisor._validated_additional_failed_recovery_event(
+            task=task,
+            events=tuple(corrupted),
+        )
 
 
 def test_registered_input_persistence_is_exact_and_idempotent() -> None:
