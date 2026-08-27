@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "f067bc89f60826c15793e1ab6325a3dce088dd7c2af3e1c99e984d3aada50dd1",
+  "artifact_digest": "5452fc522812220b6654c2bb8e54b8844b0c2fdab251d392c2af8de501e659ec",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -37,6 +37,12 @@
     "history_common_field_repair_engineering_request_id": 738,
     "history_common_field_repair_engineering_request_key": "engineering-m4-isolated-v11-history-snapshot-common-field-and-failed-task-recovery-v1",
     "history_common_field_repair_engineering_request_payload_sha256": "f83997ac4aeff415db42687f2696dbf084d57a87cdbca0def92e15b5a5c3ac50",
+    "genesis_common_field_repair_base_merged_commit": "ee3bda39779bf14acb13b1caf6a537ba66651023",
+    "genesis_common_field_repair_engineering_approval_decision_id": 3137,
+    "genesis_common_field_repair_engineering_execution_id": 596,
+    "genesis_common_field_repair_engineering_request_id": 741,
+    "genesis_common_field_repair_engineering_request_key": "engineering-m4-isolated-v11-remaining-common-body-collisions-and-genesis-recovery-v2",
+    "genesis_common_field_repair_engineering_request_payload_sha256": "bd0b4b2b2734341a6f7bb22d6c6fc7777f5e9e861060aeff79fe3d9d6421a6f5",
     "frozen_goal_rebind_repair_base_merged_commit": "9ac5e74f91599f35d24290e7f790ac1cca8eb82d",
     "frozen_goal_rebind_repair_engineering_approval_decision_id": 3089,
     "frozen_goal_rebind_repair_engineering_execution_id": 587,
@@ -134,9 +140,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 243151,
+      "bytes": 243033,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "085c62bc007e3fe2c978eb6273dc5f20d6c03992e4c2e975885fc0535cc181ef"
+      "sha256": "dfd01d1c8b24a5605bbedecf57e47fbc66953278140fc9d30889a0a2b45c72b9"
     },
     {
       "bytes": 9947,
@@ -154,9 +160,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 97328,
+      "bytes": 97404,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "9e89b3244a2bd7856922b979ed155ce7f74a77ace3a52c802f0fc2950ad7311e"
+      "sha256": "4178b66edf1b61f76fa2b754c35a72c690b14c6ce1c20a346cb6b0f319e4cbaa"
     },
     {
       "bytes": 17768,
@@ -219,5 +225,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "f9788ef685bf98c1508ea097ba987ce6148b6ad1c778f11772da25002c510c21"
+  "source_set_digest": "03fec1acf3da92beea3633d0e0bf2170f4a3ceac2323e889c18d3d7a73638365"
 }

@@ -2158,24 +2158,22 @@ class IsolatedV11Capability:
         empty = self._build(
             artifact_type="M4IsolatedEmptyMultiplicityHeadV11",
             task_key=task_key,
-            target_issue=None,
+            target_issue=self.context["target_issue"],
             git_commit=git_commit,
             parent_digests=parents,
             type_body={
                 "registration_seq": -1,
                 "m_total": 0,
-                "target_issue": self.context["target_issue"],
             },
         )
         checkpoint = self._build(
             artifact_type="M4IsolatedSearchCheckpointV11",
             task_key=task_key,
-            target_issue=None,
+            target_issue=self.context["target_issue"],
             git_commit=git_commit,
             parent_digests=(empty["artifact_digest"],),
             type_body={
                 "batch_seq": -1,
-                "target_issue": self.context["target_issue"],
                 "base_cursor": 0,
                 "adaptive_cursor": None,
                 "m_total": 0,
@@ -3437,7 +3435,7 @@ class IsolatedV11Capability:
             self._build(
                 artifact_type="M4IsolatedSearchCheckpointV11",
                 task_key=task_key,
-                target_issue=None,
+                target_issue=self.context["target_issue"],
                 git_commit=git_commit,
                 parent_digests=(
                     predecessor["artifact_digest"],
@@ -3447,7 +3445,6 @@ class IsolatedV11Capability:
                 ),
                 type_body={
                     "batch_seq": batch_seq,
-                    "target_issue": self.context["target_issue"],
                     "epoch_date": self.context["epoch_date"],
                     "base_cursor": int(batch_plan["base_cursor_after"]),
                     "adaptive_cursor": int(batch_plan["adaptive_cursor_after"]),

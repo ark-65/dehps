@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -469,6 +470,102 @@ def test_production_history_snapshot_uses_target_issue_only_as_common_field(
         target_draw_date="2026-08-30",
     )
     assert artifacts.validate_artifact(artifact) == artifact
+
+
+def test_production_genesis_uses_target_issue_only_as_common_field() -> None:
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params=None):
+            self.statement = statement
+            return self
+
+        def fetchone(self):
+            assert "multiplicity_head" in self.statement
+            return (-1, 0, None)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+    )
+    capability = mainline.IsolatedV11Capability(
+        capability_name="M4IsolatedSearchGenesisCapabilityV11",
+        context=context,
+        source_digest="1" * 64,
+        simulation=False,
+        repository=SimpleNamespace(connection_factory=lambda: _Connection()),
+        root_dir=Path.cwd(),
+    )
+    capability._active_created_at = "2026-08-28T00:00:00+08:00"
+    parents = {
+        "preregistration": {
+            "artifact_type": "M4IsolatedPreregistrationV11",
+            "artifact_digest": "2" * 64,
+        },
+        "history_snapshot": {
+            "artifact_type": "M4IsolatedHistorySnapshotV11",
+            "artifact_digest": "3" * 64,
+        },
+    }
+    capability._upstream = lambda name: (parents[name],)
+    values = capability._genesis(
+        task_key=contract.task_template_by_name("genesis").key(context),
+        git_commit="a" * 40,
+    )
+    assert {item["artifact_type"] for item in values} == {
+        "M4IsolatedEmptyMultiplicityHeadV11",
+        "M4IsolatedSearchCheckpointV11",
+    }
+    for item in values:
+        assert item["body"]["target_issue"] == "2026100"
+        type_body = {
+            key: value
+            for key, value in item["body"].items()
+            if key not in artifacts.COMMON_BODY_KEYS
+        }
+        assert "target_issue" not in type_body
+        assert artifacts.validate_artifact(item) == item
+
+
+def test_literal_production_type_bodies_never_repeat_common_envelope_fields() -> None:
+    tree = ast.parse(Path(mainline.__file__).read_text(encoding="utf-8"))
+    overlaps: list[tuple[int, list[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "_build"
+        ):
+            continue
+        keyword = next(
+            (item for item in node.keywords if item.arg == "type_body"), None
+        )
+        if keyword is None or not isinstance(keyword.value, ast.Dict):
+            continue
+        keys = {
+            item.value
+            for item in keyword.value.keys
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        }
+        overlap = sorted(keys & artifacts.COMMON_BODY_KEYS)
+        if overlap:
+            overlaps.append((node.lineno, overlap))
+    assert overlaps == []
 
 
 def test_registered_input_persistence_is_exact_and_idempotent() -> None:
