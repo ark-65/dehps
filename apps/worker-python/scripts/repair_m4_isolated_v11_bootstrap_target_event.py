@@ -44,9 +44,15 @@ from dehps.research_os.models import (
     TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+from dehps.research_os.supervisor import MainlineSupervisorError
 from run_m4_isolated_24h_challenger_v11 import (
     LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+    USER_SCOPE_COMMITTED_EVENT_DIGEST,
+    USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST,
+    USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST,
+    USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
     USER_SCOPE_RESUME_EXECUTION_ID,
+    USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
     USER_SCOPE_RESUME_MANIFEST_DIGEST,
     USER_SCOPE_RESUME_ORIGIN_COMMIT,
     USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
@@ -56,6 +62,7 @@ from run_m4_isolated_24h_challenger_v11 import (
     IsolatedChallengerRepository,
     _latest_history_identity,
     _task_context,
+    _validate_user_scope_resume_event_set,
     _verify_generic_replay,
     validate_user_scope_committed_recovery_governance,
 )
@@ -1410,29 +1417,46 @@ def validate_user_scope_post_batch_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
 ) -> str:
+    try:
+        _validate_user_scope_resume_event_set(events, allow_completed=True)
+    except (MainlineSupervisorError, ValueError) as exc:
+        raise TargetEventRecoveryError(
+            "user_scope_post_batch_event_integrity_changed"
+        ) from exc
     current = [
         item
         for item in events
         if item.get("task_digest") == USER_SCOPE_RESUME_TASK_DIGEST
     ]
-    if len(current) != 2:
+    if len(current) != 4:
         raise TargetEventRecoveryError("user_scope_post_batch_event_count_changed")
-    by_type = {str(item.get("event_type")): item for item in current}
-    if set(by_type) != {"started", "completed"}:
+    by_sequence = {int(item.get("sequence", -1)): item for item in current}
+    if set(by_sequence) != {0, 1, 2, 3}:
         raise TargetEventRecoveryError("user_scope_post_batch_event_types_changed")
-    started = by_type["started"]
-    completed = by_type["completed"]
+    started = by_sequence[0]
+    first_failed = by_sequence[1]
+    guard_failed = by_sequence[2]
+    completed = by_sequence[3]
     if (
         started.get("event_digest") != USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
+        or first_failed.get("event_digest") != USER_SCOPE_RESUME_FAILED_EVENT_DIGEST
+        or guard_failed.get("event_digest") != USER_SCOPE_GUARD_FAILED_EVENT_DIGEST
+        or completed.get("event_digest") != USER_SCOPE_COMMITTED_EVENT_DIGEST
         or started.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or first_failed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
+        or guard_failed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
         or completed.get("execution_id") != USER_SCOPE_RESUME_EXECUTION_ID
         or started.get("task_key") != USER_SCOPE_RESUME_TASK_KEY
         or completed.get("task_key") != USER_SCOPE_RESUME_TASK_KEY
         or started.get("capability") != "M4IsolatedSearchBatchCapabilityV11"
         or completed.get("capability") != "M4IsolatedSearchBatchCapabilityV11"
-        or started.get("sequence") != 0
-        or completed.get("sequence") != 1
+        or started.get("event_type") != "started"
+        or first_failed.get("event_type") != "failed"
+        or guard_failed.get("event_type") != "failed"
+        or completed.get("event_type") != "completed"
         or started.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or first_failed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
+        or guard_failed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
         or completed.get("manifest_digest") != USER_SCOPE_RESUME_MANIFEST_DIGEST
         or dict(started.get("payload") or ())
         != {
@@ -1451,7 +1475,8 @@ def validate_user_scope_post_batch_events(
         completed_payload.get("git_commit") != USER_SCOPE_RESUME_ORIGIN_COMMIT
         or completed_payload.get("workload_rerun") is not False
         or completed_payload.get("actual_fold_count") != contract.OUTER_FOLD_COUNT
-        or completed_payload.get("registered_artifact_count") != len(registrations)
+        or len(registrations) != 65
+        or completed_payload.get("registered_artifact_count") != 65
         or completed_payload.get("completion_facts") != []
         or completed_payload.get("additional_completed_task_keys") != []
         or completed_payload.get("formal_p3_mutated") is not False
@@ -1461,7 +1486,11 @@ def validate_user_scope_post_batch_events(
         or completed_payload.get("simulation") is not False
         or len(execution_registrations) != 1
         or completed_payload.get("execution_artifact_digest")
+        != USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+        or completed_payload.get("execution_artifact_digest")
         != execution_registrations[0].get("artifact_digest")
+        or completed_payload.get("publication_batch_digest")
+        != USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST
     ):
         raise TargetEventRecoveryError(
             "user_scope_post_batch_completion_payload_changed"
