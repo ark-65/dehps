@@ -207,7 +207,6 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
     )
     history_schema = mainline.build_registered_input(
         artifact_type="M4IsolatedHistorySchemaInputV11",
-        artifact_digest=schema,
         body={
             "schema_digest": schema,
             "history_query_digest": query,
@@ -217,7 +216,6 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
     )
     history_content = mainline.build_registered_input(
         artifact_type="M4IsolatedHistoryContentInputV11",
-        artifact_digest=content,
         body={
             "source_max_issue": "2026100",
             "source_max_draw_date": "2026-08-27",
@@ -232,7 +230,7 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
             "schedule_contract_digest": schedule,
             "source_contract_digest": source,
         },
-        parent_digests=(source, schema),
+        parent_digests=(source, history_schema["artifact_digest"]),
     )
     draw_body = {
         "issue": "2026101",
@@ -261,6 +259,74 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
     corrupted["body"]["source_contract_digest"] = "8" * 64
     with pytest.raises(mainline.IsolatedMainlineError, match="identity_changed"):
         mainline.validate_registered_input_payload(corrupted)
+
+
+def test_history_registered_inputs_are_source_qualified_and_parent_bound(
+    monkeypatch,
+) -> None:
+    raw_schema = "2" * 64
+    raw_content = "5" * 64
+    query = "3" * 64
+    schedule = "4" * 64
+
+    def values(source: str):
+        schema = mainline.build_registered_input(
+            artifact_type="M4IsolatedHistorySchemaInputV11",
+            body={
+                "schema_digest": raw_schema,
+                "history_query_digest": query,
+                "source_contract_digest": source,
+            },
+            parent_digests=(source,),
+        )
+        content = mainline.build_registered_input(
+            artifact_type="M4IsolatedHistoryContentInputV11",
+            body={
+                "source_max_issue": "2026099",
+                "source_max_draw_date": "2026-08-27",
+                "target_issue": "2026100",
+                "target_draw_date": "2026-08-30",
+                "deadline": "2026-08-30T17:00:00+08:00",
+                "official_draw_time": "2026-08-30T21:15:00+08:00",
+                "projection_time": "2026-08-28T00:27:06.982677+08:00",
+                "history_query_digest": query,
+                "history_content_digest": raw_content,
+                "schema_digest": raw_schema,
+                "schedule_contract_digest": schedule,
+                "source_contract_digest": source,
+            },
+            parent_digests=(source, schema["artifact_digest"]),
+        )
+        return schema, content
+
+    first_schema, first_content = values("1" * 64)
+    second_schema, second_content = values("6" * 64)
+    assert first_schema["body"]["schema_digest"] == raw_schema
+    assert second_schema["body"]["schema_digest"] == raw_schema
+    assert first_content["body"]["history_content_digest"] == raw_content
+    assert second_content["body"]["history_content_digest"] == raw_content
+    assert first_schema["artifact_digest"] != second_schema["artifact_digest"]
+    assert first_content["artifact_digest"] != second_content["artifact_digest"]
+
+    monkeypatch.setattr(
+        mainline,
+        "load_registered_input",
+        lambda **_kwargs: first_schema,
+    )
+    mainline._validate_history_content_parent_binding(
+        repository=object(), payload=first_content
+    )
+    corrupted_schema = deepcopy(first_schema)
+    corrupted_schema["body"]["schema_digest"] = "7" * 64
+    monkeypatch.setattr(
+        mainline,
+        "load_registered_input",
+        lambda **_kwargs: corrupted_schema,
+    )
+    with pytest.raises(mainline.IsolatedMainlineError, match="schema_parent_changed"):
+        mainline._validate_history_content_parent_binding(
+            repository=object(), payload=first_content
+        )
 
 
 def test_production_target_projection_uses_target_issue_only_as_common_field(

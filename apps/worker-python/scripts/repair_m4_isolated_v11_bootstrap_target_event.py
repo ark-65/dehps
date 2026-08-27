@@ -99,6 +99,33 @@ FAILED_READY_OPERATOR_REQUEST_KEY = (
 )
 FAILED_READY_OPERATOR_REQUEST_ID = 732
 FAILED_READY_OPERATOR_EXECUTION_ID = 588
+INPUT_COLLISION_MANIFEST_DIGEST = (
+    "3d2a4e2a51c3f21b3429a4526e1bda2ce93d26f89a97921af2d5981fbe59e4f9"
+)
+INPUT_COLLISION_TARGET_TASK_DIGEST = (
+    "bd8662a0784fbf22e1dffd9417f739690787f2911cbb925e2b840a5c9f6efcc7"
+)
+INPUT_COLLISION_EXECUTION_ID = (
+    "74f5c0b55d55bff20503d56bb3157737a8a48c3efef99547170a48af409b6e6c"
+)
+INPUT_COLLISION_STARTED_EVENT_DIGEST = (
+    "814b666f8b61209abcd5e7ee400013c1a35f3d7598666f8f2688d417efc079fe"
+)
+INPUT_COLLISION_FAILED_EVENT_DIGEST = (
+    "6ec2de491cded6b9e481d788922c961a04e614b8238850b8962716db991a6415"
+)
+INPUT_COLLISION_GIT_COMMIT = "f44678604ba1413785bb6c7b57570396cdf5261d"
+INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST = (
+    "45cd0aff1964f603ffb698da019a9803681dbe480c7bee9a322a592a05b79ffc"
+)
+INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS = frozenset(
+    {PREDECESSOR_SOURCE_DIGEST, INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST}
+)
+FAILED_INPUT_COLLISION_OPERATOR_REQUEST_KEY = (
+    "operator-m4-isolated-v11-ready-rebind-train-mail-deploy-v1"
+)
+FAILED_INPUT_COLLISION_OPERATOR_REQUEST_ID = 734
+FAILED_INPUT_COLLISION_OPERATOR_EXECUTION_ID = 590
 
 
 class TargetEventRecoveryError(RuntimeError):
@@ -458,6 +485,131 @@ def build_ready_source_rebind(
     return incoming
 
 
+def build_input_collision_rebind(
+    current: ControlPlaneManifest,
+    *,
+    source_digest: str,
+    expected_manifest_digest: str = INPUT_COLLISION_MANIFEST_DIGEST,
+) -> ControlPlaneManifest:
+    if current.artifact_digest != expected_manifest_digest:
+        raise TargetEventRecoveryError("input_collision_manifest_identity_changed")
+    if source_digest in INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS:
+        raise TargetEventRecoveryError("input_collision_source_not_advanced")
+    if (
+        len(current.goals) != 1
+        or current.goals[0].artifact_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        or any(
+            task.goal_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            for task in current.tasks
+        )
+    ):
+        raise TargetEventRecoveryError("input_collision_goal_identity_changed")
+    if EVENT not in current.facts.external_events:
+        raise TargetEventRecoveryError("input_collision_target_event_missing")
+    old_target = next(
+        (item for item in current.tasks if item.task_key == TARGET_TASK_KEY), None
+    )
+    if (
+        old_target is None
+        or old_target.artifact_digest != INPUT_COLLISION_TARGET_TASK_DIGEST
+    ):
+        raise TargetEventRecoveryError("input_collision_target_definition_changed")
+    old_target_state = current.task_state_by_digest[old_target.artifact_digest]
+    if (
+        old_target_state.declared_status is not TaskStatus.FAILED
+        or old_target_state.completion_classification
+        is not CompletionClassification.INTEGRATED
+        or old_target_state.superseded_by_task_digest is not None
+    ):
+        raise TargetEventRecoveryError("input_collision_target_state_changed")
+
+    tasks = []
+    states = []
+    rebuilt_keys: list[str] = []
+    completed_count = 0
+    for task in current.tasks:
+        state = current.task_state_by_digest[task.artifact_digest]
+        metric = json.loads(task.metric_contract)
+        bound_source = metric.get("source_contract_digest")
+        if state.declared_status is TaskStatus.COMPLETED:
+            completion_prefix = (
+                f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            )
+            if (
+                bound_source not in INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS
+                or state.completion_classification
+                is not CompletionClassification.COMPLETE
+                or state.superseded_by_task_digest is not None
+                or not any(
+                    fact.startswith(completion_prefix) and fact.endswith(":completed")
+                    for fact in current.facts.artifacts
+                )
+            ):
+                raise TargetEventRecoveryError("input_collision_completed_task_changed")
+            tasks.append(task)
+            states.append(state)
+            completed_count += 1
+            continue
+        if bound_source != INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST:
+            raise TargetEventRecoveryError("input_collision_uncompleted_source_changed")
+        if task.task_key == TARGET_TASK_KEY:
+            if state != old_target_state:
+                raise TargetEventRecoveryError("input_collision_target_state_changed")
+        elif (
+            state.declared_status is not TaskStatus.DRAFT
+            or state.completion_classification
+            is not CompletionClassification.INTEGRATION_PENDING
+            or state.superseded_by_task_digest is not None
+        ):
+            raise TargetEventRecoveryError("input_collision_uncompleted_state_changed")
+        context = _task_context(task)
+        expected_payload, _ = builder.build_manifest(
+            context=context,
+            source_digest=source_digest,
+            operator_configuration_authorized=True,
+            simulation_events=False,
+        )
+        expected = ControlPlaneManifest.from_dict(expected_payload)
+        matches = [item for item in expected.tasks if item.task_key == task.task_key]
+        if len(matches) != 1:
+            raise TargetEventRecoveryError("input_collision_task_definition_missing")
+        rebound = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        tasks.append(rebound)
+        states.append(
+            TaskState(
+                task_digest=rebound.artifact_digest,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+                superseded_by_task_digest=None,
+            )
+        )
+        rebuilt_keys.append(task.task_key)
+    if (
+        completed_count != 13
+        or len(rebuilt_keys) != 9
+        or TARGET_TASK_KEY not in rebuilt_keys
+    ):
+        raise TargetEventRecoveryError("input_collision_rebind_count_changed")
+    incoming = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=tuple(tasks),
+        goal_states=current.goal_states,
+        task_states=tuple(states),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    if (
+        incoming.goals != current.goals
+        or incoming.goal_states != current.goal_states
+        or incoming.facts != current.facts
+        or len(incoming.tasks) != len(current.tasks)
+        or [item.task_key for item in incoming.tasks]
+        != [item.task_key for item in current.tasks]
+    ):
+        raise TargetEventRecoveryError("input_collision_rebind_delta_changed")
+    return incoming
+
+
 def validate_failed_target_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
@@ -494,6 +646,53 @@ def validate_failed_target_events(
         raise TargetEventRecoveryError("failed_target_event_identity_changed")
 
 
+def validate_input_collision_events(
+    events: Sequence[Mapping[str, Any]],
+    registrations: Sequence[Mapping[str, Any]],
+) -> None:
+    historical = [
+        item
+        for item in events
+        if item.get("execution_id") == FAILED_TARGET_EXECUTION_ID
+    ]
+    current = [
+        item
+        for item in events
+        if item.get("execution_id") == INPUT_COLLISION_EXECUTION_ID
+    ]
+    if len(events) != 4 or len(historical) != 2 or len(current) != 2:
+        raise TargetEventRecoveryError("input_collision_event_count_changed")
+    validate_failed_target_events(historical, ())
+    if registrations:
+        raise TargetEventRecoveryError("input_collision_artifact_count_changed")
+    by_type = {str(item.get("event_type")): item for item in current}
+    if set(by_type) != {"started", "failed"}:
+        raise TargetEventRecoveryError("input_collision_event_types_changed")
+    started = by_type["started"]
+    failed = by_type["failed"]
+    if (
+        started.get("event_digest") != INPUT_COLLISION_STARTED_EVENT_DIGEST
+        or failed.get("event_digest") != INPUT_COLLISION_FAILED_EVENT_DIGEST
+        or started.get("task_digest") != INPUT_COLLISION_TARGET_TASK_DIGEST
+        or failed.get("task_digest") != INPUT_COLLISION_TARGET_TASK_DIGEST
+        or started.get("task_key") != TARGET_TASK_KEY
+        or failed.get("task_key") != TARGET_TASK_KEY
+        or started.get("sequence") != 0
+        or failed.get("sequence") != 1
+        or dict(started.get("payload") or ())
+        != {
+            "input_artifact_digests": [INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST],
+            "git_commit": INPUT_COLLISION_GIT_COMMIT,
+        }
+        or dict(failed.get("payload") or ())
+        != {
+            "error": "registered_input_persistence_changed",
+            "git_commit": INPUT_COLLISION_GIT_COMMIT,
+        }
+    ):
+        raise TargetEventRecoveryError("input_collision_event_identity_changed")
+
+
 def _validate_failed_target_operator(repository: AgentRequestRepository) -> None:
     request = repository.get_request(FAILED_TARGET_OPERATOR_REQUEST_KEY)
     executions = [
@@ -510,6 +709,28 @@ def _validate_failed_target_operator(repository: AgentRequestRepository) -> None
         or executions[0].status is not AgentExecutionStatus.FAILED
     ):
         raise TargetEventRecoveryError("failed_target_operator_identity_changed")
+
+
+def _validate_failed_input_collision_operator(
+    repository: AgentRequestRepository,
+) -> None:
+    request = repository.get_request(FAILED_INPUT_COLLISION_OPERATOR_REQUEST_KEY)
+    executions = [
+        item
+        for item in repository.list_execution_metadata(
+            FAILED_INPUT_COLLISION_OPERATOR_REQUEST_KEY
+        )
+        if item.id == FAILED_INPUT_COLLISION_OPERATOR_EXECUTION_ID
+    ]
+    if (
+        request.id != FAILED_INPUT_COLLISION_OPERATOR_REQUEST_ID
+        or request.status is not AgentRequestStatus.FAILED
+        or len(executions) != 1
+        or executions[0].status is not AgentExecutionStatus.FAILED
+    ):
+        raise TargetEventRecoveryError(
+            "failed_input_collision_operator_identity_changed"
+        )
 
 
 def validate_failed_target_operator_scope(
@@ -718,6 +939,45 @@ def validate_ready_source_operator_scope(
     }
 
 
+def validate_input_collision_operator_scope(
+    *, repository: AgentRequestRepository, source_digest: str, git_commit: str
+) -> dict[str, int | str]:
+    governance = validate_operator_scope_common(repository=repository)
+    request = governance["request"]
+    checks = request.payload.get("checks")
+    recovery = (
+        checks.get("registered_input_collision_recovery")
+        if isinstance(checks, dict)
+        else None
+    )
+    if request.payload.get("commit") != git_commit or recovery != {
+        "completed_source_contract_digests": sorted(
+            INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS
+        ),
+        "current_manifest_digest": INPUT_COLLISION_MANIFEST_DIGEST,
+        "failed_execution_id": INPUT_COLLISION_EXECUTION_ID,
+        "failed_task_digest": INPUT_COLLISION_TARGET_TASK_DIGEST,
+        "failed_task_key": TARGET_TASK_KEY,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (
+            INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+    }:
+        raise TargetEventRecoveryError("input_collision_operator_scope_invalid")
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(request.payload).encode("utf-8")
+    ).hexdigest()
+    if request.metadata.get("payload_sha256") != payload_sha:
+        raise TargetEventRecoveryError("operator_payload_sha_changed")
+    return {
+        "request_id": request.id,
+        "decision_id": governance["decision_id"],
+        "execution_id": governance["execution_id"],
+        "payload_sha256": payload_sha,
+    }
+
+
 class ReadySourceRecoveryRepository(IsolatedChallengerRepository):
     def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
         super().__init__(context=context, source_digest=source_digest)
@@ -795,6 +1055,91 @@ class ReadySourceRecoveryRepository(IsolatedChallengerRepository):
             return result
         finally:
             self._ready_source_rebind_gate = None
+
+
+class InputCollisionRecoveryRepository(IsolatedChallengerRepository):
+    def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
+        super().__init__(context=context, source_digest=source_digest)
+        self._input_collision_rebind_gate: dict[str, Any] | None = None
+
+    def _verify_exact_transition(self, incoming: ControlPlaneManifest) -> None:
+        gate = self._input_collision_rebind_gate
+        if gate is None:
+            return super()._verify_exact_transition(incoming)
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_input_collision_rebind(
+            current, source_digest=self.source_digest
+        )
+        if (
+            gate.get("consumed") is not False
+            or gate.get("current_manifest_digest") != current.artifact_digest
+            or gate.get("incoming_manifest_digest") != incoming.artifact_digest
+            or expected.to_dict(include_digest=True)
+            != incoming.to_dict(include_digest=True)
+        ):
+            raise ResearchOSValidationError("input_collision_rebind_gate_changed")
+        gate["consumed"] = True
+
+    def _verify_mainline_completion_records(
+        self,
+        cursor: Any,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
+    ) -> None:
+        gate = self._input_collision_rebind_gate
+        if gate is None:
+            return super()._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+            )
+        if (
+            control_plane_key != contract.CONTROL_PLANE_KEY
+            or gate.get("consumed") is not True
+            or gate.get("incoming_manifest_digest") != manifest.artifact_digest
+        ):
+            raise ResearchOSValidationError(
+                "input_collision_rebind_completion_gate_changed"
+            )
+        PostgresResearchOSRepository._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
+
+    def apply_input_collision_rebind(self, incoming: ControlPlaneManifest) -> Any:
+        if self._input_collision_rebind_gate is not None:
+            raise TargetEventRecoveryError("input_collision_rebind_gate_reentrant")
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_input_collision_rebind(
+            current, source_digest=self.source_digest
+        )
+        if incoming.to_dict(include_digest=True) != expected.to_dict(
+            include_digest=True
+        ):
+            raise TargetEventRecoveryError("input_collision_rebind_manifest_changed")
+        self._input_collision_rebind_gate = {
+            "consumed": False,
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": incoming.artifact_digest,
+        }
+        try:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-v11-registered-input-collision-rebind-v1",
+            )
+            if self._input_collision_rebind_gate.get("consumed") is not True:
+                raise TargetEventRecoveryError(
+                    "input_collision_rebind_gate_not_consumed"
+                )
+            return result
+        finally:
+            self._input_collision_rebind_gate = None
 
 
 def run(*, apply: bool) -> dict[str, Any]:
@@ -1064,11 +1409,122 @@ def run_ready_source_rebind(*, apply: bool) -> dict[str, Any]:
     }
 
 
+def run_input_collision_rebind(*, apply: bool) -> dict[str, Any]:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise TargetEventRecoveryError("dirty_worktree")
+    git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+    ).strip()
+    source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    source_digest = str(source["artifact_digest"])
+    source_issue, source_date = _latest_history_identity()
+    context = contract.render_context(
+        source_max_issue=source_issue, source_max_draw_date=source_date
+    )
+    repository = InputCollisionRecoveryRepository(
+        context=context, source_digest=source_digest
+    )
+    current = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    incoming = build_input_collision_rebind(current, source_digest=source_digest)
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=TARGET_TASK_KEY,
+    )
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=INPUT_COLLISION_EXECUTION_ID,
+    )
+    validate_input_collision_events(events, registrations)
+    agent_repository = AgentRequestRepository()
+    _validate_failed_input_collision_operator(agent_repository)
+    governance = validate_input_collision_operator_scope(
+        repository=agent_repository,
+        source_digest=source_digest,
+        git_commit=git_commit,
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        batch_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.registration_batches"
+            ).fetchone()[0]
+        )
+        sent_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger "
+                "WHERE state='SENT'"
+            ).fetchone()[0]
+        )
+    if batch_count != 0 or sent_count != 0:
+        raise TargetEventRecoveryError("zero_workload_or_delivery_preflight_changed")
+    registered_source = None
+    imported = None
+    if apply:
+        registered_source = mainline.register_input_artifact(
+            repository=repository,
+            payload=source,
+            git_commit=git_commit,
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+        )
+        imported = repository.apply_input_collision_rebind(incoming)
+    target = next(item for item in incoming.tasks if item.task_key == TARGET_TASK_KEY)
+    completed_count = sum(
+        state.declared_status is TaskStatus.COMPLETED for state in current.task_states
+    )
+    return {
+        "schema_version": "dehps-m4-isolated-v11-input-collision-rebind.v1",
+        "status": "INPUT_COLLISION_RECOVERED_TO_READY" if apply else "DRY_RUN_VERIFIED",
+        "apply": apply,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "completed_source_contract_digests": sorted(
+            INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS
+        ),
+        "predecessor_source_contract_digest": (
+            INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+        "source_contract_registered": (
+            None if registered_source is None else registered_source["artifact_digest"]
+        ),
+        "target_task_key": TARGET_TASK_KEY,
+        "failed_target_task_digest": INPUT_COLLISION_TARGET_TASK_DIGEST,
+        "rebound_target_task_digest": target.artifact_digest,
+        "failed_execution_id": INPUT_COLLISION_EXECUTION_ID,
+        "failed_execution_preserved": True,
+        "completed_historical_task_count": completed_count,
+        "rebound_uncompleted_task_count": len(current.tasks) - completed_count,
+        "target_event_preserved": EVENT in incoming.facts.external_events,
+        "facts_changed": False,
+        "goals_changed": False,
+        "governance": governance,
+        "import_result": None if imported is None else str(imported),
+        "workloads": 0,
+        "smtp_calls": 0,
+        "external_sends": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=("repair", "recover-failed-target", "rebind-ready-lineage"),
+        choices=(
+            "repair",
+            "recover-failed-target",
+            "rebind-ready-lineage",
+            "recover-input-collision",
+        ),
     )
     parser.add_argument("--apply", action="store_true")
     return parser.parse_args(argv)
@@ -1080,8 +1536,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = run(apply=bool(args.apply))
     elif args.command == "recover-failed-target":
         result = run_failed_target_rebind(apply=bool(args.apply))
-    else:
+    elif args.command == "rebind-ready-lineage":
         result = run_ready_source_rebind(apply=bool(args.apply))
+    else:
+        result = run_input_collision_rebind(apply=bool(args.apply))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
