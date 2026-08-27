@@ -74,9 +74,7 @@ def _external_delivery_evidence(facts: set[str]) -> dict[str, Any]:
         elif identity.endswith("-post-delivery"):
             postdraw.add(identity.removesuffix("-post-delivery"))
         elif identity.startswith("daily-") and identity.endswith("-delivery"):
-            daily.add(
-                identity.removeprefix("daily-").removesuffix("-delivery")
-            )
+            daily.add(identity.removeprefix("daily-").removesuffix("-delivery"))
         elif identity.startswith("incident-") and identity.endswith("-delivery"):
             incident_receipts.add(
                 identity.removeprefix("incident-").removesuffix("-delivery")
@@ -389,8 +387,7 @@ def thermal_observation() -> dict[str, Any]:
 class ThermalGuard:
     def __init__(self, *, root_dir: Path) -> None:
         self.state_path = (
-            root_dir
-            / "runtime/isolated-24h-challenger-v11/thermal-guard-state.json"
+            root_dir / "runtime/isolated-24h-challenger-v11/thermal-guard-state.json"
         )
         self._last_sample_monotonic = float("-inf")
         self._state = self._load_state()
@@ -417,8 +414,7 @@ class ThermalGuard:
         if not isinstance(payload, dict) or set(payload) != required:
             raise IsolatedMainlineError("thermal_guard_state_shape_changed")
         if (
-            payload["schema_version"]
-            != "dehps-m4-isolated-thermal-guard-state.v11"
+            payload["schema_version"] != "dehps-m4-isolated-thermal-guard-state.v11"
             or not isinstance(payload["paused"], bool)
             or not isinstance(payload["hard_stop_seen"], bool)
             or not isinstance(payload["consecutive_hot_samples"], int)
@@ -507,7 +503,10 @@ class ThermalGuard:
                         elapsed = datetime.fromisoformat(
                             observation["observed_at"]
                         ) - datetime.fromisoformat(started)
-                        if elapsed.total_seconds() >= contract.THERMAL_RESUME_STABLE_SECONDS:
+                        if (
+                            elapsed.total_seconds()
+                            >= contract.THERMAL_RESUME_STABLE_SECONDS
+                        ):
                             self._state["paused"] = False
                             self._state["hard_stop_seen"] = False
                             self._state["resume_below_started_at"] = None
@@ -558,9 +557,9 @@ def runtime_resource_observation(*, root_dir: Path) -> dict[str, Any]:
                 memory_current = int(
                     (cgroup / "memory.current").read_text(encoding="ascii").strip()
                 )
-                for line in (cgroup / "cpu.stat").read_text(
-                    encoding="ascii"
-                ).splitlines():
+                for line in (
+                    (cgroup / "cpu.stat").read_text(encoding="ascii").splitlines()
+                ):
                     key, value = line.split()
                     cpu_stat[key] = int(value)
     except (OSError, ValueError):
@@ -676,9 +675,7 @@ def load_registered_isolated_artifact(
     root = root_dir.resolve()
     path = (root / relative_path).resolve()
     if (
-        not relative_path.startswith(
-            "runtime/isolated-24h-challenger-v11/artifacts/"
-        )
+        not relative_path.startswith("runtime/isolated-24h-challenger-v11/artifacts/")
         or not path.is_relative_to(root)
         or not path.is_file()
     ):
@@ -860,18 +857,21 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
             set(payload) != required
             or payload.get("schema_version") != contract.SOURCE_SCHEMA
             or payload.get("contract_digest") != contract.CONTRACT_DIGEST
-            or contract.domain_digest(identity, domain=contract.SOURCE_DOMAIN)
-            != digest
+            or contract.domain_digest(identity, domain=contract.SOURCE_DOMAIN) != digest
         ):
             raise IsolatedMainlineError("registered_source_contract_changed")
         return payload
-    if set(payload) != {
-        "schema_version",
-        "artifact_type",
-        "artifact_digest",
-        "body",
-        "parent_digests",
-    } or payload.get("schema_version") != REGISTERED_INPUT_SCHEMA:
+    if (
+        set(payload)
+        != {
+            "schema_version",
+            "artifact_type",
+            "artifact_digest",
+            "body",
+            "parent_digests",
+        }
+        or payload.get("schema_version") != REGISTERED_INPUT_SCHEMA
+    ):
         raise IsolatedMainlineError("registered_input_shape_changed")
     body = payload.get("body")
     parents = payload.get("parent_digests")
@@ -1002,7 +1002,11 @@ def register_input_artifact(
     parsed = validate_registered_input_payload(payload)
     if re.fullmatch(r"[0-9a-f]{40}", git_commit) is None:
         raise IsolatedMainlineError("registered_input_git_commit_changed")
-    parents = [] if parsed["artifact_type"] == contract.SOURCE_ARTIFACT_TYPE else parsed["parent_digests"]
+    parents = (
+        []
+        if parsed["artifact_type"] == contract.SOURCE_ARTIFACT_TYPE
+        else parsed["parent_digests"]
+    )
     content = content_bytes or contract.canonical_json(parsed).encode("ascii")
     content_sha256 = hashlib.sha256(content).hexdigest()
     with (
@@ -1064,7 +1068,11 @@ def load_registered_input(
         raise IsolatedMainlineError("registered_input_not_unique")
     row = rows[0]
     parsed = validate_registered_input_payload(dict(row[1]))
-    parents = [] if parsed["artifact_type"] == contract.SOURCE_ARTIFACT_TYPE else parsed["parent_digests"]
+    parents = (
+        []
+        if parsed["artifact_type"] == contract.SOURCE_ARTIFACT_TYPE
+        else parsed["parent_digests"]
+    )
     content = (
         (ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes()
         if parsed["artifact_type"] == contract.SOURCE_ARTIFACT_TYPE
@@ -1541,8 +1549,7 @@ class IsolatedV11Capability:
             or projection_body["source_max_draw_date"]
             != self.context["source_max_draw_date"]
             or projection_body["target_issue"] != self.context["target_issue"]
-            or projection_body["target_draw_date"]
-            != self.context["target_draw_date"]
+            or projection_body["target_draw_date"] != self.context["target_draw_date"]
             or projection_body["projection_time"] != self.context["projection_time"]
         ):
             raise IsolatedMainlineError("target_projection_history_changed")
@@ -1589,6 +1596,9 @@ class IsolatedV11Capability:
             schema_input["artifact_digest"],
             content_input["artifact_digest"],
         )
+        type_body = dict(projection_body)
+        if type_body.pop("target_issue", None) != self.context["target_issue"]:
+            raise IsolatedMainlineError("target_projection_common_issue_changed")
         return (
             self._build(
                 artifact_type="M4IsolatedTargetIssueProjectionV11",
@@ -1596,7 +1606,7 @@ class IsolatedV11Capability:
                 target_issue=self.context["target_issue"],
                 git_commit=git_commit,
                 parent_digests=parents,
-                type_body=projection_body,
+                type_body=type_body,
             ),
         )
 
@@ -1724,7 +1734,9 @@ class IsolatedV11Capability:
                 os.environ.get("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "")
             )
         except ValueError as exc:
-            raise IsolatedMainlineError("operator_attestation_identity_invalid") from exc
+            raise IsolatedMainlineError(
+                "operator_attestation_identity_invalid"
+            ) from exc
         if not request_key or approval_decision_id < 1 or execution_id < 1:
             raise IsolatedMainlineError("operator_attestation_identity_invalid")
         agent_repository = AgentRequestRepository()
@@ -1762,7 +1774,9 @@ class IsolatedV11Capability:
             "DEPLOY_ISOLATED_V11_SYSTEMD",
         ]
         checks = request.payload.get("checks")
-        activation = checks.get("isolated_v11_activation") if isinstance(checks, dict) else None
+        activation = (
+            checks.get("isolated_v11_activation") if isinstance(checks, dict) else None
+        )
         if (
             request.payload.get("version") != "m4-isolated-24h-challenger-v11"
             or request.payload.get("commit") != git_commit
@@ -1953,8 +1967,7 @@ class IsolatedV11Capability:
             )
             if (
                 incident["body"].get("status") != "OPEN"
-                or incident["body"].get("incident_id")
-                != self.context["incident_id"]
+                or incident["body"].get("incident_id") != self.context["incident_id"]
             ):
                 raise IsolatedMainlineError("incident_envelope_parent_changed")
             subject = "【隔离研发线 / 故障告警】研究流水线已故障关闭"
@@ -2208,7 +2221,9 @@ class IsolatedV11Capability:
         same_snapshot = (
             predecessor_body.get("target_issue") == self.context["target_issue"]
         )
-        base_cursor = int(predecessor_body.get("base_cursor", 0)) if same_snapshot else 0
+        base_cursor = (
+            int(predecessor_body.get("base_cursor", 0)) if same_snapshot else 0
+        )
         adaptive_cursor = (
             int(predecessor_body.get("adaptive_cursor") or 0) if same_snapshot else 0
         )
@@ -2220,8 +2235,7 @@ class IsolatedV11Capability:
                 {
                     str(item["body"].get("epoch_date"))
                     for item in prior_cohorts
-                    if str(item["body"].get("epoch_date"))
-                    < self.context["epoch_date"]
+                    if str(item["body"].get("epoch_date")) < self.context["epoch_date"]
                 }
             )
             parent_records: list[dict[str, Any]] = []
@@ -2342,11 +2356,9 @@ class IsolatedV11Capability:
                 batch_plan,
                 domain="dehps.m4.isolated-24h-challenger.batch-plan.v11",
             )
-            if (
-                batch_plan_digest != existing["batch_plan_digest"]
-                or batch_plan.get("ordered_candidate_ids")
-                != [job.candidate_id for job in jobs]
-            ):
+            if batch_plan_digest != existing["batch_plan_digest"] or batch_plan.get(
+                "ordered_candidate_ids"
+            ) != [job.candidate_id for job in jobs]:
                 raise IsolatedMainlineError("batch_plan_resume_changed")
         if existing is None:
             if head is None:
@@ -2470,10 +2482,7 @@ class IsolatedV11Capability:
                 )
                 proposal_identity = contract.domain_digest(
                     [batch_plan_digest, candidate_id],
-                    domain=(
-                        "dehps.m4.isolated-24h-challenger."
-                        "duplicate-proposal.v11"
-                    ),
+                    domain=("dehps.m4.isolated-24h-challenger.duplicate-proposal.v11"),
                 )
                 duplicate_records.append(
                     self._build(
@@ -2639,23 +2648,17 @@ class IsolatedV11Capability:
                 str(item["artifact_digest"]): item
                 for item in persisted_registration_artifacts
             }
-            if (
-                len(by_digest) != len(expected_registration_artifacts)
-                or set(by_digest)
-                != {
-                    str(item["artifact_digest"])
-                    for item in expected_registration_artifacts
-                }
-            ):
-                raise IsolatedMainlineError(
-                    "atomic_registration_artifact_set_changed"
-                )
+            if len(by_digest) != len(expected_registration_artifacts) or set(
+                by_digest
+            ) != {
+                str(item["artifact_digest"]) for item in expected_registration_artifacts
+            }:
+                raise IsolatedMainlineError("atomic_registration_artifact_set_changed")
             for expected_artifact in expected_registration_artifacts:
                 persisted = by_digest[expected_artifact["artifact_digest"]]
                 registered_at = persisted["registered_at"].isoformat()
                 if (
-                    persisted["artifact_type"]
-                    != expected_artifact["artifact_type"]
+                    persisted["artifact_type"] != expected_artifact["artifact_type"]
                     or dict(persisted["artifact_json"]) != expected_artifact
                     or list(persisted["parent_digests_json"])
                     != expected_artifact["parent_digests"]
@@ -2693,11 +2696,8 @@ class IsolatedV11Capability:
                 if row["status"] != "LEASED":
                     continue
                 heartbeat = row["heartbeat_at"]
-                if (
-                    heartbeat is None
-                    or heartbeat
-                    >= now_utc
-                    - timedelta(seconds=contract.LEASE_STALE_AFTER_SECONDS)
+                if heartbeat is None or heartbeat >= now_utc - timedelta(
+                    seconds=contract.LEASE_STALE_AFTER_SECONDS
                 ):
                     raise IsolatedMainlineError("candidate_lease_not_stale")
                 candidate_id = str(row["candidate_id"])
@@ -2848,8 +2848,7 @@ class IsolatedV11Capability:
                     attempt_id = contract.domain_digest(
                         [job.candidate_id, retry_ordinal],
                         domain=(
-                            "dehps.m4.isolated-24h-challenger."
-                            "execution-attempt.v11"
+                            "dehps.m4.isolated-24h-challenger.execution-attempt.v11"
                         ),
                     )
                     lease_token = contract.domain_digest(
@@ -2902,8 +2901,7 @@ class IsolatedV11Capability:
                     attempt_id = contract.domain_digest(
                         [job.candidate_id, retry_ordinal],
                         domain=(
-                            "dehps.m4.isolated-24h-challenger."
-                            "execution-attempt.v11"
+                            "dehps.m4.isolated-24h-challenger.execution-attempt.v11"
                         ),
                     )
                     updated = cursor.execute(
@@ -2938,8 +2936,7 @@ class IsolatedV11Capability:
                     attempt_id = contract.domain_digest(
                         [job.candidate_id, retry_ordinal],
                         domain=(
-                            "dehps.m4.isolated-24h-challenger."
-                            "execution-attempt.v11"
+                            "dehps.m4.isolated-24h-challenger.execution-attempt.v11"
                         ),
                     )
                     deleted = cursor.execute(
@@ -2949,9 +2946,7 @@ class IsolatedV11Capability:
                         (attempt_id,),
                     )
                     if deleted.rowcount != 1:
-                        raise IsolatedMainlineError(
-                            "unstarted_attempt_release_changed"
-                        )
+                        raise IsolatedMainlineError("unstarted_attempt_release_changed")
                     released = cursor.execute(
                         "UPDATE m4_isolated_v11.candidate_registrations SET "
                         "state='REGISTERED',lease_owner=NULL,lease_token=NULL,"
@@ -3013,9 +3008,7 @@ class IsolatedV11Capability:
                 [job.candidate_id, trace.retry_ordinal],
                 domain="dehps.m4.isolated-24h-challenger.execution-attempt.v11",
             )
-            retryable = (
-                trace.reason in retryable_reasons and trace.retry_ordinal < 2
-            )
+            retryable = trace.reason in retryable_reasons and trace.retry_ordinal < 2
             with (
                 self.repository.connection_factory() as connection,
                 connection.cursor() as cursor,
@@ -3052,6 +3045,7 @@ class IsolatedV11Capability:
                         "AND state='LEASED'",
                         (terminal_at, job.candidate_id),
                     )
+
         outcomes, attempt_outcomes = search.execute_history_jobs_with_retries(
             jobs,
             history=history,
@@ -3371,19 +3365,14 @@ class IsolatedV11Capability:
             self._previous_checkpoint(), "M4IsolatedSearchCheckpointV11"
         )
         batch_plan = batch["body"].get("batch_plan")
-        if (
-            not isinstance(batch_plan, dict)
-            or contract.domain_digest(
-                batch_plan,
-                domain="dehps.m4.isolated-24h-challenger.batch-plan.v11",
-            )
-            != batch["body"].get("batch_plan_digest")
-        ):
+        if not isinstance(batch_plan, dict) or contract.domain_digest(
+            batch_plan,
+            domain="dehps.m4.isolated-24h-challenger.batch-plan.v11",
+        ) != batch["body"].get("batch_plan_digest"):
             raise IsolatedMainlineError("checkpoint_batch_plan_changed")
         previous_cohorts = (
             list(predecessor["body"].get("cohorts", []))
-            if predecessor["body"].get("target_issue")
-            == self.context["target_issue"]
+            if predecessor["body"].get("target_issue") == self.context["target_issue"]
             else []
         )
         current_cohorts = [
@@ -3432,8 +3421,7 @@ class IsolatedV11Capability:
             raise IsolatedMainlineError("multiplicity_cutoff_not_aware")
         parsed_genesis = artifacts.validate_artifact(genesis_head)
         if (
-            parsed_genesis["artifact_type"]
-            != "M4IsolatedEmptyMultiplicityHeadV11"
+            parsed_genesis["artifact_type"] != "M4IsolatedEmptyMultiplicityHeadV11"
             or parsed_genesis["body"].get("registration_seq") != -1
             or parsed_genesis["body"].get("m_total") != 0
         ):
@@ -3477,13 +3465,11 @@ class IsolatedV11Capability:
             committed_at = batch_row["committed_at"]
             if (
                 registration_seq != expected_registration_seq
-                or int(batch_row["candidate_count"])
-                != contract.ATTEMPTS_PER_BATCH
+                or int(batch_row["candidate_count"]) != contract.ATTEMPTS_PER_BATCH
                 or int(batch_row["m_before"]) != expected_m_before
                 or int(batch_row["m_after"])
                 != expected_m_before + contract.ATTEMPTS_PER_BATCH
-                or str(batch_row["predecessor_head_digest"])
-                != previous_head_digest
+                or str(batch_row["predecessor_head_digest"]) != previous_head_digest
                 or committed_at > cutoff
             ):
                 raise IsolatedMainlineError("MULTIPLICITY_LEDGER_INCOMPLETE")
@@ -3494,8 +3480,7 @@ class IsolatedV11Capability:
                 if (
                     payload["artifact_digest"] != row["artifact_digest"]
                     or payload["artifact_type"] != row["artifact_type"]
-                    or payload["parent_digests"]
-                    != list(row["parent_digests_json"])
+                    or payload["parent_digests"] != list(row["parent_digests_json"])
                     or row["registered_at"] != committed_at
                 ):
                     raise IsolatedMainlineError(
@@ -3506,22 +3491,19 @@ class IsolatedV11Capability:
                 (
                     item
                     for item in parsed
-                    if item["artifact_type"]
-                    == "M4IsolatedCandidateRegistrationV11"
+                    if item["artifact_type"] == "M4IsolatedCandidateRegistrationV11"
                 ),
                 key=lambda item: int(item["body"].get("slot_ordinal", -1)),
             )
             deltas = [
                 item
                 for item in parsed
-                if item["artifact_type"]
-                == "M4IsolatedMultiplicityRegistrationDeltaV11"
+                if item["artifact_type"] == "M4IsolatedMultiplicityRegistrationDeltaV11"
             ]
             heads = [
                 item
                 for item in parsed
-                if item["artifact_type"]
-                == "M4IsolatedMultiplicityRegistrationHeadV11"
+                if item["artifact_type"] == "M4IsolatedMultiplicityRegistrationHeadV11"
             ]
             ordered_candidate_ids = [
                 str(item["body"].get("candidate_id")) for item in registrations
@@ -3531,8 +3513,7 @@ class IsolatedV11Capability:
                 or len(registrations) != contract.ATTEMPTS_PER_BATCH
                 or [int(item["body"].get("slot_ordinal", -1)) for item in registrations]
                 != list(range(contract.ATTEMPTS_PER_BATCH))
-                or len(set(ordered_candidate_ids))
-                != contract.ATTEMPTS_PER_BATCH
+                or len(set(ordered_candidate_ids)) != contract.ATTEMPTS_PER_BATCH
                 or len(deltas) != 1
                 or len(heads) != 1
             ):
@@ -3543,10 +3524,8 @@ class IsolatedV11Capability:
             head = heads[0]
             committed_iso = committed_at.isoformat()
             if (
-                delta["artifact_digest"]
-                != batch_row["registration_delta_digest"]
-                or head["artifact_digest"]
-                != batch_row["registration_head_digest"]
+                delta["artifact_digest"] != batch_row["registration_delta_digest"]
+                or head["artifact_digest"] != batch_row["registration_head_digest"]
                 or any(
                     item["body"].get("batch_plan_digest")
                     != batch_row["batch_plan_digest"]
@@ -3627,8 +3606,7 @@ class IsolatedV11Capability:
             checkpoint["body"].get("batch_seq") != expected_batch_seq
             or checkpoint_replay["body"].get("replayed_artifact_digest")
             != checkpoint["artifact_digest"]
-            or int(checkpoint["body"].get("m_total", -1))
-            > int(head["body"]["m_total"])
+            or int(checkpoint["body"].get("m_total", -1)) > int(head["body"]["m_total"])
         ):
             raise IsolatedMainlineError("multiplicity_scientific_cut_changed")
         return (
@@ -4362,9 +4340,7 @@ class IsolatedV11Capability:
             p3_prereg = _unique_type(
                 values["prereg"][1], formal_p3.PREREGISTRATION_ARTIFACT_TYPE
             )
-            dataset = _unique_type(
-                values["refit"][1], formal_p3.DATASET_ARTIFACT_TYPE
-            )
+            dataset = _unique_type(values["refit"][1], formal_p3.DATASET_ARTIFACT_TYPE)
             model = _unique_type(values["refit"][1], formal_p3.MODEL_ARTIFACT_TYPE)
             candidates = _unique_type(
                 values["predraw"][1], formal_p3.MODEL_CANDIDATE_ARTIFACT_TYPE
@@ -4406,8 +4382,7 @@ class IsolatedV11Capability:
                     contract.FORMAL_P3_SOURCE_DIGEST,
                 ]
                 and checkpoint["body"].get("target_issue") == issue
-                and checkpoint["body"].get("lineage_id")
-                == contract.FORMAL_P3_LINEAGE
+                and checkpoint["body"].get("lineage_id") == contract.FORMAL_P3_LINEAGE
                 and checkpoint["body"].get("source_digest")
                 == contract.FORMAL_P3_SOURCE_DIGEST
                 and checkpoint["body"].get("status") == "SEALED_BEFORE_DRAW"
@@ -4483,10 +4458,7 @@ class IsolatedV11Capability:
         }
         projection_digest = contract.domain_digest(
             projection,
-            domain=(
-                "dehps.m4.isolated-24h-challenger."
-                "formal-p3-issue-projection.v11"
-            ),
+            domain=("dehps.m4.isolated-24h-challenger.formal-p3-issue-projection.v11"),
         )
         return (
             self._build(
@@ -4631,7 +4603,9 @@ class IsolatedV11Capability:
             if not checkpoint_rows:
                 raise IsolatedMainlineError("CHECKPOINT_INCOMPLETE")
             prior = [
-                item for item in checkpoint_rows if item["registered_at"] <= window_start
+                item
+                for item in checkpoint_rows
+                if item["registered_at"] <= window_start
             ]
             opening = prior[-1] if prior else checkpoint_rows[0]
             closing = checkpoint_rows[-1]
@@ -4756,17 +4730,13 @@ class IsolatedV11Capability:
         observed_memory = [
             int(item["body"]["resource_observation"]["memory_current_bytes"])
             for item in health_artifacts
-            if item["body"].get("resource_observation", {}).get(
-                "memory_current_bytes"
-            )
+            if item["body"].get("resource_observation", {}).get("memory_current_bytes")
             is not None
         ]
         observed_temperature = [
             float(item["body"]["thermal_observation"]["max_cpu_celsius"])
             for item in health_artifacts
-            if item["body"].get("thermal_observation", {}).get(
-                "max_cpu_celsius"
-            )
+            if item["body"].get("thermal_observation", {}).get("max_cpu_celsius")
             is not None
         ]
         health_statuses = [str(item["body"].get("status")) for item in health_artifacts]
@@ -4908,7 +4878,10 @@ class IsolatedV11Capability:
                 control_plane_key=contract.CONTROL_PLANE_KEY,
                 task_key=task.task_key,
             )
-            if len([item for item in events if item.get("event_type") == "completed"]) != 1:
+            if (
+                len([item for item in events if item.get("event_type") == "completed"])
+                != 1
+            ):
                 continue
             values = load_completed_task_artifacts(
                 repository=self.repository,
@@ -5005,8 +4978,7 @@ class IsolatedV11Capability:
         health: list[dict[str, Any]] = []
         for task in manifest.tasks:
             if (
-                task.requested_capability
-                != "M4IsolatedRuntimeHealthCapabilityV11"
+                task.requested_capability != "M4IsolatedRuntimeHealthCapabilityV11"
                 or f"{task.task_key}:HEALTH_RECORDED" not in facts
             ):
                 continue
@@ -5552,9 +5524,7 @@ def simulate_artifact_chain(
         )
         artifacts_by_task[task_key] = list(generated)
         for payload in generated:
-            if not set(payload["parent_digests"]).issubset(
-                registered_artifact_digests
-            ):
+            if not set(payload["parent_digests"]).issubset(registered_artifact_digests):
                 raise IsolatedMainlineError("simulation_unregistered_parent")
             replay = artifacts.replay_artifact(
                 payload, expected_parent_digests=payload["parent_digests"]
@@ -5639,11 +5609,7 @@ def compact_status(*, repository: PostgresResearchOSRepository) -> dict[str, Any
         "status": (
             "ACTIVE_RESEARCH_ONLY"
             if active
-            else (
-                "INTEGRATION_PENDING"
-                if mail_verified
-                else "ACTIVATION_BLOCKED_MAIL"
-            )
+            else ("INTEGRATION_PENDING" if mail_verified else "ACTIVATION_BLOCKED_MAIL")
         ),
         "activation": "VALIDATED_IN_MAINLINE" if active else "INTEGRATION_PENDING",
         "control_plane_key": contract.CONTROL_PLANE_KEY,
