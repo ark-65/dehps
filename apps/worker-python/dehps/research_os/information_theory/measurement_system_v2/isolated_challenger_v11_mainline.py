@@ -249,6 +249,7 @@ def formal_p3_resource_observation() -> dict[str, Any]:
         result = subprocess.run(
             [
                 "systemctl",
+                "--user",
                 "show",
                 contract.FORMAL_P3_UNIT,
                 "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
