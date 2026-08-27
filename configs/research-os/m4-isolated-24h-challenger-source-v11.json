@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed",
+  "artifact_digest": "99ed138790a8196ffe80bbe7d9238672ec72ab153cf2eab9430a75afb0eaebbc",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -55,6 +55,12 @@
     "same_key_event_isolation_repair_engineering_request_id": 747,
     "same_key_event_isolation_repair_engineering_request_key": "engineering-m4-isolated-v11-same-key-event-isolation-resume-v1",
     "same_key_event_isolation_repair_engineering_request_payload_sha256": "4f8d643f8090c11bd1069625c45265e90d1a6e6055e0873e20a74236775da8af",
+    "utc_registration_failed_event_repair_base_merged_commit": "103aa7585257accf727020ea6454a3c1cc383267",
+    "utc_registration_failed_event_repair_engineering_approval_decision_id": 3177,
+    "utc_registration_failed_event_repair_engineering_execution_id": 604,
+    "utc_registration_failed_event_repair_engineering_request_id": 749,
+    "utc_registration_failed_event_repair_engineering_request_key": "engineering-m4-isolated-v11-utc-registration-resume-and-exact-failed-event-hook-v1",
+    "utc_registration_failed_event_repair_engineering_request_payload_sha256": "2903c11e5e4e9809c817ed05041ba59503a5e68da76be9d819eda60a81bf3aa6",
     "user_systemd_guard_repair_base_merged_commit": "443a1d72e3135b9a90912bc3e890566de4338f65",
     "user_systemd_guard_repair_engineering_approval_decision_id": 3157,
     "user_systemd_guard_repair_engineering_execution_id": 600,
@@ -158,9 +164,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 243757,
+      "bytes": 251167,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "9bd9818ca7af7216e1b999f0ce665624a1a6c0fbb910b2ae5843bb57ab56d355"
+      "sha256": "429b712b3c4eb2fbce0e1683ec7aa18af83509cf005923f8b913f06b49e1c52f"
     },
     {
       "bytes": 9947,
@@ -178,9 +184,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 134289,
+      "bytes": 139210,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "32e9398de1e429566a158d9f5b0bc0d5acf3648aca0ed31eb288b7af5525e7c5"
+      "sha256": "de349dd17abec9735b9a33caa856fa6d32d19128e9d8e0e62ac72b201f3e726b"
     },
     {
       "bytes": 17768,
@@ -243,5 +249,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "ceb0b072492ffb5af460b6a2c53d209ebff56b7e254f0881123a7217f35eaf5e"
+  "source_set_digest": "723274bcbdbfb15ab570691d89203878cd13fcf8e5bca2ac77626a220ca5a9f8"
 }

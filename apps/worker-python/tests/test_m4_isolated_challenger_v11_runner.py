@@ -929,22 +929,22 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
     source_contract = {
         "artifact_digest": repaired_source,
         "governance_bindings": {
-            "same_key_event_isolation_repair_base_merged_commit": (
-                runner.USER_SCOPE_EVENT_ISOLATION_BASE_COMMIT
+            "utc_registration_failed_event_repair_base_merged_commit": (
+                runner.USER_SCOPE_UTC_RECOVERY_BASE_COMMIT
             ),
-            "same_key_event_isolation_repair_engineering_approval_decision_id": (
+            "utc_registration_failed_event_repair_engineering_approval_decision_id": (
                 runner.USER_SCOPE_ENGINEERING_DECISION_ID
             ),
-            "same_key_event_isolation_repair_engineering_execution_id": (
+            "utc_registration_failed_event_repair_engineering_execution_id": (
                 runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
             ),
-            "same_key_event_isolation_repair_engineering_request_id": (
+            "utc_registration_failed_event_repair_engineering_request_id": (
                 runner.USER_SCOPE_ENGINEERING_REQUEST_ID
             ),
-            "same_key_event_isolation_repair_engineering_request_key": (
+            "utc_registration_failed_event_repair_engineering_request_key": (
                 runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
             ),
-            "same_key_event_isolation_repair_engineering_request_payload_sha256": (
+            "utc_registration_failed_event_repair_engineering_request_payload_sha256": (
                 runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
             ),
         },
@@ -985,9 +985,13 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
         "running_task_digest": runner.USER_SCOPE_RESUME_TASK_DIGEST,
         "running_task_key": runner.USER_SCOPE_RESUME_TASK_KEY,
         "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        "failed_event_digest": runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST,
+        "predecessor_attestation_digest": (
+            runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST
+        ),
     }
     payload = {
-        "version": "m4-isolated-v11-user-systemd-running-batch-recovery-v1",
+        "version": "m4-isolated-v11-utc-registration-failed-event-recovery-v2",
         "commit": repaired_commit,
         "checks": {"user_systemd_running_batch_recovery": recovery},
         "mail_contract": {
@@ -1134,8 +1138,7 @@ def test_user_scope_resume_surface_is_single_task_and_attestation_is_determinist
     assert first["p4_p5_p6_or_promotion_triggered"] is False
     assert first["parent_digests"][-1] == "f" * 64
     assert (
-        first["parent_digests"][-2]
-        == runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST
+        first["parent_digests"][-2] == runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST
     )
 
 
@@ -1143,10 +1146,10 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
     monkeypatch, tmp_path
 ) -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    payload = {
+    foundation = {
         "schema_version": "dehps-m4-isolated-v11-user-systemd-runtime-migration.v1",
         "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
-        "artifact_digest": runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "artifact_digest": runner.USER_SCOPE_FOUNDATION_ATTESTATION_DIGEST,
         "scientific_contract_changed": False,
         "workload_definition_changed": False,
         "formal_p3_mutated": False,
@@ -1156,7 +1159,7 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
         "execution_id": runner.USER_SCOPE_RESUME_EXECUTION_ID,
         "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
         "origin_git_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
-        "runtime_git_commit": runner.USER_SCOPE_EVENT_ISOLATION_BASE_COMMIT,
+        "runtime_git_commit": "dea22d7ca1cc876d278b1d18e4e68801a41291fd",
         "origin_source_contract_digest": runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
         "runtime_source_contract_digest": (
             "f6d043e22862c1ffd850dc5932a7be3c6f2dbaab4e9cf1d57db8a3f8158157ef"
@@ -1186,21 +1189,71 @@ def test_user_scope_predecessor_attestation_is_exact_and_immutable(
             "019bfa1769bd0359bc94b4b4d023c13ec3d02ce9a7a93c91a9bca86b5b2d876d",
         ],
     }
-    path = (
-        tmp_path
-        / "runtime/research-os/mainline/tasks"
-        / runner.USER_SCOPE_RESUME_TASK_KEY
-        / runner.USER_SCOPE_RESUME_EXECUTION_ID
-        / "runtime-migrations"
-        / runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST
-        / "user-systemd-runtime-migration.json"
-    )
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    latest = {
+        "schema_version": (
+            "dehps-m4-isolated-v11-same-key-event-isolation-runtime-migration.v2"
+        ),
+        "artifact_type": "m4_isolated_v11_user_systemd_runtime_migration",
+        "artifact_digest": runner.USER_SCOPE_PREDECESSOR_ATTESTATION_DIGEST,
+        "scientific_contract_changed": False,
+        "workload_definition_changed": False,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+        "task_key": runner.USER_SCOPE_RESUME_TASK_KEY,
+        "task_digest": runner.USER_SCOPE_RESUME_TASK_DIGEST,
+        "execution_id": runner.USER_SCOPE_RESUME_EXECUTION_ID,
+        "started_event_digest": runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+        "origin_git_commit": runner.USER_SCOPE_RESUME_ORIGIN_COMMIT,
+        "runtime_git_commit": runner.USER_SCOPE_UTC_RECOVERY_BASE_COMMIT,
+        "origin_source_contract_digest": runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+        "runtime_source_contract_digest": (
+            "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed"
+        ),
+        "repair": "EXACT_SAME_KEY_EVENT_VIEW_AFTER_USER_SYSTEMD_GUARD_REPAIR",
+        "predecessor_attestation_digest": (
+            runner.USER_SCOPE_FOUNDATION_ATTESTATION_DIGEST
+        ),
+        "registered_candidates": contract.ATTEMPTS_PER_BATCH,
+        "execution_attempts_before_resume": 0,
+        "candidate_results_before_resume": 0,
+        "mail_delivery_before_resume": 0,
+        "governance": {
+            "phase": "resume",
+            "engineering_request_id": 747,
+            "engineering_decision_id": 3167,
+            "engineering_execution_id": 602,
+            "operator_request_id": 748,
+            "operator_decision_id": 3172,
+            "operator_execution_id": 603,
+            "operator_payload_sha256": (
+                "4a44a44bb4805bb80d9a026dd7a1556f2cbf9b98498095d13a8acfdc98186c8f"
+            ),
+        },
+        "parent_digests": [
+            runner.USER_SCOPE_RESUME_TASK_DIGEST,
+            runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST,
+            runner.USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed",
+            runner.USER_SCOPE_FOUNDATION_ATTESTATION_DIGEST,
+            "4a44a44bb4805bb80d9a026dd7a1556f2cbf9b98498095d13a8acfdc98186c8f",
+        ],
+    }
+    for payload in (foundation, latest):
+        path = (
+            tmp_path
+            / "runtime/research-os/mainline/tasks"
+            / runner.USER_SCOPE_RESUME_TASK_KEY
+            / runner.USER_SCOPE_RESUME_EXECUTION_ID
+            / "runtime-migrations"
+            / payload["artifact_digest"]
+            / "user-systemd-runtime-migration.json"
+        )
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(runner, "ROOT_DIR", tmp_path)
-    assert runner._load_user_scope_predecessor_attestation() == payload
-    payload["governance"]["operator_execution_id"] = 999
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert runner._load_user_scope_predecessor_attestation() == latest
+    latest["governance"]["operator_execution_id"] = 999
+    path.write_text(json.dumps(latest), encoding="utf-8")
     with pytest.raises(runner.IsolatedRunnerError, match="attestation_changed"):
         runner._load_user_scope_predecessor_attestation()
 
@@ -1273,10 +1326,28 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
                 ("git_commit", runner.USER_SCOPE_RESUME_ORIGIN_COMMIT),
             ),
         ),
+        MainlineExecutionEvent(
+            **shared,
+            execution_id=runner.USER_SCOPE_RESUME_EXECUTION_ID,
+            manifest_digest=runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+            task_digest=runner.USER_SCOPE_RESUME_TASK_DIGEST,
+            event_type="failed",
+            sequence=1,
+            recorded_at=runner.USER_SCOPE_RESUME_FAILED_AT,
+            payload=(
+                ("error", "atomic_registration_resume_changed"),
+                ("git_commit", runner.USER_SCOPE_RESUME_ORIGIN_COMMIT),
+            ),
+        ),
     ]
-    assert records[0].artifact_digest == runner.USER_SCOPE_HISTORICAL_STARTED_EVENT_DIGEST
-    assert records[1].artifact_digest == runner.USER_SCOPE_HISTORICAL_FAILED_EVENT_DIGEST
+    assert (
+        records[0].artifact_digest == runner.USER_SCOPE_HISTORICAL_STARTED_EVENT_DIGEST
+    )
+    assert (
+        records[1].artifact_digest == runner.USER_SCOPE_HISTORICAL_FAILED_EVENT_DIGEST
+    )
     assert records[2].artifact_digest == runner.USER_SCOPE_RESUME_STARTED_EVENT_DIGEST
+    assert records[3].artifact_digest == runner.USER_SCOPE_RESUME_FAILED_EVENT_DIGEST
     if completed:
         records.append(
             MainlineExecutionEvent(
@@ -1285,7 +1356,7 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
                 manifest_digest=runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
                 task_digest=runner.USER_SCOPE_RESUME_TASK_DIGEST,
                 event_type="completed",
-                sequence=1,
+                sequence=2,
                 recorded_at="2026-08-28T05:00:00+08:00",
                 payload=tuple(
                     sorted(
@@ -1315,16 +1386,23 @@ def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
     )
     repository = object.__new__(runner.IsolatedChallengerRepository)
     repository._user_scope_resume_event_gate = False
-    assert repository.list_mainline_execution_events(
-        control_plane_key=contract.CONTROL_PLANE_KEY,
-        task_key=runner.USER_SCOPE_RESUME_TASK_KEY,
-    ) == events
+    assert (
+        repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=runner.USER_SCOPE_RESUME_TASK_KEY,
+        )
+        == events
+    )
     with repository.user_scope_resume_event_view():
         current = repository.list_mainline_execution_events(
             control_plane_key=contract.CONTROL_PLANE_KEY,
             execution_id=runner.USER_SCOPE_RESUME_EXECUTION_ID,
         )
-        assert [item["event_type"] for item in current] == ["started", "completed"]
+        assert [item["event_type"] for item in current] == [
+            "started",
+            "failed",
+            "completed",
+        ]
         assert all(
             item["task_digest"] == runner.USER_SCOPE_RESUME_TASK_DIGEST
             for item in current
@@ -1335,10 +1413,13 @@ def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
         ):
             pass
     assert repository._user_scope_resume_event_gate is False
-    assert repository.list_mainline_execution_events(
-        control_plane_key=contract.CONTROL_PLANE_KEY,
-        task_key=runner.USER_SCOPE_RESUME_TASK_KEY,
-    ) == events
+    assert (
+        repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=runner.USER_SCOPE_RESUME_TASK_KEY,
+        )
+        == events
+    )
 
 
 @pytest.mark.parametrize("mutation", ("missing", "duplicate", "changed", "extra"))

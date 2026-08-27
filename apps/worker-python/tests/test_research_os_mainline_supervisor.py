@@ -68,6 +68,16 @@ TEST_COMMIT = "a" * 40
 TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
+def test_base_supervisor_additional_failed_recovery_hook_is_closed_by_default() -> None:
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    assert (
+        supervisor._validated_additional_failed_recovery_event(
+            task=SimpleNamespace(), events=()
+        )
+        is None
+    )
+
+
 @pytest.mark.parametrize(
     ("family", "builder_name", "decision_keyword"),
     (
