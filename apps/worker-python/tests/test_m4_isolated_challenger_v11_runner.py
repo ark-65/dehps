@@ -240,6 +240,44 @@ def test_repository_rebinds_only_exact_unexecuted_predecessor_bootstrap() -> Non
     )
 
 
+def test_repository_rebind_preserves_exact_unexecuted_multicontext_task_set() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    current_context, incoming_context, current, incoming_payload = (
+        _bootstrap_rebind_fixture(runner)
+    )
+    extra_context = {
+        **current_context,
+        "epoch_date": "20260828",
+        "minute": "202608280052",
+    }
+    extended_payload = runner.builder.extend_manifest(
+        current.to_dict(include_digest=True),
+        context=extra_context,
+        source_digest=runner.PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
+        template_names=frozenset({"runtime_health"}),
+    )
+    extended = ControlPlaneManifest.from_dict(extended_payload)
+    assert len(extended.tasks) == 15
+    preserved_keys = tuple(task.task_key for task in extended.tasks)
+    repository = _bootstrap_rebind_repository(
+        runner,
+        current=extended,
+        context=incoming_context,
+    )
+
+    result, digest = repository.import_bootstrap_manifest(incoming_payload)
+
+    assert result == "imported"
+    assert digest == repository.current.artifact_digest
+    assert len(repository.current.tasks) == 15
+    assert tuple(task.task_key for task in repository.current.tasks) == preserved_keys
+    assert any(
+        task.task_key.endswith("runtime-health-202608280052")
+        for task in repository.current.tasks
+    )
+    assert repository._bootstrap_rebind_gate is None
+
+
 @pytest.mark.parametrize("corruption", ["state", "fact", "event", "source"])
 def test_repository_bootstrap_rebind_rejects_nonpristine_predecessor(
     corruption: str,
@@ -294,10 +332,9 @@ def test_repository_bootstrap_rebind_rejects_target_change_and_direct_import() -
         runner, current=current, context=incoming_context
     )
     changed_context = contract.render_context(
-        source_max_issue="2026100",
-        source_max_draw_date="2026-08-30",
-        batch_seq=1,
-        projection_time="2026-08-30T16:30:00+08:00",
+        source_max_issue="2026101",
+        source_max_draw_date="2026-09-01",
+        projection_time="2026-09-01T16:30:00+08:00",
     )
     changed_payload, _ = runner.builder.build_bootstrap_manifest(
         context=changed_context,
