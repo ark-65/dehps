@@ -24363,9 +24363,20 @@ class ResearchEvidenceSupervisor:
                     guard_event_token=m4_p3_guard_recovery_token,
                 )
             )
-            p26_recovered_failure = (
+            additional_recovered_failure = (
                 None
                 if m4_p3_recovered_failure is not None
+                else self._validated_additional_failed_recovery_event(
+                    task=task,
+                    events=events,
+                )
+            )
+            p26_recovered_failure = (
+                None
+                if (
+                    m4_p3_recovered_failure is not None
+                    or additional_recovered_failure is not None
+                )
                 else self._validated_p26_failed_recovery_event(
                     task=task,
                     events=events,
@@ -24373,7 +24384,9 @@ class ResearchEvidenceSupervisor:
                 )
             )
             recovered_failure = (
-                m4_p3_recovered_failure or p26_recovered_failure
+                m4_p3_recovered_failure
+                or additional_recovered_failure
+                or p26_recovered_failure
             )
             if (
                 (failed and recovered_failure is None)
@@ -24423,6 +24436,17 @@ class ResearchEvidenceSupervisor:
                             raise MainlineSupervisorError(
                                 "P2.6 failed recovery running manifest changed"
                             )
+                elif additional_recovered_failure is not None:
+                    recovered_record = _event_record(additional_recovered_failure)
+                    if (
+                        recovered_record.execution_id != execution_id
+                        or recovered_record.event_type != "failed"
+                        or recovered_record.sequence < 1
+                    ):
+                        raise MainlineSupervisorError(
+                            "additional failed recovery event identity changed"
+                        )
+                    terminal_sequence = recovered_record.sequence + 1
                 if m4_p3_recovered_failure is not None:
                     terminal_sequence = (
                         3 if m4_p3_guard_recovery_token else 2
@@ -26945,6 +26969,15 @@ class ResearchEvidenceSupervisor:
         )
         _persist_immutable(path, payload)
         return payload
+
+    def _validated_additional_failed_recovery_event(
+        self,
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+    ) -> Mapping[str, Any] | None:
+        del task, events
+        return None
 
     @staticmethod
     def _validated_p26_failed_recovery_event(

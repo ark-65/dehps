@@ -49,6 +49,31 @@ class IsolatedMainlineError(contract.IsolatedChallengerContractError):
 
 
 _PUBLICATION_PATCH_LOCK = RLock()
+_EXACT_FAILED_RECOVERY_TASK_KEY = (
+    "m4-isolated-24h-challenger-v11-search-batch-000000000000"
+)
+_EXACT_FAILED_RECOVERY_TASK_DIGEST = (
+    "fc6bacf51dfe3de513aabb908900a1d67b8f7f3b67b1042631bf2c8177860f0b"
+)
+_EXACT_FAILED_RECOVERY_EXECUTION_ID = (
+    "a493038f96f8b5657ae36642ce6d4007df1f1c9911071c8fb33047995e5816ef"
+)
+_EXACT_FAILED_RECOVERY_MANIFEST_DIGEST = (
+    "96bf5c5b13b9f65fa48b0d8da119412f256a1ec657141be8ca8968b5fb12762f"
+)
+_EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST = (
+    "13c3b265371482f3291c239f5af1a2523e88e4028505e18d42d06da3e81f8222"
+)
+_EXACT_FAILED_RECOVERY_EVENT_DIGEST = (
+    "71d714427c8c5e9219b8424095fa80a3fedfb7b97107dae19af79a03c47d501c"
+)
+_EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST = (
+    "2810d17a645483fbfb368334c20ba5264e9dcbca937908ed5dbd9471144d73e1"
+)
+_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST = (
+    "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011"
+)
+_EXACT_FAILED_RECOVERY_ORIGIN_COMMIT = "443a1d72e3135b9a90912bc3e890566de4338f65"
 
 
 def _external_delivery_evidence(facts: set[str]) -> dict[str, Any]:
@@ -1294,6 +1319,16 @@ def _same_aware_timestamp_instant(stored: object, expected: object) -> bool:
     return stored_at == expected_at
 
 
+def _canonical_registration_created_at(committed_at: object) -> str:
+    if (
+        not isinstance(committed_at, datetime)
+        or committed_at.tzinfo is None
+        or committed_at.utcoffset() is None
+    ):
+        raise IsolatedMainlineError("registration_committed_at_timezone_changed")
+    return committed_at.astimezone(UTC).isoformat()
+
+
 def _mail_configuration_body(*, simulation: bool) -> dict[str, Any]:
     if simulation:
         from dehps.notifications.isolated_challenger_v11 import fake_configuration_body
@@ -2449,7 +2484,9 @@ class IsolatedV11Capability:
                 existing["predecessor_head_digest"],
                 field="previous_registration_head_digest",
             )
-            registration_created_at = existing["committed_at"].isoformat()
+            registration_created_at = _canonical_registration_created_at(
+                existing["committed_at"]
+            )
             registration_execution_id = str(existing["registration_execution_id"])
         if not re.fullmatch(r"[0-9a-f]{64}", registration_execution_id):
             raise IsolatedMainlineError("registration_execution_identity_changed")
@@ -5399,6 +5436,8 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         git_commit: str | None = None,
         require_clean_tree: bool = True,
         simulation: bool = False,
+        failed_recovery_event_digest: str = "",
+        failed_recovery_attestation_digest: str = "",
     ) -> None:
         supervisor_module._TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE[
             contract.CONTROL_PLANE_KEY
@@ -5430,6 +5469,125 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         self.capabilities.update(isolated)
         self.isolated_capability_names = capability_names
         self.isolated_context = dict(context)
+        self.isolated_source_digest = source_digest
+        self.failed_recovery_event_digest = failed_recovery_event_digest
+        self.failed_recovery_attestation_digest = failed_recovery_attestation_digest
+
+    def _validated_additional_failed_recovery_event(
+        self,
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+    ) -> Mapping[str, Any] | None:
+        tokens = {
+            self.failed_recovery_event_digest,
+            self.failed_recovery_attestation_digest,
+        }
+        if tokens == {""}:
+            return None
+        if (
+            self.failed_recovery_event_digest != _EXACT_FAILED_RECOVERY_EVENT_DIGEST
+            or self.failed_recovery_attestation_digest
+            != _EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+            or task.task_key != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or task.artifact_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or tuple(task.input_artifact_digests)
+            != (_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,)
+            or self.isolated_source_digest
+            != _EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
+        ):
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery authorization changed"
+            )
+        if len(events) != 2:
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery event set changed"
+            )
+        records = [supervisor_module._event_record(item) for item in events]
+        started = [item for item in records if item.event_type == "started"]
+        failed = [item for item in records if item.event_type == "failed"]
+        if len(started) != 1 or len(failed) != 1:
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery event set changed"
+            )
+        started_record = started[0]
+        failed_record = failed[0]
+        raw_by_digest = {str(item.get("event_digest") or ""): item for item in events}
+        if (
+            len(raw_by_digest) != 2
+            or started_record.artifact_digest
+            != _EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST
+            or failed_record.artifact_digest != _EXACT_FAILED_RECOVERY_EVENT_DIGEST
+            or started_record.execution_id != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            or failed_record.execution_id != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            or started_record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or failed_record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or started_record.manifest_digest != _EXACT_FAILED_RECOVERY_MANIFEST_DIGEST
+            or failed_record.manifest_digest != _EXACT_FAILED_RECOVERY_MANIFEST_DIGEST
+            or started_record.task_key != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or failed_record.task_key != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or started_record.task_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or failed_record.task_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or started_record.capability != "M4IsolatedSearchBatchCapabilityV11"
+            or failed_record.capability != "M4IsolatedSearchBatchCapabilityV11"
+            or started_record.sequence != 0
+            or failed_record.sequence != 1
+            or dict(started_record.payload)
+            != {
+                "input_artifact_digests": [_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST],
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+            }
+            or dict(failed_record.payload)
+            != {
+                "error": "atomic_registration_resume_changed",
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+            }
+        ):
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery event provenance changed"
+            )
+        attestation_path = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / _EXACT_FAILED_RECOVERY_TASK_KEY
+            / _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            / "runtime-migrations"
+            / _EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+            / "user-systemd-runtime-migration.json"
+        )
+        try:
+            attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery attestation missing"
+            ) from exc
+        identity = dict(attestation)
+        artifact_digest = identity.pop("artifact_digest", None)
+        if (
+            artifact_digest != _EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+            or attestation.get("task_digest") != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or attestation.get("execution_id") != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            or attestation.get("started_event_digest")
+            != _EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST
+            or attestation.get("origin_source_contract_digest")
+            != _EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
+            or attestation.get("predecessor_attestation_digest")
+            != "4d2c037b172beaa525de05c855d0d0e1ad72e8978c271f3cdf68fb9d23aa6452"
+            or attestation.get("governance", {}).get("operator_request_id") != 748
+            or attestation.get("governance", {}).get("operator_execution_id") != 603
+            or contract.domain_digest(
+                identity,
+                domain=(
+                    "dehps.m4.isolated-24h-challenger."
+                    "same-key-event-isolation-runtime-migration.v11"
+                ),
+            )
+            != _EXACT_FAILED_RECOVERY_ATTESTATION_DIGEST
+        ):
+            raise MainlineSupervisorError(
+                "isolated exact failed recovery attestation changed"
+            )
+        return raw_by_digest[_EXACT_FAILED_RECOVERY_EVENT_DIGEST]
 
     def run_once(self, *, task_key: str | None = None) -> dict[str, Any]:
         if task_key is None or task_key not in {
