@@ -101,7 +101,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
     def _definitions(manifest: ControlPlaneManifest) -> tuple[Any, ...]:
         return tuple(item.to_dict() for item in manifest.goals)
 
-    def _verify_task_definition(self, task: Any) -> None:
+    def _verify_isolated_task_definition(self, task: Any) -> None:
         try:
             metric = json.loads(task.metric_contract)
             raw_context = metric["render_context"]
@@ -140,7 +140,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if len(incoming.tasks) != len({item.task_key for item in incoming.tasks}):
             raise ResearchOSValidationError("isolated_v11_task_set_changed")
         for task in incoming.tasks:
-            self._verify_task_definition(task)
+            self._verify_isolated_task_definition(task)
         operator_authorized = (
             builder.OPERATOR_CONFIGURATION_AUTHORITY in incoming.facts.authorities
         )
@@ -1532,7 +1532,7 @@ def install(
             "schema_version": contract.DATABASE_SCHEMA_VERSION,
             "contract_digest": contract.CONTRACT_DIGEST,
             "source_contract_digest": source_digest,
-            "installed_git_commit": str(git_commit or ""),
+            "installed_git_commit": schema_attestation["installed_git_commit"],
         },
         parent_digests=(source_digest,),
     )
@@ -1583,12 +1583,28 @@ def _attest_database_schema(
             "SELECT schema_version,contract_digest,installed_git_commit FROM "
             "m4_isolated_v11.schema_identity WHERE singleton=TRUE"
         ).fetchone()
-    if row is None or tuple(str(item) for item in row) != expected:
+    if row is None:
         raise IsolatedRunnerError("database_schema_identity_changed")
+    actual = tuple(str(item) for item in row)
+    if (
+        actual[:2] != expected[:2]
+        or _GIT_COMMIT.fullmatch(actual[2]) is None
+    ):
+        raise IsolatedRunnerError("database_schema_identity_changed")
+    if actual[2] != git_commit:
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", actual[2], git_commit],
+            cwd=ROOT_DIR,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if ancestry.returncode != 0:
+            raise IsolatedRunnerError("database_schema_install_commit_not_ancestor")
     return {
-        "schema_version": expected[0],
-        "contract_digest": expected[1],
-        "installed_git_commit": expected[2],
+        "schema_version": actual[0],
+        "contract_digest": actual[1],
+        "installed_git_commit": actual[2],
     }
 
 
