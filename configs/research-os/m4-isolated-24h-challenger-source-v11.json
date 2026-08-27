@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "f6d043e22862c1ffd850dc5932a7be3c6f2dbaab4e9cf1d57db8a3f8158157ef",
+  "artifact_digest": "eaebe90afc17a3a226e08cb40891b38705eb0e48194d3ea656654210c69356ed",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -49,6 +49,12 @@
     "batch_timestamp_repair_engineering_request_id": 743,
     "batch_timestamp_repair_engineering_request_key": "engineering-m4-isolated-v11-registration-timestamp-instant-and-failed-batch-recovery-v1",
     "batch_timestamp_repair_engineering_request_payload_sha256": "5c50ef04153515c1f75d3c772620174da68bafb934e43a18a3a7805eff165380",
+    "same_key_event_isolation_repair_base_merged_commit": "dea22d7ca1cc876d278b1d18e4e68801a41291fd",
+    "same_key_event_isolation_repair_engineering_approval_decision_id": 3167,
+    "same_key_event_isolation_repair_engineering_execution_id": 602,
+    "same_key_event_isolation_repair_engineering_request_id": 747,
+    "same_key_event_isolation_repair_engineering_request_key": "engineering-m4-isolated-v11-same-key-event-isolation-resume-v1",
+    "same_key_event_isolation_repair_engineering_request_payload_sha256": "4f8d643f8090c11bd1069625c45265e90d1a6e6055e0873e20a74236775da8af",
     "user_systemd_guard_repair_base_merged_commit": "443a1d72e3135b9a90912bc3e890566de4338f65",
     "user_systemd_guard_repair_engineering_approval_decision_id": 3157,
     "user_systemd_guard_repair_engineering_execution_id": 600,
@@ -172,9 +178,9 @@
       "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
     },
     {
-      "bytes": 121934,
+      "bytes": 134289,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "f6686c26e72b8867eddc259265e3e6911b9998c3444e57a41fa8deea1493dd64"
+      "sha256": "32e9398de1e429566a158d9f5b0bc0d5acf3648aca0ed31eb288b7af5525e7c5"
     },
     {
       "bytes": 17768,
@@ -237,5 +243,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "2086487bea21512c7e3de609990d9858fce891a21d15360a16008ff69bbba02d"
+  "source_set_digest": "ceb0b072492ffb5af460b6a2c53d209ebff56b7e254f0881123a7217f35eaf5e"
 }
