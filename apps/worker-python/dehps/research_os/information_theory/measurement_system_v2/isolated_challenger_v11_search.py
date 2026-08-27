@@ -329,7 +329,6 @@ def normalize_projection_rows(
             or issue in seen_issues
             or not isinstance(draw_date, date)
             or issue[:4] != f"{draw_date.year:04d}"
-            or draw_date.weekday() not in contract.DRAW_WEEKDAYS
             or len(reds) != 6
             or reds != tuple(sorted(reds))
             or len(set(reds)) != 6
@@ -392,8 +391,10 @@ def load_target_issue_projection(
     schema_digest = validate_history_schema(schema_rows)
     normalized = normalize_projection_rows(raw_rows)
     source_max_issue = str(normalized[-1]["issue"])
+    source_max_draw_date = str(normalized[-1]["draw_date"])
     projected = contract.target_issue_projection(
         source_max_issue=source_max_issue,
+        source_max_draw_date=source_max_draw_date,
         projection_time=projection_time,
     )
     history_query_digest = contract.domain_digest(
@@ -408,6 +409,8 @@ def load_target_issue_projection(
         {
             "timezone": "Asia/Shanghai",
             "weekdays": [1, 3, 6],
+            "source_anchor": "latest_audited_issue_plus_draw_date",
+            "issue_progression": "sequential_with_draw_date",
             "deadline": "17:00:00",
             "official_draw_time": "21:15:00",
             "boundary": "projection_time<=deadline_selects_candidate",
@@ -423,7 +426,10 @@ def load_target_issue_projection(
     }
 
 def normalize_history_rows(
-    rows: Iterable[Mapping[str, Any]], *, target_issue: str
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    target_issue: str,
+    target_draw_date: date | str | None = None,
 ) -> tuple[HistoryRow, ...]:
     target_issue = contract.require_issue(target_issue)
     output: list[HistoryRow] = []
@@ -466,7 +472,6 @@ def normalize_history_rows(
         draw_date = raw["draw_date"]
         if (
             not isinstance(draw_date, date)
-            or draw_date.weekday() not in contract.DRAW_WEEKDAYS
             or issue[:4] != f"{draw_date.year:04d}"
             or (
                 previous_draw_date is not None
@@ -493,16 +498,44 @@ def normalize_history_rows(
         sorted(item.issue for item in output)
     ):
         raise IsolatedSearchError("history_issue_order_invalid")
-    if contract.issue_draw_date(target_issue) <= output[-1].draw_date:
+    projected_draw_date = (
+        contract.next_ssq_draw_date(output[-1].draw_date)
+        if target_draw_date is None
+        else contract.require_draw_date(
+            target_draw_date, field="target_draw_date"
+        )
+    )
+    if (
+        projected_draw_date <= output[-1].draw_date
+        or contract.next_official_issue(
+            output[-1].issue, candidate_draw_date=projected_draw_date
+        )
+        != target_issue
+    ):
         raise IsolatedSearchError("history_target_projection_changed")
     return tuple(output)
 
 
-def history_snapshot_digest(rows: Sequence[HistoryRow], *, target_issue: str) -> str:
+def history_snapshot_digest(
+    rows: Sequence[HistoryRow],
+    *,
+    target_issue: str,
+    target_draw_date: date | str | None = None,
+) -> str:
+    if not rows:
+        raise IsolatedSearchError("history_empty")
+    projected_draw_date = (
+        contract.next_ssq_draw_date(rows[-1].draw_date)
+        if target_draw_date is None
+        else contract.require_draw_date(
+            target_draw_date, field="target_draw_date"
+        )
+    )
     return contract.domain_digest(
         {
             "query": HISTORY_SQL,
             "target_issue": target_issue,
+            "target_draw_date": projected_draw_date.isoformat(),
             "rows": [
                 {
                     "issue": row.issue,
@@ -519,7 +552,10 @@ def history_snapshot_digest(rows: Sequence[HistoryRow], *, target_issue: str) ->
 
 
 def load_history(
-    connection_factory: Callable[[], Any], *, target_issue: str
+    connection_factory: Callable[[], Any],
+    *,
+    target_issue: str,
+    target_draw_date: date | str | None = None,
 ) -> tuple[HistoryRow, ...]:
     """Execute the frozen physical query and normalize its exact row projection."""
 
@@ -534,7 +570,11 @@ def load_history(
         schema_rows = cursor.execute(HISTORY_SCHEMA_SQL).fetchall()
         rows = cursor.execute(HISTORY_SQL, {"target_issue": target_issue}).fetchall()
     validate_history_schema(schema_rows)
-    return normalize_history_rows(rows, target_issue=target_issue)
+    return normalize_history_rows(
+        rows,
+        target_issue=target_issue,
+        target_draw_date=target_draw_date,
+    )
 
 
 def _target_matrix(history: Sequence[HistoryRow]) -> np.ndarray:
@@ -1656,15 +1696,30 @@ def candidate_prediction_probabilities(
     history: Sequence[HistoryRow],
     *,
     target_issue: str,
+    target_draw_date: date | str | None = None,
 ) -> tuple[float, ...]:
     target_issue = contract.require_issue(target_issue)
-    if not history or contract.next_official_issue(history[-1].issue) != target_issue:
+    if not history:
+        raise IsolatedSearchError("prediction_target_boundary_changed")
+    projected_draw_date = (
+        contract.next_ssq_draw_date(history[-1].draw_date)
+        if target_draw_date is None
+        else contract.require_draw_date(
+            target_draw_date, field="target_draw_date"
+        )
+    )
+    if (
+        contract.next_official_issue(
+            history[-1].issue, candidate_draw_date=projected_draw_date
+        )
+        != target_issue
+    ):
         raise IsolatedSearchError("prediction_target_boundary_changed")
     if job.configuration.family == "FEATURE_ABI32_LINEAR_RANKER":
         raise IsolatedSearchError("feature_abi_prediction_uses_score_surface")
     sentinel = HistoryRow(
         issue=target_issue,
-        draw_date=contract.issue_draw_date(target_issue),
+        draw_date=projected_draw_date,
         red_numbers=(1, 2, 3, 4, 5, 6),
         blue_number=1,
         source="TARGET_BLIND_SENTINEL_NOT_OBSERVED",
@@ -1685,10 +1740,14 @@ def candidate_prediction_score(
     history: Sequence[HistoryRow],
     *,
     target_issue: str,
+    target_draw_date: date | str | None = None,
 ) -> Callable[[tuple[int, ...]], float]:
     if job.configuration.family != "FEATURE_ABI32_LINEAR_RANKER":
         probabilities = candidate_prediction_probabilities(
-            job, history, target_issue=target_issue
+            job,
+            history,
+            target_issue=target_issue,
+            target_draw_date=target_draw_date,
         )
         return lambda candidate: probability_combination_score(candidate, probabilities)
     params = _hyperparameters(job.configuration)
@@ -1697,9 +1756,16 @@ def candidate_prediction_score(
         raise IsolatedSearchError("feature_abi_weight_count_changed")
     start = _training_start(job.configuration, len(history))
     training = [(row.issue, row.draw_date, row.red_numbers) for row in history[start:]]
+    projected_draw_date = (
+        contract.next_ssq_draw_date(history[-1].draw_date)
+        if target_draw_date is None
+        else contract.require_draw_date(
+            target_draw_date, field="target_draw_date"
+        )
+    )
     stats = train_frequency_stats(
         training,
-        target_draw_date=contract.issue_draw_date(target_issue),
+        target_draw_date=projected_draw_date,
     )
     ranker_config = FrequencyRankerConfig(
         **dict(zip(FEATURE_ABI32_WEIGHT_FIELDS, weights, strict=True))
@@ -1718,7 +1784,13 @@ def evaluate_candidate_history(
     if (
         history_snapshot_digest(
             history,
-            target_issue=contract.next_official_issue(history[-1].issue),
+            target_issue=contract.next_official_issue(
+                history[-1].issue,
+                candidate_draw_date=contract.next_ssq_draw_date(
+                    history[-1].draw_date
+                ),
+            ),
+            target_draw_date=contract.next_ssq_draw_date(history[-1].draw_date),
         )
         != configuration.snapshot_digest
     ):

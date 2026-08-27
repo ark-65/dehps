@@ -94,9 +94,22 @@ DEHPS_ISOLATED_V11_SMTP_PORT=465
 DEHPS_ISOLATED_V11_SMTP_TLS=IMPLICIT_TLS
 ```
 
-The current maximum audited issue is resolved from `ssq_history` on every
-timer cycle; it is not a mutable environment setting. This lets the additive
-issue DAG advance after each draw without a manual unit edit.
+The current maximum audited `(issue, draw_date)` identity is resolved from
+`ssq_history` in one repeatable-read snapshot on every timer cycle; it is not a
+mutable environment setting. The target is the sequential issue successor on
+the next Tuesday, Thursday, or Sunday after that actual audited date. Issue
+numbers are never reconstructed by counting nominal draw weekdays from January
+1, because historical suspension dates make that ordinal mapping false. The
+rendered source date and target date are part of every affected task and replay
+identity. This lets the additive issue DAG advance after each draw without a
+manual unit edit.
+
+Official holiday-adjusted historical draw dates remain authoritative even when
+they are not Tuesday, Thursday, or Sunday. They retain all uniqueness, year,
+ordering, schema, and content-integrity checks. In the existing three-component
+Tuesday/Thursday/Sunday calendar feature, such a historical date is encoded as
+exactly `0,0,0`; no category or feature dimension is added. Only a future target
+date must be Tuesday, Thursday, or Sunday.
 
 Secrets and plaintext recipients never enter artifacts or logs. Configuration
 artifacts store only identity digests and the TLS/AUTH/NOOP provider result.
@@ -164,7 +177,7 @@ The result-blind simulation command is intentionally non-production:
 ```bash
 apps/worker-python/.venv/bin/python \
   apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py \
-  simulate --source-max-issue YYYYNNN
+  simulate --source-max-issue YYYYNNN --source-max-draw-date YYYY-MM-DD
 ```
 
 ## Operator-only deployment sequence

@@ -296,7 +296,9 @@ def _goal(*, context: Mapping[str, str], source_digest: str) -> dict[str, Any]:
             "contract_digest": contract.CONTRACT_DIGEST,
             "source_contract_digest": source_digest,
             "source_max_issue": context["source_max_issue"],
+            "source_max_draw_date": context["source_max_draw_date"],
             "target_issue": context["target_issue"],
+            "target_draw_date": context["target_draw_date"],
             "worker_count": contract.WORKER_COUNT,
             "lifetime_multiplicity_limit": contract.LIFETIME_MULTIPLICITY_LIMIT,
             "cost_cny": "200.00",
@@ -541,7 +543,9 @@ def manifest_with_facts(
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-max-issue", required=True)
+    parser.add_argument("--source-max-draw-date", required=True)
     parser.add_argument("--target-issue")
+    parser.add_argument("--target-draw-date")
     parser.add_argument("--batch-seq", type=int, default=0)
     parser.add_argument("--epoch-date")
     parser.add_argument("--minute")
@@ -562,7 +566,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     context = contract.render_context(
         source_max_issue=args.source_max_issue,
+        source_max_draw_date=args.source_max_draw_date,
         target_issue=args.target_issue,
+        target_draw_date=args.target_draw_date,
         batch_seq=args.batch_seq,
         epoch_date=args.epoch_date,
         minute=args.minute,

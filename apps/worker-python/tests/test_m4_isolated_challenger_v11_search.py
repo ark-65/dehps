@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from dehps.research_os.information_theory.measurement_system_v2 import (
@@ -201,6 +201,39 @@ def test_history_physical_projection_rejects_target_or_column_drift() -> None:
     rows[-1]["issue"] = target
     with pytest.raises(search.IsolatedSearchError, match="DATA_BOUNDARY"):
         search.normalize_history_rows(rows, target_issue=target)
+
+
+def test_official_off_schedule_history_is_valid_and_calendar_one_hot_is_zero() -> None:
+    historical = search.HistoryRow(
+        issue="2004080",
+        draw_date=date(2004, 9, 24),
+        red_numbers=(1, 2, 3, 4, 5, 6),
+        blue_number=7,
+        source="audited-fixture",
+    )
+    cube = search._base_feature_cube(
+        (historical,), search.CALENDAR_COMPONENT_IDS
+    )
+    assert cube.shape == (1, 33, 3)
+    assert not bool(cube.any())
+
+    row = {
+        "id": 1,
+        "issue": historical.issue,
+        "draw_date": historical.draw_date,
+        "red_numbers": list(historical.red_numbers),
+        **{
+            f"r{index}": value
+            for index, value in enumerate(historical.red_numbers, 1)
+        },
+        "blue_number": historical.blue_number,
+        "source": historical.source,
+        "created_at": datetime(2004, 9, 24, 22, tzinfo=UTC),
+    }
+    normalized = search.normalize_history_rows(
+        (row,), target_issue="2004081", target_draw_date="2004-09-26"
+    )
+    assert normalized == (historical,)
 
 
 def test_worker_rss_guard_is_fail_closed(monkeypatch) -> None:
