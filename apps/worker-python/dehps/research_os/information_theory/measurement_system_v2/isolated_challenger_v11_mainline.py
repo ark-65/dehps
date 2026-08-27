@@ -944,6 +944,7 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
             set(body)
             == {
                 "source_max_issue",
+                "source_max_draw_date",
                 "target_issue",
                 "target_draw_date",
                 "deadline",
@@ -1174,9 +1175,12 @@ def _history_from_artifact(value: Mapping[str, Any]) -> tuple[search.HistoryRow,
         for item in body["rows"]
     )
     target_issue = str(body.get("target_issue") or "")
-    if search.history_snapshot_digest(rows, target_issue=target_issue) != body.get(
-        "history_snapshot_digest"
-    ):
+    target_draw_date = str(body.get("target_draw_date") or "")
+    if search.history_snapshot_digest(
+        rows,
+        target_issue=target_issue,
+        target_draw_date=target_draw_date,
+    ) != body.get("history_snapshot_digest"):
         raise IsolatedMainlineError("history_snapshot_reconstruction_changed")
     return rows
 
@@ -1534,7 +1538,11 @@ class IsolatedV11Capability:
         )
         if (
             projection_body["source_max_issue"] != self.context["source_max_issue"]
+            or projection_body["source_max_draw_date"]
+            != self.context["source_max_draw_date"]
             or projection_body["target_issue"] != self.context["target_issue"]
+            or projection_body["target_draw_date"]
+            != self.context["target_draw_date"]
             or projection_body["projection_time"] != self.context["projection_time"]
         ):
             raise IsolatedMainlineError("target_projection_history_changed")
@@ -1604,14 +1612,22 @@ class IsolatedV11Capability:
         )
         target_issue = self.context["target_issue"]
         history = search.load_history(
-            self.repository.connection_factory, target_issue=target_issue
+            self.repository.connection_factory,
+            target_issue=target_issue,
+            target_draw_date=self.context["target_draw_date"],
         )
         snapshot_digest = search.history_snapshot_digest(
-            history, target_issue=target_issue
+            history,
+            target_issue=target_issue,
+            target_draw_date=self.context["target_draw_date"],
         )
         if (
             projection["body"].get("source_max_issue") != history[-1].issue
+            or projection["body"].get("source_max_draw_date")
+            != history[-1].draw_date.isoformat()
             or projection["body"].get("target_issue") != target_issue
+            or projection["body"].get("target_draw_date")
+            != self.context["target_draw_date"]
             or projection["body"].get("history_query_digest")
             != contract.domain_digest(
                 search.TARGET_PROJECTION_SQL,
@@ -1636,6 +1652,7 @@ class IsolatedV11Capability:
                     "maximum_issue": history[-1].issue,
                     "issue_count": len(history),
                     "target_issue": target_issue,
+                    "target_draw_date": self.context["target_draw_date"],
                     "query": search.HISTORY_SQL,
                     "future_rows_read": 0,
                     "target_rows_read": 0,
@@ -1998,9 +2015,10 @@ class IsolatedV11Capability:
             raise IsolatedMainlineError("delivery_template_changed")
         now = datetime.now(contract.TIMEZONE)
         if template_name == "predraw_delivery":
-            scheduled = contract.schedule_for_issue(self.context["target_issue"])[
-                "predraw_send"
-            ]
+            scheduled = contract.schedule_for_issue(
+                self.context["target_issue"],
+                target_draw_date=self.context["target_draw_date"],
+            )["predraw_send"]
             if not scheduled <= now < scheduled + timedelta(minutes=1):
                 raise IsolatedMainlineError("PREDRAW_DELIVERY_DEADLINE_MISSED")
         elif template_name == "daily_delivery":
@@ -3593,9 +3611,10 @@ class IsolatedV11Capability:
         preregistration = _unique_type(
             self._upstream("preregistration"), "M4IsolatedPreregistrationV11"
         )
-        cutoff = contract.schedule_for_issue(self.context["target_issue"])[
-            "selection_cutoff"
-        ]
+        cutoff = contract.schedule_for_issue(
+            self.context["target_issue"],
+            target_draw_date=self.context["target_draw_date"],
+        )["selection_cutoff"]
         head = self._cut_registration_head(
             cutoff=cutoff,
             genesis_head=genesis_head,
@@ -3781,7 +3800,8 @@ class IsolatedV11Capability:
                         "outcome": "NO_ELIGIBLE_CHALLENGER",
                         "eligible_count": 0,
                         "freeze_deadline": contract.schedule_for_issue(
-                            self.context["target_issue"]
+                            self.context["target_issue"],
+                            target_draw_date=self.context["target_draw_date"],
                         )["freeze_deadline"].isoformat(),
                     },
                 ),
@@ -3930,6 +3950,7 @@ class IsolatedV11Capability:
             job,
             history,
             target_issue=self.context["target_issue"],
+            target_draw_date=self.context["target_draw_date"],
         )
         if configuration.family == "FEATURE_ABI32_LINEAR_RANKER":
             red_top100 = search.top_red_combinations(score)
@@ -3938,6 +3959,7 @@ class IsolatedV11Capability:
                 job,
                 history,
                 target_issue=self.context["target_issue"],
+                target_draw_date=self.context["target_draw_date"],
             )
             red_top100 = search.probability_top_red_combinations(probabilities)
         tickets = search.isolated_rank_blue_portfolio(
@@ -4842,7 +4864,8 @@ class IsolatedV11Capability:
                         "policy": "EXACT_CHECKPOINT_RESUME",
                     },
                     "time_to_next_freeze": contract.schedule_for_issue(
-                        self.context["target_issue"]
+                        self.context["target_issue"],
+                        target_draw_date=self.context["target_draw_date"],
                     )["freeze_deadline"].isoformat(),
                 },
             ),

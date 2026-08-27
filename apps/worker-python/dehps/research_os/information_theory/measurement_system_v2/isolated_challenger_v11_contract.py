@@ -137,45 +137,80 @@ def draw_dates(year: int) -> tuple[date, ...]:
     return tuple(output)
 
 
-def issue_draw_date(issue: str) -> date:
-    issue = require_issue(issue)
-    year = int(issue[:4])
-    ordinal = int(issue[4:])
-    dates = draw_dates(year)
-    if ordinal > len(dates):
-        raise IsolatedChallengerContractError("issue_ordinal_exceeds_schedule")
-    return dates[ordinal - 1]
+def require_history_draw_date(value: object, *, field: str) -> date:
+    if isinstance(value, datetime):
+        parsed = value.date()
+    elif isinstance(value, date):
+        parsed = value
+    else:
+        try:
+            parsed = date.fromisoformat(str(value or ""))
+        except ValueError as exc:
+            raise IsolatedChallengerContractError(f"{field}_invalid") from exc
+    return parsed
 
 
-def next_official_issue(source_max_issue: str) -> str:
+def require_draw_date(value: object, *, field: str) -> date:
+    parsed = require_history_draw_date(value, field=field)
+    if parsed.weekday() not in DRAW_WEEKDAYS:
+        raise IsolatedChallengerContractError(f"{field}_not_scheduled_draw_day")
+    return parsed
+
+
+def next_ssq_draw_date(after: date) -> date:
+    current = after + timedelta(days=1)
+    while current.weekday() not in DRAW_WEEKDAYS:
+        current += timedelta(days=1)
+    return current
+
+
+def next_official_issue(
+    source_max_issue: str, *, candidate_draw_date: date
+) -> str:
     source_max_issue = require_issue(source_max_issue)
     year = int(source_max_issue[:4])
     ordinal = int(source_max_issue[4:])
-    count = len(draw_dates(year))
-    if ordinal > count:
-        raise IsolatedChallengerContractError("source_issue_exceeds_schedule")
-    if ordinal < count:
+    if candidate_draw_date.year == year:
+        if ordinal >= 999:
+            raise IsolatedChallengerContractError("source_issue_ordinal_exhausted")
         return f"{year}{ordinal + 1:03d}"
-    return f"{year + 1}001"
+    if candidate_draw_date.year == year + 1:
+        return f"{year + 1}001"
+    raise IsolatedChallengerContractError("candidate_draw_year_not_sequential")
 
 
 def target_issue_projection(
-    *, source_max_issue: str, projection_time: datetime
+    *,
+    source_max_issue: str,
+    source_max_draw_date: date | str,
+    projection_time: datetime,
 ) -> dict[str, str]:
     source_max_issue = require_issue(source_max_issue)
+    source_draw_date = require_history_draw_date(
+        source_max_draw_date, field="source_max_draw_date"
+    )
+    if source_draw_date.year != int(source_max_issue[:4]):
+        raise IsolatedChallengerContractError("source_issue_draw_year_changed")
     if projection_time.tzinfo is None:
         raise IsolatedChallengerContractError("projection_time_not_aware")
     projection_time = projection_time.astimezone(TIMEZONE)
-    candidate_issue = next_official_issue(source_max_issue)
-    candidate_draw_date = issue_draw_date(candidate_issue)
+    if source_draw_date > projection_time.date():
+        raise IsolatedChallengerContractError("source_draw_date_after_projection")
+    candidate_draw_date = next_ssq_draw_date(source_draw_date)
+    candidate_issue = next_official_issue(
+        source_max_issue, candidate_draw_date=candidate_draw_date
+    )
     while True:
         deadline = datetime.combine(candidate_draw_date, PREDRAW_SEND_TIME, TIMEZONE)
         if projection_time <= deadline:
             break
-        candidate_issue = next_official_issue(candidate_issue)
-        candidate_draw_date = issue_draw_date(candidate_issue)
+        candidate_draw_date = next_ssq_draw_date(candidate_draw_date)
+        candidate_issue = next_official_issue(
+            candidate_issue, candidate_draw_date=candidate_draw_date
+        )
     return {
         "source_max_issue": source_max_issue,
+        "source_max_draw_date": source_draw_date.isoformat(),
         "target_issue": candidate_issue,
         "target_draw_date": candidate_draw_date.isoformat(),
         "deadline": deadline.isoformat(),
@@ -186,8 +221,11 @@ def target_issue_projection(
     }
 
 
-def schedule_for_issue(issue: str) -> dict[str, datetime]:
-    draw_day = issue_draw_date(issue)
+def schedule_for_issue(
+    issue: str, *, target_draw_date: date | str
+) -> dict[str, datetime]:
+    require_issue(issue)
+    draw_day = require_draw_date(target_draw_date, field="target_draw_date")
     return {
         "selection_cutoff": datetime.combine(draw_day, SELECTION_CUTOFF, TIMEZONE),
         "freeze_deadline": datetime.combine(draw_day, FREEZE_DEADLINE, TIMEZONE),
@@ -205,7 +243,9 @@ def incident_identity(*, reason_code: str, first_offending_digest: str) -> str:
 def render_context(
     *,
     source_max_issue: str,
+    source_max_draw_date: date | str,
     target_issue: str | None = None,
+    target_draw_date: date | str | None = None,
     batch_seq: int = 0,
     epoch_date: str | None = None,
     minute: str | None = None,
@@ -216,10 +256,13 @@ def render_context(
     projection_time: str | None = None,
 ) -> dict[str, str]:
     source_max_issue = require_issue(source_max_issue)
+    source_draw_date = require_history_draw_date(
+        source_max_draw_date, field="source_max_draw_date"
+    )
     if projection_time is None:
-        immediate = next_official_issue(source_max_issue)
+        immediate_draw_date = next_ssq_draw_date(source_draw_date)
         parsed_projection_time = datetime.combine(
-            issue_draw_date(immediate), PREDRAW_SEND_TIME, TIMEZONE
+            immediate_draw_date, PREDRAW_SEND_TIME, TIMEZONE
         )
     else:
         try:
@@ -233,6 +276,7 @@ def render_context(
         parsed_projection_time = parsed_projection_time.astimezone(TIMEZONE)
     projected = target_issue_projection(
         source_max_issue=source_max_issue,
+        source_max_draw_date=source_draw_date,
         projection_time=parsed_projection_time,
     )
     expected_target = projected["target_issue"]
@@ -241,9 +285,17 @@ def render_context(
     )
     if target_issue != expected_target:
         raise IsolatedChallengerContractError("target_issue_not_next_official_issue")
+    expected_draw_date = projected["target_draw_date"]
+    parsed_target_draw_date = (
+        date.fromisoformat(expected_draw_date)
+        if target_draw_date is None
+        else require_draw_date(target_draw_date, field="target_draw_date")
+    )
+    if parsed_target_draw_date.isoformat() != expected_draw_date:
+        raise IsolatedChallengerContractError("target_draw_date_not_projected")
     if not isinstance(batch_seq, int) or not 0 <= batch_seq <= 999_999_999_999:
         raise IsolatedChallengerContractError("batch_seq_invalid")
-    draw_day = issue_draw_date(target_issue)
+    draw_day = parsed_target_draw_date
     epoch_date = epoch_date or draw_day.strftime("%Y%m%d")
     minute = minute or draw_day.strftime("%Y%m%d") + "0000"
     incident_offending_digest = incident_offending_digest or hashlib.sha256(
@@ -270,7 +322,9 @@ def render_context(
         raise IsolatedChallengerContractError("incident_id_derivation_changed")
     return {
         "source_max_issue": source_max_issue,
+        "source_max_draw_date": source_draw_date.isoformat(),
         "target_issue": target_issue,
+        "target_draw_date": draw_day.isoformat(),
         "batch_seq": f"{batch_seq:012d}",
         "epoch_date": epoch_date,
         "minute": minute,

@@ -11,7 +11,9 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 def test_frozen_surface_has_exact_38_tasks_and_artifacts() -> None:
     assert len(contract.TASK_TEMPLATES) == 42
     assert len(contract.ARTIFACT_TYPES) == 43
-    context = contract.render_context(source_max_issue="2026100")
+    context = contract.render_context(
+        source_max_issue="2026100", source_max_draw_date="2026-08-30"
+    )
     assert len(contract.rendered_task_keys(context)) == 42
     assert len(set(contract.rendered_task_keys(context))) == 42
     assert contract.WORKER_COUNT == 18
@@ -22,10 +24,15 @@ def test_schedule_is_tuesday_thursday_sunday_and_rolls_year() -> None:
     dates = contract.draw_dates(2026)
     assert dates
     assert {item.weekday() for item in dates} == {1, 3, 6}
-    last = f"2026{len(dates):03d}"
-    assert contract.next_official_issue(last) == "2027001"
-    assert contract.issue_draw_date("2027001") == contract.draw_dates(2027)[0]
-    schedule = contract.schedule_for_issue("2026001")
+    next_date = contract.next_ssq_draw_date(date(2026, 12, 31))
+    assert next_date == date(2027, 1, 3)
+    assert (
+        contract.next_official_issue("2026152", candidate_draw_date=next_date)
+        == "2027001"
+    )
+    schedule = contract.schedule_for_issue(
+        "2026100", target_draw_date="2026-08-30"
+    )
     assert schedule["selection_cutoff"].hour == 16
     assert schedule["selection_cutoff"].minute == 40
     assert schedule["freeze_deadline"].minute == 45
@@ -34,38 +41,72 @@ def test_schedule_is_tuesday_thursday_sunday_and_rolls_year() -> None:
 
 def test_target_projection_rejects_non_next_issue() -> None:
     with pytest.raises(contract.IsolatedChallengerContractError):
-        contract.render_context(source_max_issue="2026100", target_issue="2026102")
+        contract.render_context(
+            source_max_issue="2026100",
+            source_max_draw_date="2026-08-30",
+            target_issue="2026102",
+        )
+    with pytest.raises(
+        contract.IsolatedChallengerContractError,
+        match="target_draw_date_not_scheduled_draw_day",
+    ):
+        contract.render_context(
+            source_max_issue="2026099",
+            source_max_draw_date="2026-08-27",
+            target_issue="2026100",
+            target_draw_date="2026-08-31",
+            projection_time="2026-08-27T23:30:00+08:00",
+        )
 
 
 def test_target_projection_deadline_boundary_and_year_rollover() -> None:
-    candidate = contract.next_official_issue("2026100")
+    source_date = date(2026, 8, 27)
+    candidate_date = date(2026, 8, 30)
+    candidate = contract.next_official_issue(
+        "2026099", candidate_draw_date=candidate_date
+    )
     deadline = datetime.combine(
-        contract.issue_draw_date(candidate),
+        candidate_date,
         contract.PREDRAW_SEND_TIME,
         contract.TIMEZONE,
     )
     at_deadline = contract.target_issue_projection(
-        source_max_issue="2026100", projection_time=deadline
+        source_max_issue="2026099",
+        source_max_draw_date=source_date,
+        projection_time=deadline,
     )
     after_deadline = contract.target_issue_projection(
-        source_max_issue="2026100", projection_time=deadline + timedelta(microseconds=1)
+        source_max_issue="2026099",
+        source_max_draw_date=source_date,
+        projection_time=deadline + timedelta(microseconds=1),
     )
-    assert at_deadline["target_issue"] == candidate
-    assert after_deadline["target_issue"] == contract.next_official_issue(candidate)
+    assert at_deadline == {
+        "source_max_issue": "2026099",
+        "source_max_draw_date": "2026-08-27",
+        "target_issue": "2026100",
+        "target_draw_date": "2026-08-30",
+        "deadline": "2026-08-30T17:00:00+08:00",
+        "official_draw_time": "2026-08-30T21:15:00+08:00",
+        "projection_time": "2026-08-30T17:00:00+08:00",
+    }
+    assert candidate == "2026100"
+    assert after_deadline["target_issue"] == "2026101"
+    assert after_deadline["target_draw_date"] == "2026-09-01"
 
-    last_2026 = f"2026{len(contract.draw_dates(2026)):03d}"
-    first_2027 = contract.next_official_issue(last_2026)
+    first_2027 = "2027001"
     first_deadline = datetime.combine(
-        contract.issue_draw_date(first_2027),
+        date(2027, 1, 3),
         contract.PREDRAW_SEND_TIME,
         contract.TIMEZONE,
     )
     rollover = contract.target_issue_projection(
-        source_max_issue=last_2026,
+        source_max_issue="2026152",
+        source_max_draw_date="2026-12-31",
         projection_time=first_deadline + timedelta(microseconds=1),
     )
     assert first_2027 == "2027001"
     assert rollover["target_issue"] == "2027002"
+    assert rollover["target_draw_date"] == "2027-01-05"
 
 
 @pytest.mark.parametrize(
@@ -94,7 +135,12 @@ def test_formal_p3_activity_function_is_total_and_fail_closed(
     assert contract.formal_p3_activity_state(observation) == expected
 
 
-def test_draw_fixture_date_is_not_inferred_from_formal_p3() -> None:
-    first = contract.draw_dates(2026)[0]
-    assert isinstance(first, date)
-    assert contract.issue_draw_date("2026001") == first
+def test_draw_fixture_is_anchored_to_audited_history_not_annual_ordinal() -> None:
+    projected = contract.target_issue_projection(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        projection_time=datetime(2026, 8, 27, 23, 30, tzinfo=contract.TIMEZONE),
+    )
+    assert projected["target_issue"] == "2026100"
+    assert projected["target_draw_date"] == "2026-08-30"
+    assert projected["target_issue"] != "2026104"

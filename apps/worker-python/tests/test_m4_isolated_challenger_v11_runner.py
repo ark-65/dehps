@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,9 +23,15 @@ def _load_script(name: str):
     return module
 
 
+def _context():
+    return contract.render_context(
+        source_max_issue="2026100", source_max_draw_date="2026-08-30"
+    )
+
+
 def test_manifest_dry_run_has_exact_tasks_and_preregistration_ready() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
-    context = contract.render_context(source_max_issue="2026100")
+    context = _context()
     payload, dry_run = builder.build_manifest(
         context=context,
         source_digest="a" * 64,
@@ -53,7 +59,7 @@ def test_install_without_apply_is_non_mutating() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
     result = runner.install(
         apply=False,
-        context=contract.render_context(source_max_issue="2026100"),
+        context=_context(),
         source_digest="a" * 64,
         operator_configuration_authorized=False,
     )
@@ -65,7 +71,7 @@ def test_install_without_apply_is_non_mutating() -> None:
 
 def test_fact_builder_rejects_formal_route_or_promotion() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
-    context = contract.render_context(source_max_issue="2026100")
+    context = _context()
     payload, _ = builder.build_manifest(context=context, source_digest="a" * 64)
     for fact in (
         "m4-p3-illegal:COMPLETE",
@@ -83,7 +89,7 @@ def test_fact_builder_rejects_formal_route_or_promotion() -> None:
 
 def test_activation_compiles_delivery_only_from_registered_receipt(monkeypatch) -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    context = contract.render_context(source_max_issue="2026100")
+    context = _context()
     delivery = contract.task_template_by_name("predraw_delivery")
     body = {
         "state": "SENT",
@@ -164,12 +170,16 @@ def test_activation_compiles_delivery_only_from_registered_receipt(monkeypatch) 
 
 def test_daily_and_predraw_absence_windows_are_fail_closed() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    context = contract.render_context(source_max_issue="2026100")
-    schedule = contract.schedule_for_issue(context["target_issue"])
+    context = _context()
+    schedule = contract.schedule_for_issue(
+        context["target_issue"], target_draw_date=context["target_draw_date"]
+    )
     predraw_key = contract.task_template_by_name("predraw_delivery").key(context)
     start = schedule["predraw_send"]
     stop = datetime.combine(
-        contract.issue_draw_date(context["target_issue"]),
+        contract.require_draw_date(
+            context["target_draw_date"], field="target_draw_date"
+        ),
         contract.OFFICIAL_DRAW_TIME,
         contract.TIMEZONE,
     )
@@ -254,7 +264,7 @@ def test_resource_probe_reads_exact_user_manager_formal_p3_unit(monkeypatch) -> 
 
 def test_completed_activation_recovery_replays_without_workload(monkeypatch) -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    context = contract.render_context(source_max_issue="2026100")
+    context = _context()
     payload, _ = runner.builder.build_manifest(
         context=context,
         source_digest="a" * 64,
@@ -430,6 +440,53 @@ def test_repository_helper_does_not_shadow_base_task_validator() -> None:
     namespace = runner.IsolatedChallengerRepository.__dict__
     assert "_verify_task_definition" not in namespace
     assert "_verify_isolated_task_definition" in namespace
+
+
+@pytest.mark.parametrize("row_count", [1, 2])
+def test_latest_history_identity_requires_one_exact_issue_date(
+    monkeypatch, row_count: int
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    rows = [("2026099", date(2026, 8, 27))] * row_count
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement):
+            assert "WHERE issue=(SELECT MAX(issue) FROM ssq_history)" in statement
+            return self
+
+        def fetchall(self):
+            return rows
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    monkeypatch.setattr(runner, "PostgresResearchOSRepository", _Repository)
+    if row_count == 1:
+        assert runner._latest_history_identity() == ("2026099", "2026-08-27")
+    else:
+        with pytest.raises(
+            runner.IsolatedRunnerError, match="latest_identity_changed"
+        ):
+            runner._latest_history_identity()
 
 
 @pytest.mark.parametrize("returncode", [0, 1])

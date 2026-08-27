@@ -1,9 +1,13 @@
 {
-  "artifact_digest": "e9bf934dd69b2893d0d1cfb2113a4de884a64c75721e97ae4b5b2abbd14d7dd7",
+  "artifact_digest": "99f058e6df7e36ebd07bb411c7c1960989367230cb0a9344619442466112460a",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
   "governance_bindings": {
+    "audited_target_projection_research_approval_decision_id": 2978,
+    "audited_target_projection_research_request_id": 708,
+    "audited_target_projection_research_request_key": "research-m4-isolated-v11-audited-history-target-projection-clarification-v1",
+    "audited_target_projection_research_request_payload_sha256": "f8e4df17101e4fc651a1bf48d0278488543cf9032c57d232d3078634f7f61f51",
     "engineering_approval_decision_id": 2952,
     "engineering_execution_id": 561,
     "engineering_request_id": 703,
@@ -25,6 +29,10 @@
     "mail_env_repair_engineering_request_id": 705,
     "mail_env_repair_engineering_request_key": "engineering-m4-isolated-v11-user-mail-environment-path-fix-v1",
     "mail_env_repair_engineering_request_payload_sha256": "b9d1ab7dd70b6a4f8e712071b1add6a1ffbb08d03dca98cd5f0f5c405b291762",
+    "official_history_date_research_approval_decision_id": 2991,
+    "official_history_date_research_request_id": 711,
+    "official_history_date_research_request_key": "research-m4-isolated-v11-official-history-date-exceptions-v1",
+    "official_history_date_research_request_payload_sha256": "2db165a402c59a24ebe7d623e336571e767bd9bb69c3b3f85e38c8e872b155fd",
     "repair_base_merged_commit": "ab1e8d0d71e7caca99c77d36e8fa92a8762e1854",
     "repair_engineering_approval_decision_id": 2957,
     "repair_engineering_execution_id": 562,
@@ -34,7 +42,13 @@
     "research_approval_decision_id": 2925,
     "research_request_id": 694,
     "research_request_key": "research-m4-isolated-24h-challenger-factory-contract-v11",
-    "research_request_payload_sha256": "36dd9176a6e7648caff2327a9d87af814eadaa60cb9dab78879e831c6ad90aa6"
+    "research_request_payload_sha256": "36dd9176a6e7648caff2327a9d87af814eadaa60cb9dab78879e831c6ad90aa6",
+    "target_history_date_repair_base_merged_commit": "7f35a86116118c76f058718dc3dba5ecf711a5f3",
+    "target_history_date_repair_engineering_approval_decision_id": 2994,
+    "target_history_date_repair_engineering_execution_id": 568,
+    "target_history_date_repair_engineering_request_id": 712,
+    "target_history_date_repair_engineering_request_key": "engineering-m4-isolated-v11-target-and-official-history-date-fix-v3",
+    "target_history_date_repair_engineering_request_payload_sha256": "fc41b4ff444e5ab7632ef85490c4547c50774f084def3c80e4b1442a87b7a1a6"
   },
   "runtime_versions": {
     "numpy": "2.4.6",
@@ -45,9 +59,9 @@
   "schema_version": "dehps-m4-isolated-24h-challenger-source-contract.v11",
   "source_entries": [
     {
-      "bytes": 26425,
+      "bytes": 28629,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_contract.py",
-      "sha256": "6e06c72e4518fff2bda49645f7d634adfd2a4a9ffd4d57a1b5b3162732340924"
+      "sha256": "92697cd39ab44b052e52639ae835dac2226453e5a70c923a5ed50057726a8fb5"
     },
     {
       "bytes": 23282,
@@ -55,14 +69,14 @@
       "sha256": "d64e6c4a1701c8e40d27ff064ef18c9650fedaceabe028b8da62115dc9051e43"
     },
     {
-      "bytes": 88877,
+      "bytes": 90974,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_search.py",
-      "sha256": "407278a7b4854d49138ed2dcae4a5cf1ab4f12e0032d2282332f1475c2dfecc8"
+      "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 240769,
+      "bytes": 241991,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "8bcce52dddff402a2b0cc4e8a8d971ac9dac30a4003aeaf46f243e3307b25c5b"
+      "sha256": "f570190b484c720f4ba39e6af8fc87f5d65531e495b7224a082efd7bacfa3216"
     },
     {
       "bytes": 9947,
@@ -75,14 +89,14 @@
       "sha256": "19cc9e17709f8bd177a676dfa7d7ec2b2aa7df3c59db87ca73f480defdefcea2"
     },
     {
-      "bytes": 22021,
+      "bytes": 22366,
       "path": "apps/worker-python/scripts/build_m4_isolated_24h_challenger_v11_manifest.py",
-      "sha256": "5596335493028fa369aef4acf2ebf0a025090a403006138a2356c4c1510168a7"
+      "sha256": "c3330fe8aa128f28294778654617a5d9deb9826bc7c5c60bd93ae4d55da02dba"
     },
     {
-      "bytes": 82412,
+      "bytes": 84733,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "3a70a85ab1658f9bad7763def8c84b1aee9b6278cf9aa7246fd9c9c781df31a2"
+      "sha256": "53cd3a3b4f4cf776474116d31f8c00ac907f7bbdf3d608b2f0a434baa10650f4"
     },
     {
       "bytes": 17768,
@@ -145,5 +159,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "2606f3e4fac1323da7bc6f5c052afe9885b178150c4e382e9f5c50436b61f0f2"
+  "source_set_digest": "effd0ce958e731d7700ab5f0b6caa02f9f7be15bc90349f006bb2f8108e8f39f"
 }

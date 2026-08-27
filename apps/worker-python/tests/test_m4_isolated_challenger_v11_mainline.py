@@ -20,7 +20,9 @@ from dehps.research_os.repository import PostgresResearchOSRepository
 
 
 def _context():
-    return contract.render_context(source_max_issue="2026100")
+    return contract.render_context(
+        source_max_issue="2026100", source_max_draw_date="2026-08-30"
+    )
 
 
 def test_simulated_chain_covers_all_tasks_and_never_creates_sent() -> None:
@@ -219,6 +221,7 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
         artifact_digest=content,
         body={
             "source_max_issue": "2026100",
+            "source_max_draw_date": "2026-08-27",
             "target_issue": "2026101",
             "target_draw_date": "2026-08-30",
             "deadline": "2026-08-30T17:00:00+08:00",
@@ -411,6 +414,7 @@ def test_incident_open_advances_registered_head_chain(monkeypatch, tmp_path: Pat
     offending = "e" * 64
     context = contract.render_context(
         source_max_issue="2026100",
+        source_max_draw_date="2026-08-30",
         incident_reason_code="REPLAY_FAILED",
         incident_offending_digest=offending,
     )

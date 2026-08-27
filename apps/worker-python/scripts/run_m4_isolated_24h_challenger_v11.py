@@ -107,7 +107,9 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             raw_context = metric["render_context"]
             normalized = contract.render_context(
                 source_max_issue=str(raw_context["source_max_issue"]),
+                source_max_draw_date=str(raw_context["source_max_draw_date"]),
                 target_issue=str(raw_context["target_issue"]),
+                target_draw_date=str(raw_context["target_draw_date"]),
                 batch_seq=int(raw_context["batch_seq"]),
                 epoch_date=str(raw_context["epoch_date"]),
                 minute=str(raw_context["minute"]),
@@ -470,15 +472,22 @@ def _continuous_quiescence(*, seconds: float = 60.0) -> dict[str, Any]:
         time.sleep(min(1.0, seconds - elapsed))
 
 
-def _latest_history_issue() -> str:
+def _latest_history_identity() -> tuple[str, str]:
     repository = PostgresResearchOSRepository()
     with repository.connection_factory() as connection, connection.cursor() as cursor:
-        row = cursor.execute(
-            "SELECT issue FROM ssq_history ORDER BY issue DESC LIMIT 1"
-        ).fetchone()
-    if row is None:
+        rows = cursor.execute(
+            "SELECT issue,draw_date FROM ssq_history "
+            "WHERE issue=(SELECT MAX(issue) FROM ssq_history) ORDER BY id"
+        ).fetchall()
+    if not rows:
         raise IsolatedRunnerError("ssq_history_empty")
-    return contract.require_issue(row[0])
+    if len(rows) != 1 or rows[0][1] is None:
+        raise IsolatedRunnerError("ssq_history_latest_identity_changed")
+    issue = contract.require_issue(rows[0][0])
+    draw_date = contract.require_history_draw_date(
+        rows[0][1], field="source_max_draw_date"
+    ).isoformat()
+    return issue, draw_date
 
 
 def _task_context(task: Any) -> dict[str, str]:
@@ -487,7 +496,9 @@ def _task_context(task: Any) -> dict[str, str]:
         raw = metric["render_context"]
         context = contract.render_context(
             source_max_issue=str(raw["source_max_issue"]),
+            source_max_draw_date=str(raw["source_max_draw_date"]),
             target_issue=str(raw["target_issue"]),
+            target_draw_date=str(raw["target_draw_date"]),
             batch_seq=int(raw["batch_seq"]),
             epoch_date=str(raw["epoch_date"]),
             minute=str(raw["minute"]),
@@ -635,7 +646,9 @@ def _roll_forward(
         "minute": now.strftime("%Y%m%d%H%M"),
     }
     next_batch_key = contract.task_template_by_name("search_batch").key(next_context)
-    target_schedule = contract.schedule_for_issue(context["target_issue"])
+    target_schedule = contract.schedule_for_issue(
+        context["target_issue"], target_draw_date=context["target_draw_date"]
+    )
     # The frozen retry path can consume three 1,800-second attempts plus
     # quiescence and process-termination grace.  Stop admitting new batches two
     # hours before the scientific cut so the minute runner remains available
@@ -649,7 +662,9 @@ def _roll_forward(
         microsecond=0,
     )
     official_draw = datetime.combine(
-        contract.issue_draw_date(context["target_issue"]),
+        contract.require_draw_date(
+            context["target_draw_date"], field="target_draw_date"
+        ),
         contract.OFFICIAL_DRAW_TIME,
         contract.TIMEZONE,
     )
@@ -698,7 +713,9 @@ def _roll_forward(
     ):
         incident_context = contract.render_context(
             source_max_issue=context["source_max_issue"],
+            source_max_draw_date=context["source_max_draw_date"],
             target_issue=context["target_issue"],
+            target_draw_date=context["target_draw_date"],
             batch_seq=int(context["batch_seq"]),
             epoch_date=now.strftime("%Y%m%d"),
             minute=now.strftime("%Y%m%d%H%M"),
@@ -723,7 +740,9 @@ def _roll_forward(
         )
         incident_context = contract.render_context(
             source_max_issue=context["source_max_issue"],
+            source_max_draw_date=context["source_max_draw_date"],
             target_issue=context["target_issue"],
+            target_draw_date=context["target_draw_date"],
             batch_seq=int(context["batch_seq"]),
             epoch_date=now.strftime("%Y%m%d"),
             minute=now.strftime("%Y%m%d%H%M"),
@@ -753,7 +772,9 @@ def _roll_forward(
         offending = latest_health
         incident_context = contract.render_context(
             source_max_issue=context["source_max_issue"],
+            source_max_draw_date=context["source_max_draw_date"],
             target_issue=context["target_issue"],
+            target_draw_date=context["target_draw_date"],
             batch_seq=int(context["batch_seq"]),
             epoch_date=now.strftime("%Y%m%d"),
             minute=now.strftime("%Y%m%d%H%M"),
@@ -796,7 +817,9 @@ def _roll_forward(
             offending = latest_health
             incident_context = contract.render_context(
                 source_max_issue=context["source_max_issue"],
+                source_max_draw_date=context["source_max_draw_date"],
                 target_issue=context["target_issue"],
+                target_draw_date=context["target_draw_date"],
                 batch_seq=int(context["batch_seq"]),
                 epoch_date=now.strftime("%Y%m%d"),
                 minute=now.strftime("%Y%m%d%H%M"),
@@ -817,7 +840,9 @@ def _roll_forward(
     ):
         incident_context = contract.render_context(
             source_max_issue=context["source_max_issue"],
+            source_max_draw_date=context["source_max_draw_date"],
             target_issue=context["target_issue"],
+            target_draw_date=context["target_draw_date"],
             batch_seq=int(context["batch_seq"]),
             epoch_date=now.strftime("%Y%m%d"),
             minute=now.strftime("%Y%m%d%H%M"),
@@ -846,9 +871,10 @@ def _roll_forward(
             item_context = _task_context(task)
             if (
                 now
-                >= contract.schedule_for_issue(item_context["target_issue"])[
-                    "predraw_send"
-                ]
+                >= contract.schedule_for_issue(
+                    item_context["target_issue"],
+                    target_draw_date=item_context["target_draw_date"],
+                )["predraw_send"]
                 and f"{task.task_key}:REGISTERED_REPLAY_VERIFIED" in facts
                 and _issue_exists(repository, issue=item_context["target_issue"])
             ):
@@ -2003,7 +2029,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("command", choices=("status", "simulate", "install", "cycle"))
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--source-max-issue")
+    parser.add_argument("--source-max-draw-date")
     parser.add_argument("--target-issue")
+    parser.add_argument("--target-draw-date")
     parser.add_argument("--batch-seq", type=int, default=0)
     parser.add_argument("--epoch-date")
     parser.add_argument("--minute")
@@ -2019,10 +2047,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    source_max_issue = args.source_max_issue or _latest_history_issue()
+    if bool(args.source_max_issue) != bool(args.source_max_draw_date):
+        raise IsolatedRunnerError("source_history_identity_incomplete")
+    if args.command == "simulate" and args.source_max_issue:
+        source_max_issue = args.source_max_issue
+        source_max_draw_date = args.source_max_draw_date
+    else:
+        live_source_issue, live_source_draw_date = _latest_history_identity()
+        source_max_issue = args.source_max_issue or live_source_issue
+        source_max_draw_date = args.source_max_draw_date or live_source_draw_date
+        if (
+            source_max_issue != live_source_issue
+            or source_max_draw_date != live_source_draw_date
+        ):
+            raise IsolatedRunnerError("rendered_source_history_identity_changed")
     context = contract.render_context(
         source_max_issue=source_max_issue,
+        source_max_draw_date=source_max_draw_date,
         target_issue=args.target_issue,
+        target_draw_date=args.target_draw_date,
         batch_seq=args.batch_seq,
         epoch_date=args.epoch_date,
         minute=args.minute,
