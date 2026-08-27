@@ -136,12 +136,8 @@ def _dependency_names(name: str) -> tuple[tuple[str, str], ...]:
                 "random_baseline_freeze_replay:REGISTERED_REPLAY_VERIFIED",
             ),
         ),
-        "formal_p3_comparison_input": (
-            ("task_fact", "settlement:COMPLETE"),
-        ),
-        "formal_p3_comparison": (
-            ("task_fact", "formal_p3_comparison_input:RESOLVED"),
-        ),
+        "formal_p3_comparison_input": (("task_fact", "settlement:COMPLETE"),),
+        "formal_p3_comparison": (("task_fact", "formal_p3_comparison_input:RESOLVED"),),
         "settlement_report": (
             ("task_fact", "settlement:COMPLETE"),
             ("task_fact", "random_baseline_settlement:COMPLETE"),
@@ -195,7 +191,10 @@ def _dependencies(
         elif dependency_type == "task_fact":
             name, suffix = target.split(":", 1)
             target_key = key_by_name[name]
-            if template.name == "multiplicity_seal" and name == "search_checkpoint_replay":
+            if (
+                template.name == "multiplicity_seal"
+                and name == "search_checkpoint_replay"
+            ):
                 cut_ref = context["cut_checkpoint_ref"]
                 if cut_ref == "GENESIS":
                     target_key = key_by_name["genesis_replay"]
@@ -498,9 +497,14 @@ def extend_manifest(
     )
     selected = _select_tasks(full, template_names=template_names)
     raw = current.to_dict(include_digest=False)
+    if len(current.goals) != 1:
+        raise IsolatedManifestError("manifest_extension_goal_set_changed")
+    current_goal_digest = current.goals[0].artifact_digest
     existing = {item["task_key"] for item in raw["tasks"]}
     raw["tasks"].extend(
-        item for item in selected["tasks"] if item["task_key"] not in existing
+        {**item, "goal_digest": current_goal_digest}
+        for item in selected["tasks"]
+        if item["task_key"] not in existing
     )
     unknown_events = set(add_external_events) - {
         "TARGET_PROJECTION_INPUT",
@@ -550,9 +554,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epoch-date")
     parser.add_argument("--minute")
     parser.add_argument("--incident-id")
-    parser.add_argument(
-        "--incident-reason-code", default="DEADLINE_OR_ABSENCE"
-    )
+    parser.add_argument("--incident-reason-code", default="DEADLINE_OR_ABSENCE")
     parser.add_argument("--incident-offending-digest")
     parser.add_argument("--projection-time")
     parser.add_argument("--source-digest")

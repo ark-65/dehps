@@ -358,6 +358,41 @@ def test_repository_rebind_preserves_exact_unexecuted_multicontext_task_set() ->
     assert repository._bootstrap_rebind_gate is None
 
 
+def test_extension_inherits_the_single_frozen_live_goal_digest() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    payload, _ = runner.builder.build_bootstrap_manifest(
+        context=context,
+        source_digest=runner.LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST,
+        operator_configuration_authorized=True,
+    )
+    current = ControlPlaneManifest.from_dict(payload)
+    extension_context = {
+        **context,
+        "epoch_date": "20260828",
+        "minute": "202608280216",
+    }
+    extended = ControlPlaneManifest.from_dict(
+        runner.builder.extend_manifest(
+            current.to_dict(include_digest=True),
+            context=extension_context,
+            source_digest="f" * 64,
+            template_names=frozenset({"runtime_health"}),
+        )
+    )
+    added = [
+        item
+        for item in extended.tasks
+        if item.task_key not in {task.task_key for task in current.tasks}
+    ]
+    assert len(added) == 1
+    assert added[0].goal_digest == current.goals[0].artifact_digest
+    assert (
+        __import__("json").loads(added[0].metric_contract)["source_contract_digest"]
+        == "f" * 64
+    )
+
+
 @pytest.mark.parametrize("corruption", ["state", "fact", "event", "source"])
 def test_repository_bootstrap_rebind_rejects_nonpristine_predecessor(
     corruption: str,

@@ -349,6 +349,110 @@ def test_failed_target_private_rebind_gate_is_exact_and_single_use(monkeypatch) 
         repository._verify_exact_transition(incoming)
 
 
+def test_ready_lineage_source_rebind_preserves_state_facts_and_frozen_goal() -> None:
+    failed = _failed_target_manifest()
+    ready = recovery.build_failed_target_rebind(
+        failed,
+        source_digest=recovery.READY_REBIND_PREDECESSOR_SOURCE_DIGEST,
+        expected_manifest_digest=failed.artifact_digest,
+    )
+    advanced = recovery.build_ready_source_rebind(
+        ready,
+        source_digest="e" * 64,
+        expected_manifest_digest=ready.artifact_digest,
+    )
+    assert advanced.goals == ready.goals
+    assert advanced.goal_states == ready.goal_states
+    assert advanced.facts == ready.facts
+    assert [item.task_key for item in advanced.tasks] == [
+        item.task_key for item in ready.tasks
+    ]
+    before = {item.task_key: item for item in ready.tasks}
+    after = {item.task_key: item for item in advanced.tasks}
+    for key, task in after.items():
+        state = advanced.task_state_by_digest[task.artifact_digest]
+        assert task.goal_digest == recovery.LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        if state.declared_status is TaskStatus.COMPLETED:
+            assert task == before[key]
+        else:
+            assert task.artifact_digest != before[key].artifact_digest
+            assert state.declared_status is TaskStatus.DRAFT
+            assert (
+                __import__("json").loads(task.metric_contract)["source_contract_digest"]
+                == "e" * 64
+            )
+
+
+def test_ready_lineage_operator_scope_is_exact(monkeypatch) -> None:
+    source_digest = "e" * 64
+    git_commit = "a" * 40
+    payload = {
+        "version": "ready-rebind",
+        "commit": git_commit,
+        "checks": {
+            "ready_lineage_source_rebind": {
+                "current_manifest_digest": recovery.READY_REBIND_MANIFEST_DIGEST,
+                "frozen_goal_digest": recovery.LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+                "predecessor_source_contract_digest": (
+                    recovery.READY_REBIND_PREDECESSOR_SOURCE_DIGEST
+                ),
+                "source_contract_digest": source_digest,
+                "target_task_digest": recovery.READY_REBIND_TARGET_TASK_DIGEST,
+                "target_task_key": recovery.TARGET_TASK_KEY,
+            }
+        },
+        "rollback": {},
+    }
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    request = SimpleNamespace(
+        id=734,
+        request_type=AgentRequestType.OPERATOR_RELEASE,
+        status=AgentRequestStatus.EXECUTING,
+        payload=payload,
+        metadata={"payload_sha256": payload_sha},
+    )
+    repository = SimpleNamespace(
+        get_request=lambda _: request,
+        list_decisions=lambda _: [
+            SimpleNamespace(
+                id=3103,
+                decision_code="request_approved",
+                previous_status="under_review",
+                new_status="approved",
+                decided_by_role=AgentRole.REVIEWER,
+            )
+        ],
+        list_execution_metadata=lambda _: [
+            SimpleNamespace(
+                id=590,
+                status=AgentExecutionStatus.RUNNING,
+                environment="production",
+                executor_role=AgentRole.OPERATOR,
+            )
+        ],
+    )
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "operator")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "3103")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "590")
+    assert (
+        recovery.validate_ready_source_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )["payload_sha256"]
+        == payload_sha
+    )
+    request.payload = {**payload, "commit": "b" * 40}
+    with pytest.raises(recovery.TargetEventRecoveryError, match="scope"):
+        recovery.validate_ready_source_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )
+
+
 def _failed_target_events():
     common = {
         "execution_id": recovery.FAILED_TARGET_EXECUTION_ID,

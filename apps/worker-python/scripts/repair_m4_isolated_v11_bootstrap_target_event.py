@@ -85,6 +85,20 @@ FAILED_TARGET_OPERATOR_EXECUTION_ID = 584
 PREDECESSOR_SOURCE_DIGEST = (
     "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1"
 )
+READY_REBIND_MANIFEST_DIGEST = (
+    "db034176cd980ae4d4d5f7aea5475c0ac6b2e82d375c370dd43a935b16248ef6"
+)
+READY_REBIND_PREDECESSOR_SOURCE_DIGEST = (
+    "fc1aee7ccffdb6965ae0c3e181118773ff8514edc066977d8352a7573efa9cba"
+)
+READY_REBIND_TARGET_TASK_DIGEST = (
+    "14bf4f2ef9a14067fff075210c7b4e339d0b5e16f87c4344405a5a794896eeb1"
+)
+FAILED_READY_OPERATOR_REQUEST_KEY = (
+    "operator-m4-isolated-v11-final-target-recovery-training-mail-deploy-v1"
+)
+FAILED_READY_OPERATOR_REQUEST_ID = 732
+FAILED_READY_OPERATOR_EXECUTION_ID = 588
 
 
 class TargetEventRecoveryError(RuntimeError):
@@ -346,6 +360,104 @@ def build_failed_target_rebind(
     return incoming
 
 
+def build_ready_source_rebind(
+    current: ControlPlaneManifest,
+    *,
+    source_digest: str,
+    expected_manifest_digest: str = READY_REBIND_MANIFEST_DIGEST,
+) -> ControlPlaneManifest:
+    if current.artifact_digest != expected_manifest_digest:
+        raise TargetEventRecoveryError("ready_rebind_manifest_identity_changed")
+    if source_digest in {
+        PREDECESSOR_SOURCE_DIGEST,
+        READY_REBIND_PREDECESSOR_SOURCE_DIGEST,
+    }:
+        raise TargetEventRecoveryError("ready_rebind_source_not_advanced")
+    if (
+        len(current.goals) != 1
+        or current.goals[0].artifact_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        or any(
+            task.goal_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            for task in current.tasks
+        )
+    ):
+        raise TargetEventRecoveryError("ready_rebind_goal_identity_changed")
+    target = next(
+        (item for item in current.tasks if item.task_key == TARGET_TASK_KEY), None
+    )
+    if target is None or target.artifact_digest != READY_REBIND_TARGET_TASK_DIGEST:
+        raise TargetEventRecoveryError("ready_rebind_target_definition_changed")
+    if EVENT not in current.facts.external_events:
+        raise TargetEventRecoveryError("ready_rebind_target_event_missing")
+    target_state = current.task_state_by_digest[target.artifact_digest]
+    if (
+        target_state.declared_status is not TaskStatus.DRAFT
+        or target_state.completion_classification
+        is not CompletionClassification.INTEGRATION_PENDING
+        or target_state.superseded_by_task_digest is not None
+    ):
+        raise TargetEventRecoveryError("ready_rebind_target_state_changed")
+
+    tasks = []
+    states = []
+    for task in current.tasks:
+        state = current.task_state_by_digest[task.artifact_digest]
+        metric = json.loads(task.metric_contract)
+        bound_source = metric.get("source_contract_digest")
+        if state.declared_status is TaskStatus.COMPLETED:
+            if bound_source != PREDECESSOR_SOURCE_DIGEST:
+                raise TargetEventRecoveryError("ready_rebind_completed_source_changed")
+            tasks.append(task)
+            states.append(state)
+            continue
+        if (
+            bound_source != READY_REBIND_PREDECESSOR_SOURCE_DIGEST
+            or state.declared_status is not TaskStatus.DRAFT
+            or state.completion_classification
+            is not CompletionClassification.INTEGRATION_PENDING
+            or state.superseded_by_task_digest is not None
+        ):
+            raise TargetEventRecoveryError("ready_rebind_uncompleted_state_changed")
+        context = _task_context(task)
+        expected_payload, _ = builder.build_manifest(
+            context=context,
+            source_digest=source_digest,
+            operator_configuration_authorized=True,
+            simulation_events=False,
+        )
+        expected = ControlPlaneManifest.from_dict(expected_payload)
+        matches = [item for item in expected.tasks if item.task_key == task.task_key]
+        if len(matches) != 1:
+            raise TargetEventRecoveryError("ready_rebind_task_definition_missing")
+        rebound = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        tasks.append(rebound)
+        states.append(
+            TaskState(
+                task_digest=rebound.artifact_digest,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+                superseded_by_task_digest=None,
+            )
+        )
+    incoming = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=tuple(tasks),
+        goal_states=current.goal_states,
+        task_states=tuple(states),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    if (
+        incoming.goals != current.goals
+        or incoming.goal_states != current.goal_states
+        or incoming.facts != current.facts
+        or [item.task_key for item in incoming.tasks]
+        != [item.task_key for item in current.tasks]
+    ):
+        raise TargetEventRecoveryError("ready_rebind_delta_changed")
+    return incoming
+
+
 def validate_failed_target_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
@@ -557,6 +669,134 @@ class FailedTargetRecoveryRepository(IsolatedChallengerRepository):
             self._failed_target_rebind_gate = None
 
 
+def _validate_failed_ready_operator(repository: AgentRequestRepository) -> None:
+    request = repository.get_request(FAILED_READY_OPERATOR_REQUEST_KEY)
+    executions = [
+        item
+        for item in repository.list_execution_metadata(
+            FAILED_READY_OPERATOR_REQUEST_KEY
+        )
+        if item.id == FAILED_READY_OPERATOR_EXECUTION_ID
+    ]
+    if (
+        request.id != FAILED_READY_OPERATOR_REQUEST_ID
+        or request.status is not AgentRequestStatus.FAILED
+        or len(executions) != 1
+        or executions[0].status is not AgentExecutionStatus.FAILED
+    ):
+        raise TargetEventRecoveryError("failed_ready_operator_identity_changed")
+
+
+def validate_ready_source_operator_scope(
+    *, repository: AgentRequestRepository, source_digest: str, git_commit: str
+) -> dict[str, int | str]:
+    governance = validate_operator_scope_common(repository=repository)
+    request = governance["request"]
+    checks = request.payload.get("checks")
+    recovery = (
+        checks.get("ready_lineage_source_rebind") if isinstance(checks, dict) else None
+    )
+    if request.payload.get("commit") != git_commit or recovery != {
+        "current_manifest_digest": READY_REBIND_MANIFEST_DIGEST,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (READY_REBIND_PREDECESSOR_SOURCE_DIGEST),
+        "source_contract_digest": source_digest,
+        "target_task_digest": READY_REBIND_TARGET_TASK_DIGEST,
+        "target_task_key": TARGET_TASK_KEY,
+    }:
+        raise TargetEventRecoveryError("ready_rebind_operator_scope_invalid")
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(request.payload).encode("utf-8")
+    ).hexdigest()
+    if request.metadata.get("payload_sha256") != payload_sha:
+        raise TargetEventRecoveryError("operator_payload_sha_changed")
+    return {
+        "request_id": request.id,
+        "decision_id": governance["decision_id"],
+        "execution_id": governance["execution_id"],
+        "payload_sha256": payload_sha,
+    }
+
+
+class ReadySourceRecoveryRepository(IsolatedChallengerRepository):
+    def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
+        super().__init__(context=context, source_digest=source_digest)
+        self._ready_source_rebind_gate: dict[str, Any] | None = None
+
+    def _verify_exact_transition(self, incoming: ControlPlaneManifest) -> None:
+        gate = self._ready_source_rebind_gate
+        if gate is None:
+            return super()._verify_exact_transition(incoming)
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_ready_source_rebind(current, source_digest=self.source_digest)
+        if (
+            gate.get("consumed") is not False
+            or gate.get("current_manifest_digest") != current.artifact_digest
+            or gate.get("incoming_manifest_digest") != incoming.artifact_digest
+            or expected.to_dict(include_digest=True)
+            != incoming.to_dict(include_digest=True)
+        ):
+            raise ResearchOSValidationError("ready_source_rebind_gate_changed")
+        gate["consumed"] = True
+
+    def _verify_mainline_completion_records(
+        self,
+        cursor: Any,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
+    ) -> None:
+        gate = self._ready_source_rebind_gate
+        if gate is None:
+            return super()._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+            )
+        if (
+            control_plane_key != contract.CONTROL_PLANE_KEY
+            or gate.get("consumed") is not True
+            or gate.get("incoming_manifest_digest") != manifest.artifact_digest
+        ):
+            raise ResearchOSValidationError(
+                "ready_source_rebind_completion_gate_changed"
+            )
+        PostgresResearchOSRepository._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
+
+    def apply_ready_source_rebind(self, incoming: ControlPlaneManifest) -> Any:
+        if self._ready_source_rebind_gate is not None:
+            raise TargetEventRecoveryError("ready_source_rebind_gate_reentrant")
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_ready_source_rebind(current, source_digest=self.source_digest)
+        if incoming.to_dict(include_digest=True) != expected.to_dict(
+            include_digest=True
+        ):
+            raise TargetEventRecoveryError("ready_source_rebind_manifest_changed")
+        self._ready_source_rebind_gate = {
+            "consumed": False,
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": incoming.artifact_digest,
+        }
+        try:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-v11-ready-lineage-source-rebind-v1",
+            )
+            if self._ready_source_rebind_gate.get("consumed") is not True:
+                raise TargetEventRecoveryError("ready_source_rebind_gate_not_consumed")
+            return result
+        finally:
+            self._ready_source_rebind_gate = None
+
+
 def run(*, apply: bool) -> dict[str, Any]:
     dirty = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -733,20 +973,115 @@ def run_failed_target_rebind(*, apply: bool) -> dict[str, Any]:
     }
 
 
+def run_ready_source_rebind(*, apply: bool) -> dict[str, Any]:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise TargetEventRecoveryError("dirty_worktree")
+    git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+    ).strip()
+    source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    source_digest = str(source["artifact_digest"])
+    source_issue, source_date = _latest_history_identity()
+    context = contract.render_context(
+        source_max_issue=source_issue, source_max_draw_date=source_date
+    )
+    repository = ReadySourceRecoveryRepository(
+        context=context, source_digest=source_digest
+    )
+    current = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    incoming = build_ready_source_rebind(current, source_digest=source_digest)
+    agent_repository = AgentRequestRepository()
+    _validate_failed_ready_operator(agent_repository)
+    governance = validate_ready_source_operator_scope(
+        repository=agent_repository,
+        source_digest=source_digest,
+        git_commit=git_commit,
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        batch_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.registration_batches"
+            ).fetchone()[0]
+        )
+        sent_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger "
+                "WHERE state='SENT'"
+            ).fetchone()[0]
+        )
+    if batch_count != 0 or sent_count != 0:
+        raise TargetEventRecoveryError("zero_workload_or_delivery_preflight_changed")
+    registered_source = None
+    imported = None
+    if apply:
+        registered_source = mainline.register_input_artifact(
+            repository=repository,
+            payload=source,
+            git_commit=git_commit,
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+        )
+        imported = repository.apply_ready_source_rebind(incoming)
+    target = next(item for item in incoming.tasks if item.task_key == TARGET_TASK_KEY)
+    completed_count = sum(
+        state.declared_status is TaskStatus.COMPLETED for state in current.task_states
+    )
+    return {
+        "schema_version": "dehps-m4-isolated-v11-ready-source-rebind.v1",
+        "status": "READY_LINEAGE_SOURCE_REBOUND" if apply else "DRY_RUN_VERIFIED",
+        "apply": apply,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (READY_REBIND_PREDECESSOR_SOURCE_DIGEST),
+        "source_contract_digest": source_digest,
+        "source_contract_registered": (
+            None if registered_source is None else registered_source["artifact_digest"]
+        ),
+        "target_task_key": TARGET_TASK_KEY,
+        "predecessor_target_task_digest": READY_REBIND_TARGET_TASK_DIGEST,
+        "rebound_target_task_digest": target.artifact_digest,
+        "completed_historical_task_count": completed_count,
+        "rebound_uncompleted_task_count": len(current.tasks) - completed_count,
+        "target_event_preserved": EVENT in incoming.facts.external_events,
+        "facts_changed": False,
+        "goals_changed": False,
+        "failed_execution_preserved": True,
+        "governance": governance,
+        "import_result": None if imported is None else str(imported),
+        "workloads": 0,
+        "smtp_calls": 0,
+        "external_sends": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("repair", "recover-failed-target"))
+    parser.add_argument(
+        "command",
+        choices=("repair", "recover-failed-target", "rebind-ready-lineage"),
+    )
     parser.add_argument("--apply", action="store_true")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    result = (
-        run(apply=bool(args.apply))
-        if args.command == "repair"
-        else run_failed_target_rebind(apply=bool(args.apply))
-    )
+    if args.command == "repair":
+        result = run(apply=bool(args.apply))
+    elif args.command == "recover-failed-target":
+        result = run_failed_target_rebind(apply=bool(args.apply))
+    else:
+        result = run_ready_source_rebind(apply=bool(args.apply))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
