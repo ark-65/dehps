@@ -1515,6 +1515,146 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
 
 
 @pytest.mark.parametrize(
+    ("counts", "expected"),
+    (
+        (
+            {
+                "candidates": contract.ATTEMPTS_PER_BATCH,
+                "terminal": contract.ATTEMPTS_PER_BATCH,
+                "results": contract.ATTEMPTS_PER_BATCH,
+                "attempts": contract.ATTEMPTS_PER_BATCH,
+                "committed_attempts": contract.ATTEMPTS_PER_BATCH,
+            },
+            True,
+        ),
+        (
+            {
+                "candidates": contract.ATTEMPTS_PER_BATCH,
+                "terminal": contract.ATTEMPTS_PER_BATCH,
+                "results": contract.ATTEMPTS_PER_BATCH - 1,
+                "attempts": contract.ATTEMPTS_PER_BATCH,
+                "committed_attempts": contract.ATTEMPTS_PER_BATCH,
+            },
+            False,
+        ),
+        (None, False),
+    ),
+)
+def test_search_batch_mirror_complete_decodes_exact_dict_row(counts, expected) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+
+    class _Cursor:
+        statement = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, params):
+            self.statement = statement
+            if "SELECT registration_seq" in statement:
+                assert params == (0,)
+            else:
+                assert params == (7,) * 5
+                for alias in (
+                    "AS candidates",
+                    "AS terminal",
+                    "AS results",
+                    "AS attempts",
+                    "AS committed_attempts",
+                ):
+                    assert alias in statement
+            return self
+
+        def fetchone(self):
+            if "SELECT registration_seq" in self.statement:
+                return {"registration_seq": 7}
+            return counts
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor(*, row_factory):
+            assert row_factory is runner.dict_row
+            return _Cursor()
+
+    repository = SimpleNamespace(connection_factory=lambda: _Connection())
+    assert (
+        runner._search_batch_mirror_complete(
+            repository=repository,
+            context={"batch_seq": "000000000000"},
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("counts", "error"),
+    (
+        ({"count": contract.ATTEMPTS_PER_BATCH}, "count_row_changed"),
+        (
+            {
+                "candidates": "count",
+                "terminal": contract.ATTEMPTS_PER_BATCH,
+                "results": contract.ATTEMPTS_PER_BATCH,
+                "attempts": contract.ATTEMPTS_PER_BATCH,
+                "committed_attempts": contract.ATTEMPTS_PER_BATCH,
+            },
+            "count_value_changed",
+        ),
+    ),
+)
+def test_search_batch_mirror_complete_fails_closed_on_dict_row_drift(
+    counts, error
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+
+    class _Cursor:
+        statement = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params):
+            self.statement = statement
+            return self
+
+        def fetchone(self):
+            if "SELECT registration_seq" in self.statement:
+                return {"registration_seq": 7}
+            return counts
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor(*, row_factory):
+            assert row_factory is runner.dict_row
+            return _Cursor()
+
+    repository = SimpleNamespace(connection_factory=lambda: _Connection())
+    with pytest.raises(runner.IsolatedRunnerError, match=error):
+        runner._search_batch_mirror_complete(
+            repository=repository,
+            context={"batch_seq": "000000000000"},
+        )
+
+
+@pytest.mark.parametrize(
     ("manifest_digest", "target_status"),
     (
         ("FAILED", TaskStatus.FAILED),
