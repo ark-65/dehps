@@ -383,6 +383,177 @@ def test_ready_lineage_source_rebind_preserves_state_facts_and_frozen_goal() -> 
             )
 
 
+def _input_collision_manifest() -> ControlPlaneManifest:
+    failed = _failed_target_manifest()
+    intermediate = recovery.build_failed_target_rebind(
+        failed,
+        source_digest=recovery.READY_REBIND_PREDECESSOR_SOURCE_DIGEST,
+        expected_manifest_digest=failed.artifact_digest,
+    )
+    current = recovery.build_ready_source_rebind(
+        intermediate,
+        source_digest=recovery.INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST,
+        expected_manifest_digest=intermediate.artifact_digest,
+    )
+    retained_names = {
+        "genesis",
+        "search_batch",
+        "genesis_replay",
+        "preregistration",
+        "operator_attestation",
+        "incident_head_genesis",
+        "search_checkpoint",
+        "mail_configuration",
+        "search_batch_replay",
+        "multiplicity_risk_limit",
+        "target_issue_projection",
+        "search_checkpoint_replay",
+        "history_snapshot",
+    }
+    retained_keys = {
+        contract.task_template_by_name(name).key(runner._task_context(current.tasks[0]))
+        for name in retained_names
+    }
+    retained_tasks = tuple(
+        task for task in current.tasks if task.task_key in retained_keys
+    )
+    retained_digests = {task.artifact_digest for task in retained_tasks}
+    current = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=retained_tasks,
+        goal_states=current.goal_states,
+        task_states=tuple(
+            state
+            for state in current.task_states
+            if state.task_digest in retained_digests
+        ),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    base_context = runner._task_context(current.tasks[0])
+    for index in range(9):
+        current = ControlPlaneManifest.from_dict(
+            runner.builder.extend_manifest(
+                current.to_dict(include_digest=True),
+                context={
+                    **base_context,
+                    "epoch_date": "20260828",
+                    "minute": f"2026082802{index:02d}",
+                },
+                source_digest=recovery.INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST,
+                template_names=frozenset({"runtime_health"}),
+            )
+        )
+    target = next(
+        item for item in current.tasks if item.task_key == recovery.TARGET_TASK_KEY
+    )
+    completed_keys = {
+        contract.task_template_by_name(name).key(base_context)
+        for name in (
+            "preregistration",
+            "operator_attestation",
+            "incident_head_genesis",
+            "mail_configuration",
+        )
+    }
+    completed_digests = {
+        task.artifact_digest
+        for task in current.tasks
+        if task.task_key in completed_keys or "-runtime-health-" in task.task_key
+    }
+    states = tuple(
+        replace(
+            state,
+            declared_status=TaskStatus.FAILED,
+            completion_classification=CompletionClassification.INTEGRATED,
+        )
+        if state.task_digest == target.artifact_digest
+        else replace(
+            state,
+            declared_status=TaskStatus.COMPLETED,
+            completion_classification=CompletionClassification.COMPLETE,
+        )
+        if state.task_digest in completed_digests
+        else state
+        for state in current.task_states
+    )
+    task_by_digest = {task.artifact_digest: task for task in current.tasks}
+    facts = {
+        (
+            f"mainline-execution:{task_by_digest[digest].task_key}:"
+            f"{digest}:{hashlib.sha256(digest.encode()).hexdigest()}:completed"
+        )
+        for digest in completed_digests
+    }
+    return replace(
+        current,
+        task_states=states,
+        facts=replace(
+            current.facts,
+            artifacts=current.facts.artifacts | facts,
+            external_events=current.facts.external_events | {recovery.EVENT},
+        ),
+    )
+
+
+def test_input_collision_rebind_preserves_13_and_rebuilds_9() -> None:
+    current = _input_collision_manifest()
+    incoming = recovery.build_input_collision_rebind(
+        current,
+        source_digest="f" * 64,
+        expected_manifest_digest=current.artifact_digest,
+    )
+    before = {item.task_key: item for item in current.tasks}
+    after = {item.task_key: item for item in incoming.tasks}
+    completed = 0
+    rebound = 0
+    for key, task in after.items():
+        state = incoming.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.COMPLETED:
+            completed += 1
+            assert task == before[key]
+        else:
+            rebound += 1
+            assert task.artifact_digest != before[key].artifact_digest
+            assert task.goal_digest == recovery.LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            assert (
+                __import__("json").loads(task.metric_contract)["source_contract_digest"]
+                == "f" * 64
+            )
+    assert completed == 13
+    assert rebound == 9
+    target = after[recovery.TARGET_TASK_KEY]
+    assert (
+        incoming.task_state_by_digest[target.artifact_digest].declared_status
+        is TaskStatus.DRAFT
+    )
+    assert incoming.facts == current.facts
+
+
+def test_input_collision_rebind_requires_completed_attestation() -> None:
+    current = _input_collision_manifest()
+    completion = next(
+        fact
+        for fact in current.facts.artifacts
+        if fact.startswith("mainline-execution:")
+    )
+    corrupted = replace(
+        current,
+        facts=replace(
+            current.facts,
+            artifacts=current.facts.artifacts - {completion},
+        ),
+    )
+    with pytest.raises(
+        recovery.TargetEventRecoveryError, match="completed_task_changed"
+    ):
+        recovery.build_input_collision_rebind(
+            corrupted,
+            source_digest="f" * 64,
+            expected_manifest_digest=corrupted.artifact_digest,
+        )
+
+
 def test_ready_lineage_operator_scope_is_exact(monkeypatch) -> None:
     source_digest = "e" * 64
     git_commit = "a" * 40
@@ -555,6 +726,133 @@ def test_failed_target_operator_scope_is_exact(monkeypatch) -> None:
     request.payload = {**payload, "commit": "b" * 40}
     with pytest.raises(recovery.TargetEventRecoveryError, match="scope"):
         recovery.validate_failed_target_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )
+
+
+def _input_collision_events():
+    current_common = {
+        "execution_id": recovery.INPUT_COLLISION_EXECUTION_ID,
+        "task_digest": recovery.INPUT_COLLISION_TARGET_TASK_DIGEST,
+        "task_key": recovery.TARGET_TASK_KEY,
+    }
+    return (
+        *_failed_target_events(),
+        {
+            **current_common,
+            "event_digest": recovery.INPUT_COLLISION_STARTED_EVENT_DIGEST,
+            "event_type": "started",
+            "sequence": 0,
+            "payload": (
+                (
+                    "input_artifact_digests",
+                    [recovery.INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST],
+                ),
+                ("git_commit", recovery.INPUT_COLLISION_GIT_COMMIT),
+            ),
+        },
+        {
+            **current_common,
+            "event_digest": recovery.INPUT_COLLISION_FAILED_EVENT_DIGEST,
+            "event_type": "failed",
+            "sequence": 1,
+            "payload": (
+                ("error", "registered_input_persistence_changed"),
+                ("git_commit", recovery.INPUT_COLLISION_GIT_COMMIT),
+            ),
+        },
+    )
+
+
+def test_input_collision_event_chain_is_exact_and_artifact_free() -> None:
+    recovery.validate_input_collision_events(_input_collision_events(), ())
+    bad = list(_input_collision_events())
+    bad[-1] = {**bad[-1], "event_digest": "0" * 64}
+    with pytest.raises(recovery.TargetEventRecoveryError, match="identity"):
+        recovery.validate_input_collision_events(bad, ())
+    with pytest.raises(recovery.TargetEventRecoveryError, match="artifact_count"):
+        recovery.validate_input_collision_events(
+            _input_collision_events(), ({"artifact_digest": "1" * 64},)
+        )
+
+
+def test_input_collision_operator_scope_is_exact(monkeypatch) -> None:
+    source_digest = "f" * 64
+    git_commit = "a" * 40
+    recovery_contract = {
+        "completed_source_contract_digests": sorted(
+            recovery.INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS
+        ),
+        "current_manifest_digest": recovery.INPUT_COLLISION_MANIFEST_DIGEST,
+        "failed_execution_id": recovery.INPUT_COLLISION_EXECUTION_ID,
+        "failed_task_digest": recovery.INPUT_COLLISION_TARGET_TASK_DIGEST,
+        "failed_task_key": recovery.TARGET_TASK_KEY,
+        "frozen_goal_digest": recovery.LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (
+            recovery.INPUT_COLLISION_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+    }
+    payload = {
+        "version": "input-collision-recovery",
+        "commit": git_commit,
+        "checks": {"registered_input_collision_recovery": recovery_contract},
+        "rollback": {},
+    }
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+    request = SimpleNamespace(
+        id=737,
+        request_type=AgentRequestType.OPERATOR_RELEASE,
+        status=AgentRequestStatus.EXECUTING,
+        payload=payload,
+        metadata={"payload_sha256": payload_sha},
+    )
+    repository = SimpleNamespace(
+        get_request=lambda _: request,
+        list_decisions=lambda _: [
+            SimpleNamespace(
+                id=3118,
+                decision_code="request_approved",
+                previous_status="under_review",
+                new_status="approved",
+                decided_by_role=AgentRole.REVIEWER,
+            )
+        ],
+        list_execution_metadata=lambda _: [
+            SimpleNamespace(
+                id=593,
+                status=AgentExecutionStatus.RUNNING,
+                environment="production",
+                executor_role=AgentRole.OPERATOR,
+            )
+        ],
+    )
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY", "operator")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID", "3118")
+    monkeypatch.setenv("DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID", "593")
+    assert (
+        recovery.validate_input_collision_operator_scope(
+            repository=repository,
+            source_digest=source_digest,
+            git_commit=git_commit,
+        )["payload_sha256"]
+        == payload_sha
+    )
+    request.payload = {
+        **payload,
+        "checks": {
+            "registered_input_collision_recovery": {
+                **recovery_contract,
+                "completed_source_contract_digests": ["0" * 64],
+            }
+        },
+    }
+    with pytest.raises(recovery.TargetEventRecoveryError, match="scope"):
+        recovery.validate_input_collision_operator_scope(
             repository=repository,
             source_digest=source_digest,
             git_commit=git_commit,

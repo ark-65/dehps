@@ -916,10 +916,20 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
         source_digest = contract.require_digest(
             body.get("source_contract_digest"), field="source_contract_digest"
         )
+        expected_digest = contract.domain_digest(
+            {
+                "schema_version": payload["schema_version"],
+                "artifact_type": artifact_type,
+                "body": body,
+                "parent_digests": parents,
+            },
+            domain=REGISTERED_INPUT_DOMAIN,
+        )
         valid = (
             set(body)
             == {"schema_digest", "history_query_digest", "source_contract_digest"}
-            and digest == schema_digest
+            and digest == expected_digest
+            and len(schema_digest) == 64
             and len(query_digest) == 64
             and len(parents) == 1
             and source_digest == parents[0]
@@ -940,6 +950,15 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
         source_digest = contract.require_digest(
             body.get("source_contract_digest"), field="source_contract_digest"
         )
+        expected_digest = contract.domain_digest(
+            {
+                "schema_version": payload["schema_version"],
+                "artifact_type": artifact_type,
+                "body": body,
+                "parent_digests": parents,
+            },
+            domain=REGISTERED_INPUT_DOMAIN,
+        )
         valid = (
             set(body)
             == {
@@ -956,12 +975,13 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
                 "schedule_contract_digest",
                 "source_contract_digest",
             }
-            and digest == content_digest
+            and digest == expected_digest
+            and len(content_digest) == 64
+            and len(schema_digest) == 64
             and len(query_digest) == 64
             and len(schedule_digest) == 64
             and len(parents) == 2
             and source_digest == parents[0]
-            and schema_digest == parents[1]
         )
     elif artifact_type == "M4IsolatedAuditedDrawInputV11":
         valid = (
@@ -989,6 +1009,31 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
     if not valid:
         raise IsolatedMainlineError("registered_input_identity_changed")
     return payload
+
+
+def _validate_history_content_parent_binding(
+    *,
+    repository: PostgresResearchOSRepository,
+    payload: Mapping[str, Any],
+) -> None:
+    if payload.get("artifact_type") != "M4IsolatedHistoryContentInputV11":
+        return
+    parsed = validate_registered_input_payload(payload)
+    schema = load_registered_input(
+        repository=repository,
+        artifact_digest=str(parsed["parent_digests"][1]),
+        expected_artifact_type="M4IsolatedHistorySchemaInputV11",
+    )
+    body = parsed["body"]
+    schema_body = schema["body"]
+    if (
+        schema["parent_digests"] != [parsed["parent_digests"][0]]
+        or schema_body.get("source_contract_digest")
+        != body.get("source_contract_digest")
+        or schema_body.get("schema_digest") != body.get("schema_digest")
+        or schema_body.get("history_query_digest") != body.get("history_query_digest")
+    ):
+        raise IsolatedMainlineError("registered_history_schema_parent_changed")
 
 
 def register_input_artifact(
@@ -1044,6 +1089,7 @@ def register_input_artifact(
         or str(row[5]) != content_sha256
     ):
         raise IsolatedMainlineError("registered_input_persistence_changed")
+    _validate_history_content_parent_binding(repository=repository, payload=parsed)
     return parsed
 
 
@@ -1098,6 +1144,7 @@ def load_registered_input(
         )
     ):
         raise IsolatedMainlineError("registered_input_registration_changed")
+    _validate_history_content_parent_binding(repository=repository, payload=parsed)
     return parsed
 
 
@@ -1560,7 +1607,6 @@ class IsolatedV11Capability:
         )
         schema_input = build_registered_input(
             artifact_type="M4IsolatedHistorySchemaInputV11",
-            artifact_digest=str(projection_body["schema_digest"]),
             body={
                 "schema_digest": projection_body["schema_digest"],
                 "history_query_digest": projection_body["history_query_digest"],
@@ -1575,7 +1621,6 @@ class IsolatedV11Capability:
         )
         content_input = build_registered_input(
             artifact_type="M4IsolatedHistoryContentInputV11",
-            artifact_digest=str(projection_body["history_content_digest"]),
             body={
                 **projection_body,
                 "source_contract_digest": self.source_digest,

@@ -151,9 +151,11 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
         simulation_events=False,
     )
     old = ControlPlaneManifest.from_dict(old_payload)
-    task = old.tasks[0]
+    old_task = old.tasks[0]
+    task = replace(old_task, goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
     state = replace(
-        old.task_state_by_digest[task.artifact_digest],
+        old.task_state_by_digest[old_task.artifact_digest],
+        task_digest=task.artifact_digest,
         declared_status=TaskStatus.COMPLETED,
         completion_classification=CompletionClassification.COMPLETE,
     )
@@ -167,6 +169,31 @@ def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_so
         task,
         state=state,
         artifact_facts=frozenset({fact}),
+        partial_live_rebind=True,
+    )
+    intermediate_payload, _ = runner.builder.build_manifest(
+        context=context,
+        source_digest=next(
+            item
+            for item in runner.LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS
+            if item != runner.LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST
+        ),
+        operator_configuration_authorized=True,
+        simulation_events=False,
+    )
+    intermediate = ControlPlaneManifest.from_dict(intermediate_payload).tasks[0]
+    intermediate = replace(
+        intermediate, goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+    )
+    intermediate_state = replace(state, task_digest=intermediate.artifact_digest)
+    intermediate_fact = (
+        f"mainline-execution:{intermediate.task_key}:"
+        f"{intermediate.artifact_digest}:{'3' * 64}:completed"
+    )
+    repository._verify_isolated_task_definition(
+        intermediate,
+        state=intermediate_state,
+        artifact_facts=frozenset({intermediate_fact}),
         partial_live_rebind=True,
     )
     with pytest.raises(

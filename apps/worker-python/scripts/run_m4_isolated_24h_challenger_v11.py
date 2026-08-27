@@ -84,6 +84,12 @@ APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
 LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST = (
     "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1"
 )
+LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS = frozenset(
+    {
+        LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST,
+        "45cd0aff1964f603ffb698da019a9803681dbe480c7bee9a322a592a05b79ffc",
+    }
+)
 LIVE_PARTIAL_FROZEN_GOAL_DIGEST = (
     "b13054b699c75325c3a0fbb27ccc697e0a3176568140a7f0d5e59c9aa362d69a"
 )
@@ -163,7 +169,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
             )
             if (
-                bound_source_digest != LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST
+                bound_source_digest not in LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS
                 or state.declared_status is not TaskStatus.COMPLETED
                 or not any(
                     fact.startswith(completion_prefix) and fact.endswith(":completed")
@@ -184,7 +190,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if len(matches) != 1:
             raise ResearchOSValidationError("isolated_v11_task_definition_changed")
         expected_task = matches[0]
-        if partial_live_rebind and bound_source_digest == self.source_digest:
+        if partial_live_rebind:
             expected_task = replace(
                 expected_task, goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST
             )
@@ -198,9 +204,9 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             str(json.loads(task.metric_contract).get("source_contract_digest") or "")
             for task in incoming.tasks
         }
-        historical_source_present = (
-            self.source_digest != LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST
-            and LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST in bound_sources
+        historical_source_present = bool(
+            (bound_sources & LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS)
+            - {self.source_digest}
         )
         partial_live_rebind = historical_source_present and (
             self.source_digest in bound_sources
@@ -208,7 +214,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if historical_source_present and (
             not partial_live_rebind
             or not bound_sources.issubset(
-                {LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST, self.source_digest}
+                LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS | {self.source_digest}
             )
         ):
             raise ResearchOSValidationError(
