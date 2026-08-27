@@ -57,7 +57,7 @@ from run_m4_isolated_24h_challenger_v11 import (
     _latest_history_identity,
     _task_context,
     _verify_generic_replay,
-    validate_user_scope_recovery_governance,
+    validate_user_scope_committed_recovery_governance,
 )
 
 EVENT = "TARGET_PROJECTION_INPUT"
@@ -3169,12 +3169,11 @@ def run_user_scope_post_batch_rebind(*, apply: bool) -> dict[str, Any]:
     )
     _verify_generic_replay(generic)
     agent_repository = AgentRequestRepository()
-    governance = validate_user_scope_recovery_governance(
+    governance = validate_user_scope_committed_recovery_governance(
         repository=agent_repository,
         source_contract=source,
         repaired_source_digest=source_digest,
         git_commit=git_commit,
-        phase="post_batch_rebind",
     )
     with repository.connection_factory() as connection, connection.cursor() as cursor:
         counts = cursor.execute(

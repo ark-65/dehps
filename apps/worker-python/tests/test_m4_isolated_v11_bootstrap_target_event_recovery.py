@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -1035,6 +1036,12 @@ def test_user_scope_post_batch_rebind_preserves_23_and_rebuilds_only_4() -> None
     assert [
         item.task_key for item in ResearchOSControlPlane().resolve(incoming).ready_queue
     ] == ["m4-isolated-24h-challenger-v11-search-batch-000000000000-replay"]
+
+
+def test_user_scope_post_batch_uses_only_committed_recovery_governance() -> None:
+    source = inspect.getsource(recovery.run_user_scope_post_batch_rebind)
+    assert "validate_user_scope_committed_recovery_governance(" in source
+    assert "validate_user_scope_recovery_governance(" not in source
 
 
 def test_user_scope_post_batch_private_gate_is_one_shot(monkeypatch) -> None:
