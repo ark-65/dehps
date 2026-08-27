@@ -1269,6 +1269,30 @@ def _config_digest(source_digest: str) -> str:
     )
 
 
+def _same_aware_timestamp_instant(stored: object, expected: object) -> bool:
+    try:
+        stored_at = (
+            stored
+            if isinstance(stored, datetime)
+            else datetime.fromisoformat(str(stored))
+        )
+        expected_at = (
+            expected
+            if isinstance(expected, datetime)
+            else datetime.fromisoformat(str(expected))
+        )
+    except (TypeError, ValueError):
+        return False
+    if (
+        stored_at.tzinfo is None
+        or stored_at.utcoffset() is None
+        or expected_at.tzinfo is None
+        or expected_at.utcoffset() is None
+    ):
+        return False
+    return stored_at == expected_at
+
+
 def _mail_configuration_body(*, simulation: bool) -> dict[str, Any]:
     if simulation:
         from dehps.notifications.isolated_challenger_v11 import fake_configuration_body
@@ -2702,13 +2726,14 @@ class IsolatedV11Capability:
                 raise IsolatedMainlineError("atomic_registration_artifact_set_changed")
             for expected_artifact in expected_registration_artifacts:
                 persisted = by_digest[expected_artifact["artifact_digest"]]
-                registered_at = persisted["registered_at"].isoformat()
                 if (
                     persisted["artifact_type"] != expected_artifact["artifact_type"]
                     or dict(persisted["artifact_json"]) != expected_artifact
                     or list(persisted["parent_digests_json"])
                     != expected_artifact["parent_digests"]
-                    or registered_at != registration_created_at
+                    or not _same_aware_timestamp_instant(
+                        persisted["registered_at"], registration_created_at
+                    )
                 ):
                     raise IsolatedMainlineError(
                         "atomic_registration_artifact_content_changed"
