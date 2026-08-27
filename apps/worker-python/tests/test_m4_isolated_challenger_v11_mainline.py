@@ -58,8 +58,7 @@ def test_external_mail_acceptance_requires_issue_cycle_daily_and_no_incident() -
     assert evidence["daily_sent_epochs"] == ["20260827"]
     assert evidence["incident_sent_ids"] == ["fixture"]
     blocked = mainline._external_delivery_evidence(
-        facts
-        | {"m4-isolated-24h-challenger-v11-incident-bad-open:OPEN"}
+        facts | {"m4-isolated-24h-challenger-v11-incident-bad-open:OPEN"}
     )
     assert blocked["real_mail_acceptance"] is False
 
@@ -258,11 +257,76 @@ def test_registered_input_identities_are_exact_and_source_bound() -> None:
     )
     for value in (database, history_schema, history_content, draw):
         assert mainline.validate_registered_input_payload(value) == value
-
     corrupted = deepcopy(history_content)
     corrupted["body"]["source_contract_digest"] = "8" * 64
     with pytest.raises(mainline.IsolatedMainlineError, match="identity_changed"):
         mainline.validate_registered_input_payload(corrupted)
+
+
+def test_production_target_projection_uses_target_issue_only_as_common_field(
+    monkeypatch,
+) -> None:
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        projection_time="2026-08-28T00:27:06.982677+08:00",
+    )
+    source_digest = "1" * 64
+    projection = {
+        "source_max_issue": context["source_max_issue"],
+        "source_max_draw_date": context["source_max_draw_date"],
+        "target_issue": context["target_issue"],
+        "target_draw_date": context["target_draw_date"],
+        "deadline": "2026-08-30T17:00:00+08:00",
+        "official_draw_time": "2026-08-30T21:15:00+08:00",
+        "projection_time": context["projection_time"],
+        "history_query_digest": "2" * 64,
+        "history_content_digest": "3" * 64,
+        "schema_digest": "4" * 64,
+        "schedule_contract_digest": "5" * 64,
+    }
+    capability = mainline.IsolatedV11Capability(
+        capability_name="M4IsolatedTargetIssueProjectionCapabilityV11",
+        context=context,
+        source_digest=source_digest,
+        simulation=False,
+        repository=SimpleNamespace(connection_factory=lambda: None),
+        root_dir=Path.cwd(),
+    )
+    capability._upstream = lambda _name: (
+        {
+            "artifact_type": "M4IsolatedPreregistrationV11",
+            "artifact_digest": "6" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        mainline.search,
+        "load_target_issue_projection",
+        lambda *_args, **_kwargs: dict(projection),
+    )
+    monkeypatch.setattr(mainline, "load_registered_input", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        mainline,
+        "register_input_artifact",
+        lambda *, payload, **_kwargs: payload,
+    )
+    artifact = capability._target_projection(
+        task_key=contract.task_template_by_name("target_issue_projection").key(context),
+        git_commit="a" * 40,
+    )[0]
+    assert artifact["body"]["target_issue"] == "2026100"
+    type_body = {
+        key: value
+        for key, value in artifact["body"].items()
+        if key not in artifacts.COMMON_BODY_KEYS
+    }
+    assert "target_issue" not in type_body
+    assert type_body == {
+        key: value for key, value in projection.items() if key != "target_issue"
+    }
+    assert artifacts.validate_artifact(artifact) == artifact
 
 
 def test_registered_input_persistence_is_exact_and_idempotent() -> None:
@@ -340,11 +404,14 @@ def test_registered_input_persistence_is_exact_and_idempotent() -> None:
         git_commit=commit,
     )
     assert first == second == value
-    assert mainline.load_registered_input(
-        repository=repository,
-        artifact_digest=value["artifact_digest"],
-        expected_artifact_type="M4IsolatedDatabaseSchemaIdentityV11",
-    ) == value
+    assert (
+        mainline.load_registered_input(
+            repository=repository,
+            artifact_digest=value["artifact_digest"],
+            expected_artifact_type="M4IsolatedDatabaseSchemaIdentityV11",
+        )
+        == value
+    )
     row = stored[value["artifact_digest"]]
     stored[value["artifact_digest"]] = (*row[:-1], "f" * 64)
     with pytest.raises(mainline.IsolatedMainlineError, match="registration_changed"):
@@ -410,7 +477,9 @@ def test_thermal_guard_requires_exact_pause_and_resume_intervals(
     assert guard.hard_stop_seen is True
 
 
-def test_incident_open_advances_registered_head_chain(monkeypatch, tmp_path: Path) -> None:
+def test_incident_open_advances_registered_head_chain(
+    monkeypatch, tmp_path: Path
+) -> None:
     offending = "e" * 64
     context = contract.render_context(
         source_max_issue="2026100",
@@ -531,19 +600,26 @@ def test_formal_p3_comparison_pending_reason_is_explicit(
         "artifact_digest": "d" * 64,
     }
     capability._upstream = lambda name: (  # type: ignore[method-assign]
-        settlement
-        if name == "settlement"
-        else preregistration,
+        settlement if name == "settlement" else preregistration,
     )
 
     p3 = mainline.formal_p3
-    p3_prereg = {"artifact_type": p3.PREREGISTRATION_ARTIFACT_TYPE, "artifact_digest": "1" * 64}
-    p4_prereg = {"artifact_type": p3.P4_PREREGISTRATION_ARTIFACT_TYPE, "artifact_digest": "2" * 64}
+    p3_prereg = {
+        "artifact_type": p3.PREREGISTRATION_ARTIFACT_TYPE,
+        "artifact_digest": "1" * 64,
+    }
+    p4_prereg = {
+        "artifact_type": p3.P4_PREREGISTRATION_ARTIFACT_TYPE,
+        "artifact_digest": "2" * 64,
+    }
     dataset = {
         "artifact_type": p3.DATASET_ARTIFACT_TYPE,
         "artifact_digest": "3" * 64,
         "body": {"target_issue": "1900001", "future_rows_read": False},
-        "parent_digests": [p3_prereg["artifact_digest"], contract.FORMAL_P3_SOURCE_DIGEST],
+        "parent_digests": [
+            p3_prereg["artifact_digest"],
+            contract.FORMAL_P3_SOURCE_DIGEST,
+        ],
     }
     model = {
         "artifact_type": p3.MODEL_ARTIFACT_TYPE,
@@ -554,10 +630,20 @@ def test_formal_p3_comparison_pending_reason_is_explicit(
             "source_digest": contract.FORMAL_P3_SOURCE_DIGEST,
             "future_rows_read": False,
         },
-        "parent_digests": [dataset["artifact_digest"], p3_prereg["artifact_digest"], contract.FORMAL_P3_SOURCE_DIGEST],
+        "parent_digests": [
+            dataset["artifact_digest"],
+            p3_prereg["artifact_digest"],
+            contract.FORMAL_P3_SOURCE_DIGEST,
+        ],
     }
-    candidates = {"artifact_type": p3.MODEL_CANDIDATE_ARTIFACT_TYPE, "artifact_digest": "5" * 64}
-    baseline = {"artifact_type": p3.RANDOM_BASELINE_ARTIFACT_TYPE, "artifact_digest": "6" * 64}
+    candidates = {
+        "artifact_type": p3.MODEL_CANDIDATE_ARTIFACT_TYPE,
+        "artifact_digest": "5" * 64,
+    }
+    baseline = {
+        "artifact_type": p3.RANDOM_BASELINE_ARTIFACT_TYPE,
+        "artifact_digest": "6" * 64,
+    }
     checkpoint = {
         "artifact_type": p3.CHECKPOINT_ARTIFACT_TYPE,
         "artifact_digest": "7" * 64,
@@ -568,26 +654,51 @@ def test_formal_p3_comparison_pending_reason_is_explicit(
             "status": "SEALED_BEFORE_DRAW",
             "configuration_drift": False,
         },
-        "parent_digests": [model["artifact_digest"], candidates["artifact_digest"], baseline["artifact_digest"], p3_prereg["artifact_digest"]],
+        "parent_digests": [
+            model["artifact_digest"],
+            candidates["artifact_digest"],
+            baseline["artifact_digest"],
+            p3_prereg["artifact_digest"],
+        ],
     }
-    report = {"artifact_type": p3.PREDRAW_REPORT_ARTIFACT_TYPE, "artifact_digest": "8" * 64}
+    report = {
+        "artifact_type": p3.PREDRAW_REPORT_ARTIFACT_TYPE,
+        "artifact_digest": "8" * 64,
+    }
     predraw_replay = {
         "artifact_type": p3.PREDRAW_REPLAY_ARTIFACT_TYPE,
         "artifact_digest": "9" * 64,
         "body": {"target_issue": issue, "status": "REPLAY_VERIFIED"},
-        "parent_digests": [candidates["artifact_digest"], baseline["artifact_digest"], checkpoint["artifact_digest"], report["artifact_digest"]],
+        "parent_digests": [
+            candidates["artifact_digest"],
+            baseline["artifact_digest"],
+            checkpoint["artifact_digest"],
+            report["artifact_digest"],
+        ],
     }
     p3_settlement = {
         "artifact_type": p3.SETTLEMENT_ARTIFACT_TYPE,
         "artifact_digest": "a" * 64,
-        "body": {"target_issue": issue, "lineage_id": contract.FORMAL_P3_LINEAGE, "configuration_drift": False},
-        "parent_digests": [model["artifact_digest"], candidates["artifact_digest"], baseline["artifact_digest"], checkpoint["artifact_digest"]],
+        "body": {
+            "target_issue": issue,
+            "lineage_id": contract.FORMAL_P3_LINEAGE,
+            "configuration_drift": False,
+        },
+        "parent_digests": [
+            model["artifact_digest"],
+            candidates["artifact_digest"],
+            baseline["artifact_digest"],
+            checkpoint["artifact_digest"],
+        ],
     }
     settlement_replay = {
         "artifact_type": p3.SETTLEMENT_REPLAY_ARTIFACT_TYPE,
         "artifact_digest": "e" * 64,
         "body": {"target_issue": issue, "status": "REPLAY_VERIFIED"},
-        "parent_digests": [p3_settlement["artifact_digest"], checkpoint["artifact_digest"]],
+        "parent_digests": [
+            p3_settlement["artifact_digest"],
+            checkpoint["artifact_digest"],
+        ],
     }
     by_type = {
         item["artifact_type"]: item

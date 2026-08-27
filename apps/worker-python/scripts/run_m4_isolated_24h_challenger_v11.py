@@ -80,6 +80,9 @@ APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
         "41d3c7431c29ae7c8af71a8b09653df5f28ed02954206835278f2e20dc7082cd",
     }
 )
+LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST = (
+    "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1"
+)
 
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
@@ -117,10 +120,19 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
     def _definitions(manifest: ControlPlaneManifest) -> tuple[Any, ...]:
         return tuple(item.to_dict() for item in manifest.goals)
 
-    def _verify_isolated_task_definition(self, task: Any) -> None:
+    def _verify_isolated_task_definition(
+        self,
+        task: Any,
+        *,
+        state: Any,
+        artifact_facts: frozenset[str],
+    ) -> None:
         try:
             metric = json.loads(task.metric_contract)
             raw_context = metric["render_context"]
+            bound_source_digest = contract.require_digest(
+                metric["source_contract_digest"], field="task_source_contract_digest"
+            )
             normalized = contract.render_context(
                 source_max_issue=str(raw_context["source_max_issue"]),
                 source_max_draw_date=str(raw_context["source_max_draw_date"]),
@@ -131,9 +143,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 minute=str(raw_context["minute"]),
                 incident_id=str(raw_context["incident_id"]),
                 incident_reason_code=str(raw_context["incident_reason_code"]),
-                incident_offending_digest=str(
-                    raw_context["incident_offending_digest"]
-                ),
+                incident_offending_digest=str(raw_context["incident_offending_digest"]),
                 cut_checkpoint_ref=str(raw_context["cut_checkpoint_ref"]),
                 projection_time=str(raw_context["projection_time"]),
             )
@@ -143,9 +153,24 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             ) from exc
         if dict(raw_context) != normalized:
             raise ResearchOSValidationError("isolated_v11_task_context_changed")
+        if bound_source_digest != self.source_digest:
+            completion_prefix = (
+                f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            )
+            if (
+                bound_source_digest != LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST
+                or state.declared_status is not TaskStatus.COMPLETED
+                or not any(
+                    fact.startswith(completion_prefix) and fact.endswith(":completed")
+                    for fact in artifact_facts
+                )
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_historical_task_source_changed"
+                )
         expected_payload, _ = builder.build_manifest(
             context=normalized,
-            source_digest=self.source_digest,
+            source_digest=bound_source_digest,
             operator_configuration_authorized=True,
             simulation_events=False,
         )
@@ -158,7 +183,11 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if len(incoming.tasks) != len({item.task_key for item in incoming.tasks}):
             raise ResearchOSValidationError("isolated_v11_task_set_changed")
         for task in incoming.tasks:
-            self._verify_isolated_task_definition(task)
+            self._verify_isolated_task_definition(
+                task,
+                state=incoming.task_state_by_digest[task.artifact_digest],
+                artifact_facts=incoming.facts.artifacts,
+            )
         operator_authorized = (
             builder.OPERATOR_CONFIGURATION_AUTHORITY in incoming.facts.authorities
         )
@@ -188,8 +217,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if rebind_gate is not None:
             if (
                 rebind_gate.get("consumed") is not False
-                or rebind_gate.get("current_manifest_digest")
-                != current.artifact_digest
+                or rebind_gate.get("current_manifest_digest") != current.artifact_digest
                 or rebind_gate.get("incoming_manifest_digest")
                 != incoming.artifact_digest
                 or rebind_gate.get("current_manifest")
@@ -387,9 +415,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
         )
 
-    def import_bootstrap_manifest(
-        self, payload: Mapping[str, Any]
-    ) -> tuple[Any, str]:
+    def import_bootstrap_manifest(self, payload: Mapping[str, Any]) -> tuple[Any, str]:
         incoming = ControlPlaneManifest.from_dict(dict(payload))
         try:
             current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
@@ -446,7 +472,9 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             )
             tasks = []
             states = []
-            for stored, item_context in zip(current.tasks, current_contexts, strict=True):
+            for stored, item_context in zip(
+                current.tasks, current_contexts, strict=True
+            ):
                 expected_payload, _ = builder.build_manifest(
                     context=item_context,
                     source_digest=source_digest,
@@ -454,7 +482,10 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                     simulation_events=False,
                 )
                 expected = ControlPlaneManifest.from_dict(expected_payload)
-                if expected.goals != base.goals or expected.goal_states != base.goal_states:
+                if (
+                    expected.goals != base.goals
+                    or expected.goal_states != base.goal_states
+                ):
                     raise ResearchOSValidationError(
                         "isolated_v11_bootstrap_rebind_goal_changed"
                     )
@@ -506,8 +537,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             or current.facts.artifacts
             or current.facts.evidence
             or current.facts.external_events
-            or current.facts.authorities
-            != predecessor_matches[0].facts.authorities
+            or current.facts.authorities != predecessor_matches[0].facts.authorities
             or self.list_mainline_execution_event_metadata(
                 control_plane_key=contract.CONTROL_PLANE_KEY,
                 task_keys=tuple(task.task_key for task in current.tasks),
@@ -788,9 +818,7 @@ def _latest_registered_health_artifact(
             mainline.load_completed_task_artifacts(
                 repository=repository,
                 root_dir=ROOT_DIR,
-                task_key=contract.task_template_by_name("preregistration").key(
-                    context
-                ),
+                task_key=contract.task_template_by_name("preregistration").key(context),
             ),
             "M4IsolatedPreregistrationV11",
         )
@@ -1586,7 +1614,7 @@ def _mirror_search_batch_ledger(
         for candidate_id, item in results.items()
     }
     if stored != expected:
-            raise IsolatedRunnerError("candidate_result_ledger_changed")
+        raise IsolatedRunnerError("candidate_result_ledger_changed")
 
 
 def _search_batch_mirror_complete(
@@ -1649,9 +1677,7 @@ def _activation_present(
     if template.activation_mode == contract.REPLAY:
         return f"{task_key}:REGISTERED_REPLAY_VERIFIED" in facts
     if template.activation_mode == contract.DELIVERY:
-        return bool(
-            {f"{task_key}:SENT", f"{task_key}:UNCERTAIN"}.intersection(facts)
-        )
+        return bool({f"{task_key}:SENT", f"{task_key}:UNCERTAIN"}.intersection(facts))
     if template.name == "challenger_freeze":
         return bool(
             {
@@ -1833,10 +1859,7 @@ def _attest_database_schema(
     if row is None:
         raise IsolatedRunnerError("database_schema_identity_changed")
     actual = tuple(str(item) for item in row)
-    if (
-        actual[:2] != expected[:2]
-        or _GIT_COMMIT.fullmatch(actual[2]) is None
-    ):
+    if actual[:2] != expected[:2] or _GIT_COMMIT.fullmatch(actual[2]) is None:
         raise IsolatedRunnerError("database_schema_identity_changed")
     if actual[2] != git_commit:
         ancestry = subprocess.run(
@@ -1902,9 +1925,7 @@ def cycle(
         running_keys = [
             task.task_key
             for task in manifest.tasks
-            if manifest.task_state_by_digest[
-                task.artifact_digest
-            ].declared_status
+            if manifest.task_state_by_digest[task.artifact_digest].declared_status
             == TaskStatus.RUNNING
         ]
         if len(running_keys) > 1:
@@ -1917,9 +1938,7 @@ def cycle(
                 task.task_key, context=dispatch_context
             )
             if template.name == "search_batch" and (
-                search_dispatched
-                or resource_state != "QUIESCENT"
-                or thermal_blocked
+                search_dispatched or resource_state != "QUIESCENT" or thermal_blocked
             ):
                 continue
             candidates.append(
@@ -2027,9 +2046,7 @@ def cycle(
                 "PREEMPTED_FOR_FORMAL_P3"
                 if resource_state != "QUIESCENT"
                 else (
-                    "THERMAL_GUARD_PAUSED"
-                    if thermal_blocked
-                    else status.get("status")
+                    "THERMAL_GUARD_PAUSED" if thermal_blocked else status.get("status")
                 )
             ),
             "resource_state": resource_state,
@@ -2187,16 +2204,12 @@ def _parallel_equivalence_bundle(
         for index in range(33)
     )
     red_top100 = search.top_red_combinations(
-        lambda candidate: search.probability_combination_score(
-            candidate, probabilities
-        )
+        lambda candidate: search.probability_combination_score(candidate, probabilities)
     )
     tickets = search.add_deterministic_blue(
         red_top100,
         seed_hex=hashlib.sha256(
-            f"equivalence-blue\0{target_issue}\0{selected.candidate_id}".encode(
-                "ascii"
-            )
+            f"equivalence-blue\0{target_issue}\0{selected.candidate_id}".encode("ascii")
         ).hexdigest()[:32],
     )
     ordering = [item.candidate_id for item in ordered]
@@ -2235,9 +2248,7 @@ def _parallel_equivalence_bundle(
             "candidate_results": json.loads(candidate_result_bytes),
             "candidate_order": ordering,
             "selected_candidate_id": selected.candidate_id,
-            "top100": [
-                {"red": list(reds), "blue": blue} for reds, blue in tickets
-            ],
+            "top100": [{"red": list(reds), "blue": blue} for reds, blue in tickets],
             "checkpoint_digest": checkpoint_digest,
             "artifact_digest": artifact_digest,
             "replay_digest": replay_digest,
@@ -2257,9 +2268,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epoch-date")
     parser.add_argument("--minute")
     parser.add_argument("--incident-id")
-    parser.add_argument(
-        "--incident-reason-code", default="DEADLINE_OR_ABSENCE"
-    )
+    parser.add_argument("--incident-reason-code", default="DEADLINE_OR_ABSENCE")
     parser.add_argument("--incident-offending-digest")
     parser.add_argument("--projection-time")
     parser.add_argument("--operator-configuration-authorized", action="store_true")

@@ -10,7 +10,11 @@ import pytest
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_contract as contract,
 )
-from dehps.research_os.models import ControlPlaneManifest, TaskStatus
+from dehps.research_os.models import (
+    CompletionClassification,
+    ControlPlaneManifest,
+    TaskStatus,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -135,6 +139,82 @@ def test_install_apply_returns_imported_manifest_digest(monkeypatch) -> None:
     assert result["formal_p3_mutated"] is False
 
 
+def test_repository_allows_only_completed_attested_predecessor_tasks_in_mixed_source() -> (
+    None
+):
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    old_payload, _ = runner.builder.build_manifest(
+        context=context,
+        source_digest=runner.LIVE_PARTIAL_PREDECESSOR_SOURCE_DIGEST,
+        operator_configuration_authorized=True,
+        simulation_events=False,
+    )
+    old = ControlPlaneManifest.from_dict(old_payload)
+    task = old.tasks[0]
+    state = replace(
+        old.task_state_by_digest[task.artifact_digest],
+        declared_status=TaskStatus.COMPLETED,
+        completion_classification=CompletionClassification.COMPLETE,
+    )
+    fact = (
+        f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+        f"{'1' * 64}:completed"
+    )
+    repository = object.__new__(runner.IsolatedChallengerRepository)
+    repository.source_digest = "f" * 64
+    repository._verify_isolated_task_definition(
+        task,
+        state=state,
+        artifact_facts=frozenset({fact}),
+    )
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="historical_task_source_changed",
+    ):
+        repository._verify_isolated_task_definition(
+            task,
+            state=replace(
+                state,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+            ),
+            artifact_facts=frozenset({fact}),
+        )
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="historical_task_source_changed",
+    ):
+        repository._verify_isolated_task_definition(
+            task,
+            state=state,
+            artifact_facts=frozenset(),
+        )
+    arbitrary_payload, _ = runner.builder.build_manifest(
+        context=context,
+        source_digest="e" * 64,
+        operator_configuration_authorized=True,
+        simulation_events=False,
+    )
+    arbitrary = ControlPlaneManifest.from_dict(arbitrary_payload).tasks[0]
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="historical_task_source_changed",
+    ):
+        repository._verify_isolated_task_definition(
+            arbitrary,
+            state=replace(state, task_digest=arbitrary.artifact_digest),
+            artifact_facts=frozenset(
+                {
+                    (
+                        f"mainline-execution:{arbitrary.task_key}:"
+                        f"{arbitrary.artifact_digest}:{'2' * 64}:completed"
+                    )
+                }
+            ),
+        )
+
+
 def _bootstrap_rebind_fixture(runner):
     current_context = contract.render_context(
         source_max_issue="2026100",
@@ -173,9 +253,7 @@ def _bootstrap_rebind_repository(runner, *, current, context, events=()):
             if "SELECT current_manifest_digest" in statement:
                 self.result = {"current_manifest_digest": current.artifact_digest}
             elif "SELECT manifest_json" in statement:
-                self.result = {
-                    "manifest_json": current.to_dict(include_digest=True)
-                }
+                self.result = {"manifest_json": current.to_dict(include_digest=True)}
             else:
                 raise AssertionError(statement)
             return self
@@ -221,9 +299,7 @@ def _bootstrap_rebind_repository(runner, *, current, context, events=()):
 
 def test_repository_rebinds_only_exact_unexecuted_predecessor_bootstrap() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
-        runner
-    )
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(runner)
     repository = _bootstrap_rebind_repository(
         runner, current=current, context=incoming_context
     )
@@ -325,9 +401,7 @@ def test_repository_bootstrap_rebind_rejects_nonpristine_predecessor(
 
 def test_repository_bootstrap_rebind_rejects_target_change_and_direct_import() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
-        runner
-    )
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(runner)
     repository = _bootstrap_rebind_repository(
         runner, current=current, context=incoming_context
     )
@@ -359,9 +433,7 @@ def test_repository_bootstrap_rebind_rejects_target_change_and_direct_import() -
 
 def test_repository_bootstrap_rebind_gate_is_nonreentrant() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(
-        runner
-    )
+    _, incoming_context, current, incoming_payload = _bootstrap_rebind_fixture(runner)
     repository = _bootstrap_rebind_repository(
         runner, current=current, context=incoming_context
     )
@@ -493,9 +565,7 @@ def test_completion_verifier_accepts_only_exact_lifecycle_transition_shape(
             if "SELECT current_manifest_digest" in statement:
                 self.result = {"current_manifest_digest": current.artifact_digest}
             elif "SELECT manifest_json" in statement:
-                self.result = {
-                    "manifest_json": current.to_dict(include_digest=True)
-                }
+                self.result = {"manifest_json": current.to_dict(include_digest=True)}
             else:
                 raise AssertionError(statement)
             return self
@@ -807,7 +877,6 @@ def test_completed_activation_recovery_replays_without_workload(monkeypatch) -> 
     imported: list[tuple[str, ...]] = []
 
     class _Repository:
-
         @staticmethod
         def load_manifest(*, control_plane_key):
             assert control_plane_key == contract.CONTROL_PLANE_KEY
@@ -821,6 +890,7 @@ def test_completed_activation_recovery_replays_without_workload(monkeypatch) -> 
             imported.append(tuple(values))
 
     calls: list[tuple[str, str]] = []
+
     class _Supervisor:
         def __init__(self, **_kwargs):
             pass
@@ -862,9 +932,7 @@ def test_single_and_18_worker_equivalence_binds_all_downstream_identities() -> N
     jobs = runner.search.plan_batch(configurations, cursor=0)
     single = runner.search.execute_jobs(jobs, worker_count=1)
     parallel = runner.search.execute_jobs(jobs, worker_count=contract.WORKER_COUNT)
-    single_bundle = runner._parallel_equivalence_bundle(
-        single, target_issue="2026101"
-    )
+    single_bundle = runner._parallel_equivalence_bundle(single, target_issue="2026101")
     parallel_bundle = runner._parallel_equivalence_bundle(
         parallel, target_issue="2026101"
     )
@@ -890,8 +958,7 @@ def test_service_outer_bound_keeps_mail_windows_recoverable() -> None:
     assert "CPUQuota=1800%" in service
     assert "MemoryMax=24G" in service
     assert (
-        "EnvironmentFile=/home/ark/.config/dehps/"
-        "m4-isolated-24h-challenger-v11.env"
+        "EnvironmentFile=/home/ark/.config/dehps/m4-isolated-24h-challenger-v11.env"
     ) in service
     assert "/etc/dehps/" not in service
     assert "CREATE TRIGGER delivery_ledger_append_only" in migration
@@ -1000,9 +1067,7 @@ def test_latest_history_identity_requires_one_exact_issue_date(
     if row_count == 1:
         assert runner._latest_history_identity() == ("2026099", "2026-08-27")
     else:
-        with pytest.raises(
-            runner.IsolatedRunnerError, match="latest_identity_changed"
-        ):
+        with pytest.raises(runner.IsolatedRunnerError, match="latest_identity_changed"):
             runner._latest_history_identity()
 
 
@@ -1072,14 +1137,13 @@ def test_database_schema_attestation_accepts_only_ancestor_repair(
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
     if returncode == 0:
-        assert runner._attest_database_schema(
-            repository=_Repository(), git_commit=current
-        )["installed_git_commit"] == installed
-    else:
-        with pytest.raises(runner.IsolatedRunnerError, match="not_ancestor"):
+        assert (
             runner._attest_database_schema(
                 repository=_Repository(), git_commit=current
-            )
-    assert commands == [
-        ["git", "merge-base", "--is-ancestor", installed, current]
-    ]
+            )["installed_git_commit"]
+            == installed
+        )
+    else:
+        with pytest.raises(runner.IsolatedRunnerError, match="not_ancestor"):
+            runner._attest_database_schema(repository=_Repository(), git_commit=current)
+    assert commands == [["git", "merge-base", "--is-ancestor", installed, current]]
