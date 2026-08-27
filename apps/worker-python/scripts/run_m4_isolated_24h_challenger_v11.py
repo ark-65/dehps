@@ -69,6 +69,9 @@ KNOWN_EXTERNAL_EVENTS = frozenset(
 KNOWN_AUTHORITIES = frozenset(
     {builder.RESEARCH_APPROVAL_AUTHORITY, builder.OPERATOR_CONFIGURATION_AUTHORITY}
 )
+PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST = (
+    "99f058e6df7e36ebd07bb411c7c1960989367230cb0a9344619442466112460a"
+)
 
 
 class IsolatedRunnerError(contract.IsolatedChallengerContractError):
@@ -86,13 +89,18 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         )
         self._fact_gate: dict[str, Any] | None = None
         self._definition_gate: dict[str, Any] | None = None
+        self._bootstrap_rebind_gate: dict[str, Any] | None = None
 
     def _expected_definition(
-        self, *, operator_authorized: bool
+        self,
+        *,
+        operator_authorized: bool,
+        context: Mapping[str, str] | None = None,
+        source_digest: str | None = None,
     ) -> ControlPlaneManifest:
         payload, _ = builder.build_bootstrap_manifest(
-            context=self.context,
-            source_digest=self.source_digest,
+            context=dict(context or self.context),
+            source_digest=source_digest or self.source_digest,
             operator_configuration_authorized=operator_authorized,
         )
         return ControlPlaneManifest.from_dict(payload)
@@ -167,6 +175,24 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 != {item.artifact_digest for item in expected.tasks}
             ):
                 raise ResearchOSValidationError("isolated_v11_initial_facts_changed")
+            return
+        rebind_gate = self._bootstrap_rebind_gate
+        if rebind_gate is not None:
+            if (
+                rebind_gate.get("consumed") is not False
+                or rebind_gate.get("current_manifest_digest")
+                != current.artifact_digest
+                or rebind_gate.get("incoming_manifest_digest")
+                != incoming.artifact_digest
+                or rebind_gate.get("current_manifest")
+                != current.to_dict(include_digest=True)
+                or rebind_gate.get("incoming_manifest")
+                != incoming.to_dict(include_digest=True)
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_bootstrap_rebind_gate_changed"
+                )
+            rebind_gate["consumed"] = True
             return
         if self._definitions(current) != self._definitions(incoming):
             raise ResearchOSValidationError("isolated_v11_goal_transition_changed")
@@ -267,6 +293,29 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             if stored is None:
                 raise ResearchOSValidationError("isolated_v11_current_manifest_missing")
             current = ControlPlaneManifest.from_dict(dict(stored["manifest_json"]))
+            rebind_gate = self._bootstrap_rebind_gate
+            if rebind_gate is not None:
+                if (
+                    rebind_gate.get("consumed") is not True
+                    or rebind_gate.get("current_manifest_digest")
+                    != current.artifact_digest
+                    or rebind_gate.get("incoming_manifest_digest")
+                    != manifest.artifact_digest
+                    or rebind_gate.get("current_manifest")
+                    != current.to_dict(include_digest=True)
+                    or rebind_gate.get("incoming_manifest")
+                    != manifest.to_dict(include_digest=True)
+                ):
+                    raise ResearchOSValidationError(
+                        "isolated_v11_bootstrap_rebind_completion_gate_changed"
+                    )
+                PostgresResearchOSRepository._verify_mainline_completion_records(
+                    cursor,
+                    control_plane_key=control_plane_key,
+                    manifest=manifest,
+                    m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+                )
+                return
             current_tasks = {item.task_key: item for item in current.tasks}
             incoming_tasks = {item.task_key: item for item in manifest.tasks}
             if not set(current_tasks).issubset(incoming_tasks) or any(
@@ -316,6 +365,115 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             manifest=manifest,
             m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
         )
+
+    def import_bootstrap_manifest(
+        self, payload: Mapping[str, Any]
+    ) -> tuple[Any, str]:
+        incoming = ControlPlaneManifest.from_dict(dict(payload))
+        try:
+            current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        except ResearchOSValidationError as exc:
+            if "control plane not found" not in str(exc):
+                raise
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-24h-challenger-v11-operator-install",
+            )
+            return result, incoming.artifact_digest
+        if current.artifact_digest == incoming.artifact_digest:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-24h-challenger-v11-operator-install",
+            )
+            return result, incoming.artifact_digest
+        if self._bootstrap_rebind_gate is not None:
+            raise ResearchOSValidationError(
+                "isolated_v11_bootstrap_rebind_gate_reentrant"
+            )
+        current_contexts = {
+            json.dumps(_task_context(task), sort_keys=True, separators=(",", ":"))
+            for task in current.tasks
+        }
+        incoming_contexts = {
+            json.dumps(_task_context(task), sort_keys=True, separators=(",", ":"))
+            for task in incoming.tasks
+        }
+        if len(current_contexts) != 1 or len(incoming_contexts) != 1:
+            raise ResearchOSValidationError(
+                "isolated_v11_bootstrap_rebind_context_changed"
+            )
+        current_context = json.loads(next(iter(current_contexts)))
+        incoming_context = json.loads(next(iter(incoming_contexts)))
+        if {
+            key: value
+            for key, value in current_context.items()
+            if key != "projection_time"
+        } != {
+            key: value
+            for key, value in incoming_context.items()
+            if key != "projection_time"
+        }:
+            raise ResearchOSValidationError(
+                "isolated_v11_bootstrap_rebind_target_changed"
+            )
+        predecessor = self._expected_definition(
+            operator_authorized=True,
+            context=current_context,
+            source_digest=PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
+        )
+        expected_incoming = self._expected_definition(
+            operator_authorized=True,
+            context=current_context,
+        )
+        live_incoming = self._expected_definition(
+            operator_authorized=True,
+            context=incoming_context,
+        )
+        if (
+            current.to_dict(include_digest=True)
+            != predecessor.to_dict(include_digest=True)
+            or incoming.to_dict(include_digest=True)
+            != live_incoming.to_dict(include_digest=True)
+            or len(current.tasks) != 14
+            or len(expected_incoming.tasks) != 14
+            or any(
+                state.declared_status is not TaskStatus.DRAFT
+                for state in current.task_states
+            )
+            or current.facts.artifacts
+            or current.facts.evidence
+            or current.facts.external_events
+            or current.facts.authorities != predecessor.facts.authorities
+            or self.list_mainline_execution_event_metadata(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                task_keys=tuple(task.task_key for task in current.tasks),
+            )
+        ):
+            raise ResearchOSValidationError(
+                "isolated_v11_bootstrap_rebind_precondition_changed"
+            )
+        self._bootstrap_rebind_gate = {
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": expected_incoming.artifact_digest,
+            "current_manifest": current.to_dict(include_digest=True),
+            "incoming_manifest": expected_incoming.to_dict(include_digest=True),
+            "consumed": False,
+        }
+        try:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=expected_incoming.to_dict(include_digest=True),
+                source="m4-isolated-24h-challenger-v11-exact-bootstrap-rebind",
+            )
+            if self._bootstrap_rebind_gate.get("consumed") is not True:
+                raise ResearchOSValidationError(
+                    "isolated_v11_bootstrap_rebind_gate_not_consumed"
+                )
+            return result, expected_incoming.artifact_digest
+        finally:
+            self._bootstrap_rebind_gate = None
 
     def import_manifest(
         self,
@@ -1567,14 +1725,10 @@ def install(
         payload=database_schema,
         git_commit=str(git_commit or ""),
     )
-    result = repository.import_manifest(
-        control_plane_key=contract.CONTROL_PLANE_KEY,
-        payload=payload,
-        source="m4-isolated-24h-challenger-v11-operator-install",
-    )
+    result, imported_manifest_digest = repository.import_bootstrap_manifest(payload)
     return {
         "status": "IMPORTED",
-        "manifest_digest": payload["manifest_digest"],
+        "manifest_digest": imported_manifest_digest,
         "import_result": str(result),
         "database_schema_attestation": schema_attestation,
         "registered_source_contract_digest": registered_source["artifact_digest"],
