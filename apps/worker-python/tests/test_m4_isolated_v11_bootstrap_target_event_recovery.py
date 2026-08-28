@@ -1195,6 +1195,135 @@ def test_user_scope_post_batch_replay_uses_exact_view_only_after_rebind() -> Non
     assert "_verify_generic_replay(generic)" in source
 
 
+@pytest.mark.parametrize("existing_count", [0, 1])
+def test_user_scope_source_registration_is_exactly_idempotent(
+    monkeypatch,
+    existing_count: int,
+) -> None:
+    source = {"artifact_digest": "a" * 64, "artifact_type": "source"}
+    calls: list[str] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query, _params):
+            return self
+
+        def fetchone(self):
+            return (existing_count,)
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    class Repository:
+        def connection_factory(self):
+            return Connection()
+
+    monkeypatch.setattr(
+        recovery.contract,
+        "SOURCE_ARTIFACT_TYPE",
+        "source",
+    )
+    monkeypatch.setattr(
+        recovery.mainline,
+        "load_registered_input",
+        lambda **_kwargs: calls.append("load") or dict(source),
+    )
+    monkeypatch.setattr(
+        recovery.mainline,
+        "register_input_artifact",
+        lambda **_kwargs: calls.append("register") or dict(source),
+    )
+
+    result = recovery.ensure_user_scope_source_registered(
+        repository=Repository(),
+        source=source,
+        git_commit="b" * 40,
+    )
+
+    assert result == source
+    assert calls == (["register"] if existing_count == 0 else ["load"])
+
+
+def test_user_scope_source_registration_rejects_count_and_payload_drift(
+    monkeypatch,
+) -> None:
+    source = {"artifact_digest": "a" * 64, "artifact_type": "source"}
+
+    class Cursor:
+        count = 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query, _params):
+            return self
+
+        def fetchone(self):
+            return (self.count,)
+
+    cursor = Cursor()
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self):
+            return cursor
+
+    class Repository:
+        def connection_factory(self):
+            return Connection()
+
+    with pytest.raises(
+        recovery.TargetEventRecoveryError,
+        match="count_changed",
+    ):
+        recovery.ensure_user_scope_source_registered(
+            repository=Repository(),
+            source=source,
+            git_commit="b" * 40,
+        )
+
+    cursor.count = 1
+    monkeypatch.setattr(
+        recovery.contract,
+        "SOURCE_ARTIFACT_TYPE",
+        "source",
+    )
+    monkeypatch.setattr(
+        recovery.mainline,
+        "load_registered_input",
+        lambda **_kwargs: {**source, "artifact_type": "drift"},
+    )
+    with pytest.raises(
+        recovery.TargetEventRecoveryError,
+        match="registration_changed",
+    ):
+        recovery.ensure_user_scope_source_registered(
+            repository=Repository(),
+            source=source,
+            git_commit="b" * 40,
+        )
+
+
 def test_user_scope_post_batch_uses_only_committed_recovery_governance() -> None:
     source = inspect.getsource(recovery.run_user_scope_post_batch_rebind)
     assert "validate_user_scope_committed_recovery_governance(" in source

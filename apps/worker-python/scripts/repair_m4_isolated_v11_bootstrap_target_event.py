@@ -2574,6 +2574,47 @@ class UserScopePostBatchRecoveryRepository(IsolatedChallengerRepository):
             self._user_scope_post_batch_gate = None
 
 
+def ensure_user_scope_source_registered(
+    *,
+    repository: PostgresResearchOSRepository,
+    source: Mapping[str, Any],
+    git_commit: str,
+) -> dict[str, Any]:
+    """Register a missing source or attest one exact immutable registration."""
+
+    source_digest = str(source.get("artifact_digest") or "")
+    contract.require_digest(source_digest, field="source_contract_digest")
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        row = cursor.execute(
+            "SELECT count(*) FROM m4_isolated_v11.registered_inputs "
+            "WHERE artifact_digest=%s",
+            (source_digest,),
+        ).fetchone()
+    if row is None or len(row) != 1:
+        raise TargetEventRecoveryError(
+            "user_scope_source_registration_count_unreadable"
+        )
+    count = int(row[0])
+    if count == 0:
+        return mainline.register_input_artifact(
+            repository=repository,
+            payload=source,
+            git_commit=git_commit,
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+        )
+    if count != 1:
+        raise TargetEventRecoveryError("user_scope_source_registration_count_changed")
+    registered = mainline.load_registered_input(
+        repository=repository,
+        artifact_digest=source_digest,
+        expected_artifact_type=contract.SOURCE_ARTIFACT_TYPE,
+    )
+    if registered != dict(source):
+        raise TargetEventRecoveryError("user_scope_source_registration_changed")
+    return registered
+
+
 def run(*, apply: bool) -> dict[str, Any]:
     dirty = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -3368,12 +3409,10 @@ def run_user_scope_post_batch_rebind(*, apply: bool) -> dict[str, Any]:
     registered_source = None
     imported = None
     if apply:
-        registered_source = mainline.register_input_artifact(
+        registered_source = ensure_user_scope_source_registered(
             repository=repository,
-            payload=source,
+            source=source,
             git_commit=git_commit,
-            source_path=contract.SOURCE_CONTRACT_PATH,
-            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
         )
         imported = repository.apply_user_scope_post_batch_rebind(incoming)
     snapshot = repository.control_plane.resolve(incoming)
