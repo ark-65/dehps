@@ -1100,6 +1100,101 @@ def test_user_scope_post_batch_rebind_accepts_only_exact_ecaf_to_b677(
         )
 
 
+def test_user_scope_committed_replay_view_reconstructs_exact_predecessor(
+    monkeypatch,
+) -> None:
+    committed = _user_scope_post_batch_manifest()
+    rebound = recovery.build_user_scope_post_batch_rebind(
+        committed,
+        source_digest=recovery.USER_SCOPE_POST_BATCH_REBOUND_SOURCE_DIGEST,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST",
+        rebound.artifact_digest,
+    )
+    monkeypatch.setattr(
+        recovery,
+        "USER_SCOPE_COMMITTED_MANIFEST_DIGEST",
+        committed.artifact_digest,
+    )
+
+    replay_view = recovery.build_user_scope_committed_replay_view(rebound)
+
+    assert replay_view.to_dict(include_digest=True) == committed.to_dict(
+        include_digest=True
+    )
+    assert replay_view.artifact_digest == committed.artifact_digest
+    assert [item.task_key for item in replay_view.tasks] == [
+        item.task_key for item in rebound.tasks
+    ]
+    drifted = replace(
+        rebound,
+        facts=replace(
+            rebound.facts,
+            external_events=rebound.facts.external_events | {"UNAUTHORIZED"},
+        ),
+    )
+    with pytest.raises(
+        recovery.TargetEventRecoveryError,
+        match="current_manifest_changed",
+    ):
+        recovery.build_user_scope_committed_replay_view(drifted)
+
+
+def test_user_scope_committed_replay_repository_is_read_only(monkeypatch) -> None:
+    committed = _user_scope_post_batch_manifest()
+    monkeypatch.setattr(
+        recovery,
+        "USER_SCOPE_COMMITTED_MANIFEST_DIGEST",
+        committed.artifact_digest,
+    )
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class Durable:
+        def list_mainline_execution_events(self, **kwargs):
+            calls.append(("events", kwargs))
+            return ("event",)
+
+        def list_mainline_artifacts(self, **kwargs):
+            calls.append(("artifacts", kwargs))
+            return ("artifact",)
+
+    repository = recovery.UserScopeCommittedReplayViewRepository(
+        durable_repository=Durable(),
+        manifest=committed,
+    )
+    assert (
+        repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        is committed
+    )
+    assert repository.list_mainline_execution_events(task_key="batch") == ("event",)
+    assert repository.list_mainline_artifacts(execution_id="execution") == ("artifact",)
+    assert calls == [
+        ("events", {"task_key": "batch"}),
+        ("artifacts", {"execution_id": "execution"}),
+    ]
+    for mutation in (
+        repository.import_manifest,
+        repository.register_mainline_artifact,
+        repository.append_mainline_execution_event,
+    ):
+        with pytest.raises(
+            recovery.TargetEventRecoveryError,
+            match="read_only",
+        ):
+            mutation(payload={})
+
+
+def test_user_scope_post_batch_replay_uses_exact_view_only_after_rebind() -> None:
+    source = inspect.getsource(recovery.run_user_scope_post_batch_rebind)
+    assert "USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST" in source
+    assert "UserScopeCommittedReplayViewRepository(" in source
+    assert "build_user_scope_committed_replay_view(current)" in source
+    assert "replay_supervisor.replay(" in source
+    assert "_verify_generic_replay(generic)" in source
+
+
 def test_user_scope_post_batch_uses_only_committed_recovery_governance() -> None:
     source = inspect.getsource(recovery.run_user_scope_post_batch_rebind)
     assert "validate_user_scope_committed_recovery_governance(" in source

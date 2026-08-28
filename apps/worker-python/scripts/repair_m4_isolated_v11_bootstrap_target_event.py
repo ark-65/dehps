@@ -49,6 +49,7 @@ from run_m4_isolated_24h_challenger_v11 import (
     LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
     USER_SCOPE_COMMITTED_EVENT_DIGEST,
     USER_SCOPE_COMMITTED_EXECUTION_ARTIFACT_DIGEST,
+    USER_SCOPE_COMMITTED_MANIFEST_DIGEST,
     USER_SCOPE_COMMITTED_PUBLICATION_BATCH_DIGEST,
     USER_SCOPE_GUARD_FAILED_EVENT_DIGEST,
     USER_SCOPE_RESUME_EXECUTION_ID,
@@ -1237,6 +1238,77 @@ def build_user_scope_post_batch_rebind(
     return incoming
 
 
+def build_user_scope_committed_replay_view(
+    current: ControlPlaneManifest,
+) -> ControlPlaneManifest:
+    """Reconstruct the exact immutable manifest that committed sequence 3."""
+
+    if current.artifact_digest != USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST:
+        raise TargetEventRecoveryError(
+            "user_scope_committed_replay_view_current_manifest_changed"
+        )
+    # Validate the whole durable post-batch shape through the already-frozen
+    # second-order transition before deriving the read-only predecessor view.
+    build_user_scope_post_batch_rebind(
+        current,
+        source_digest=USER_SCOPE_POST_BATCH_REPAIRED_SOURCE_DIGEST,
+    )
+    tasks = []
+    states = []
+    rebuilt_count = 0
+    for task in current.tasks:
+        state = current.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.COMPLETED:
+            tasks.append(task)
+            states.append(state)
+            continue
+        context = _task_context(task)
+        expected_payload, _ = builder.build_manifest(
+            context=context,
+            source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST,
+            operator_configuration_authorized=True,
+            simulation_events=False,
+        )
+        expected = ControlPlaneManifest.from_dict(expected_payload)
+        matches = [item for item in expected.tasks if item.task_key == task.task_key]
+        if len(matches) != 1:
+            raise TargetEventRecoveryError(
+                "user_scope_committed_replay_view_definition_missing"
+            )
+        predecessor = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        tasks.append(predecessor)
+        states.append(
+            TaskState(
+                task_digest=predecessor.artifact_digest,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+                superseded_by_task_digest=None,
+            )
+        )
+        rebuilt_count += 1
+    replay_view = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=tuple(tasks),
+        goal_states=current.goal_states,
+        task_states=tuple(states),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    if (
+        rebuilt_count != 4
+        or replay_view.artifact_digest != USER_SCOPE_COMMITTED_MANIFEST_DIGEST
+        or replay_view.goals != current.goals
+        or replay_view.goal_states != current.goal_states
+        or replay_view.facts != current.facts
+        or [item.task_key for item in replay_view.tasks]
+        != [item.task_key for item in current.tasks]
+    ):
+        raise TargetEventRecoveryError(
+            "user_scope_committed_replay_view_identity_changed"
+        )
+    return replay_view
+
+
 def validate_failed_target_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
@@ -2378,6 +2450,45 @@ class BatchTimestampRecoveryRepository(IsolatedChallengerRepository):
             self._batch_timestamp_gate = None
 
 
+class UserScopeCommittedReplayViewRepository:
+    """Read-only exact-manifest view over durable replay evidence."""
+
+    def __init__(
+        self,
+        *,
+        durable_repository: IsolatedChallengerRepository,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        if manifest.artifact_digest != USER_SCOPE_COMMITTED_MANIFEST_DIGEST:
+            raise TargetEventRecoveryError(
+                "user_scope_committed_replay_view_identity_changed"
+            )
+        self._durable_repository = durable_repository
+        self._manifest = manifest
+
+    def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
+        if control_plane_key != contract.CONTROL_PLANE_KEY:
+            raise TargetEventRecoveryError(
+                "user_scope_committed_replay_view_control_plane_changed"
+            )
+        return self._manifest
+
+    def list_mainline_execution_events(self, **kwargs: Any) -> Any:
+        return self._durable_repository.list_mainline_execution_events(**kwargs)
+
+    def list_mainline_artifacts(self, **kwargs: Any) -> Any:
+        return self._durable_repository.list_mainline_artifacts(**kwargs)
+
+    def import_manifest(self, **_kwargs: Any) -> None:
+        raise TargetEventRecoveryError("user_scope_committed_replay_view_read_only")
+
+    def register_mainline_artifact(self, **_kwargs: Any) -> None:
+        raise TargetEventRecoveryError("user_scope_committed_replay_view_read_only")
+
+    def append_mainline_execution_event(self, **_kwargs: Any) -> None:
+        raise TargetEventRecoveryError("user_scope_committed_replay_view_read_only")
+
+
 class UserScopePostBatchRecoveryRepository(IsolatedChallengerRepository):
     def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
         super().__init__(context=context, source_digest=source_digest)
@@ -3199,9 +3310,15 @@ def run_user_scope_post_batch_rebind(*, apply: bool) -> dict[str, Any]:
         raise TargetEventRecoveryError(
             "user_scope_post_batch_execution_artifact_changed"
         )
-    replay_repository = IsolatedChallengerRepository(
-        context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
-    )
+    if current.artifact_digest == USER_SCOPE_POST_BATCH_REBOUND_MANIFEST_DIGEST:
+        replay_repository: Any = UserScopeCommittedReplayViewRepository(
+            durable_repository=repository,
+            manifest=build_user_scope_committed_replay_view(current),
+        )
+    else:
+        replay_repository = IsolatedChallengerRepository(
+            context=context, source_digest=USER_SCOPE_RESUME_ORIGIN_SOURCE_DIGEST
+        )
     replay_supervisor = mainline.IsolatedChallengerSupervisor(
         repository=replay_repository,
         context=context,
