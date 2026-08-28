@@ -42,6 +42,8 @@ def _context():
 def test_manifest_dry_run_has_exact_tasks_and_preregistration_ready() -> None:
     builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
     context = _context()
+    assert len(contract.TASK_TEMPLATES) == 43
+    assert len(contract.ARTIFACT_TYPES) == 45
     payload, dry_run = builder.build_manifest(
         context=context,
         source_digest="a" * 64,
@@ -57,12 +59,67 @@ def test_manifest_dry_run_has_exact_tasks_and_preregistration_ready() -> None:
         .ResearchOSControlPlane()
         .resolve(snapshot)
     )
-    assert len(manifest.tasks) == 42
-    assert dry_run["task_count"] == 42
+    assert len(manifest.tasks) == 43
+    assert dry_run["task_count"] == 43
     assert dry_run["import_performed"] is False
     assert [item.task_key for item in resolved.ready_queue] == [
         "m4-isolated-24h-challenger-v11-preregistration"
     ]
+
+
+def test_incident_resolution_manifest_requires_sent_incident_and_daily_mail() -> None:
+    builder = _load_script("build_m4_isolated_24h_challenger_v11_manifest")
+    context = _context()
+    assert "incident_resolution" not in builder.INCIDENT_TEMPLATE_NAMES
+    payload, _ = builder.build_manifest(
+        context=context,
+        source_digest="a" * 64,
+        operator_configuration_authorized=False,
+        simulation_events=False,
+    )
+    manifest = ControlPlaneManifest.from_dict(payload)
+    resolution = next(
+        task
+        for task in manifest.tasks
+        if json.loads(task.metric_contract)["task_template"] == "incident_resolution"
+    )
+    incident_key = contract.task_template_by_name("incident_open").key(context)
+    incident_delivery_key = contract.task_template_by_name("incident_delivery").key(
+        context
+    )
+    daily_replay_key = contract.task_template_by_name("daily_summary_replay").key(
+        context
+    )
+    daily_delivery_key = contract.task_template_by_name("daily_delivery").key(context)
+    assert resolution.requested_capability == (
+        "M4IsolatedIncidentResolutionCapabilityV11"
+    )
+    assert [
+        (item.dependency_type.value, item.target_key)
+        for item in resolution.dependencies
+    ] == [
+        ("artifact", f"{incident_key}:OPEN"),
+        ("artifact", f"{incident_delivery_key}:SENT"),
+        ("artifact", f"{daily_replay_key}:REGISTERED_REPLAY_VERIFIED"),
+        ("artifact", f"{daily_delivery_key}:SENT"),
+    ]
+
+
+def test_daily_recovery_command_is_an_explicit_operator_surface() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    args = runner.parse_args(["recover-daily-mail", "--apply"])
+    assert args.command == "recover-daily-mail"
+    assert args.apply is True
+    assert runner.DAILY_RECOVERY_OPERATIONS == (
+        "disable-isolated-timer-and-wait-quiescent",
+        "register-new-source-and-runtime-migration-input",
+        "recover-daily-summary-sequence2-and-generic-replay",
+        "rebind-all-unexecuted-old-source-tasks",
+        "complete-daily-mail-chain-with-one-data250",
+        "resolve-current-incident-and-advance-ledger",
+        "prove-duplicate-cycle-zero-smtp",
+        "reenable-isolated-timer-and-verify-status",
+    )
 
 
 def test_install_without_apply_is_non_mutating() -> None:
@@ -516,6 +573,132 @@ def test_repository_bootstrap_rebind_gate_is_nonreentrant() -> None:
         repository.import_bootstrap_manifest(incoming_payload)
 
 
+def test_daily_recovery_rebind_preserves_completed_and_rejects_event_bearing(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        epoch_date="20260828",
+        minute="202608280900",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    payload, _ = runner.builder.build_manifest(
+        context=context,
+        source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        operator_configuration_authorized=True,
+        simulation_events=False,
+    )
+    base = ControlPlaneManifest.from_dict(payload)
+    daily = next(
+        item for item in base.tasks if item.task_key == contract.DAILY_RECOVERY_TASK_KEY
+    )
+    states = list(base.task_states)
+    index = next(
+        index
+        for index, state in enumerate(states)
+        if state.task_digest == daily.artifact_digest
+    )
+    states[index] = replace(
+        states[index],
+        declared_status=TaskStatus.COMPLETED,
+        completion_classification=CompletionClassification.COMPLETE,
+    )
+    current = replace(base, task_states=tuple(states))
+    monkeypatch.setattr(
+        runner.contract, "DAILY_RECOVERY_TASK_DIGEST", daily.artifact_digest
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params):
+            assert "research_os_mainline_artifacts" in statement
+            return self
+
+        @staticmethod
+        def fetchone():
+            return (0,)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        source_digest = "f" * 64
+
+        def __init__(self, *, events=()):
+            self._evolving_source_rebind_gate = None
+            self.events = tuple(events)
+            self.imported = None
+
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return current
+
+        def list_mainline_execution_event_metadata(self, **_kwargs):
+            return self.events
+
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+        def import_manifest(self, *, control_plane_key, payload, source):
+            assert control_plane_key == contract.CONTROL_PLANE_KEY
+            assert source == "m4-isolated-v11-exact-unexecuted-old-source-rebind"
+            incoming = ControlPlaneManifest.from_dict(payload)
+            assert (
+                incoming.artifact_digest
+                == self._evolving_source_rebind_gate["incoming_manifest_digest"]
+            )
+            self._evolving_source_rebind_gate["consumed"] = True
+            self.imported = incoming
+
+    repository = _Repository()
+    result = (
+        runner.IsolatedChallengerRepository.rebind_unexecuted_daily_recovery_source(
+            repository
+        )
+    )
+    assert result["task_count"] == len(base.tasks) - 1
+    assert repository._evolving_source_rebind_gate is None
+    rebound_daily = next(
+        item
+        for item in repository.imported.tasks
+        if item.task_key == contract.DAILY_RECOVERY_TASK_KEY
+    )
+    assert rebound_daily.artifact_digest == daily.artifact_digest
+    for task in repository.imported.tasks:
+        source = json.loads(task.metric_contract)["source_contract_digest"]
+        assert source == (
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            if task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+            else "f" * 64
+        )
+
+    with pytest.raises(
+        runner.ResearchOSValidationError,
+        match="rebind_candidate_has_execution_event",
+    ):
+        runner.IsolatedChallengerRepository.rebind_unexecuted_daily_recovery_source(
+            _Repository(events=({"event_type": "started"},))
+        )
+
+
 def test_roll_forward_before_preregistration_never_loads_completed_health(
     monkeypatch,
 ) -> None:
@@ -824,6 +1007,43 @@ def test_activation_compiles_delivery_only_from_registered_receipt(monkeypatch) 
         context=context,
         repository=repository,
     ) == (contract.FREEZE_FACT,)
+
+
+def test_incident_resolution_activation_advances_terminal_ledger(monkeypatch) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    template = contract.task_template_by_name("incident_resolution")
+    task_key = template.key(context)
+    incident_id = context["incident_id"]
+    monkeypatch.setattr(
+        runner.mainline,
+        "load_completed_task_artifacts",
+        lambda **_kwargs: (
+            {
+                "artifact_type": "M4IsolatedIncidentResolutionV11",
+                "artifact_digest": "1" * 64,
+                "body": {"status": "RESOLVED", "incident_id": incident_id},
+            },
+            {
+                "artifact_type": "M4IsolatedIncidentLedgerHeadV11",
+                "artifact_digest": "2" * 64,
+                "body": {
+                    "transition_seq": 7,
+                    "transition_kind": "RESOLVED",
+                    "incident_id": incident_id,
+                },
+            },
+        ),
+    )
+    assert runner._activation_facts(
+        task_key=task_key,
+        template=template,
+        context=context,
+        repository=object(),
+    ) == (
+        f"{task_key}:RESOLVED",
+        "m4-isolated-24h-challenger-v11-incident-ledger-head-7:ADVANCED",
+    )
 
 
 def test_daily_and_predraw_absence_windows_are_fail_closed() -> None:

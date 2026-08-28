@@ -18,6 +18,17 @@ LIFECYCLE_ADDENDUM_APPROVAL_DECISION_ID = 2949
 LIFECYCLE_ADDENDUM_PAYLOAD_SHA256 = (
     "8f6d92347f53e43a1ec7eb869e015d6d78cc1e37feb5661657312bf9e90ebe49"
 )
+DAILY_RECOVERY_RESEARCH_REQUEST_ID = 782
+DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID = 3334
+DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256 = (
+    "6acf9d4a522343f993be5f3be752c488777793a440241d70f0e4be8a710a3f99"
+)
+DAILY_RECOVERY_ENGINEERING_REQUEST_ID = 783
+DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID = 3337
+DAILY_RECOVERY_ENGINEERING_EXECUTION_ID = 633
+DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256 = (
+    "3dd8a26750c778e436546b01f91f7d81dfc34c8f20cfba6e1be585e7c11cc759"
+)
 CONTRACT_SCHEMA = "dehps-m4-isolated-24h-challenger-contract.v11"
 CONTROL_PLANE_KEY = "m4-isolated-24h-challenger-mainline-v11"
 FREEZE_FACT = "m4-isolated-24h-challenger-contract-v11:FROZEN"
@@ -34,6 +45,38 @@ SOURCE_ARTIFACT_TYPE = "m4_isolated_24h_challenger_source_contract_v11"
 DATABASE_SCHEMA_VERSION = "dehps-m4-isolated-24h-challenger-db.v11"
 SOURCE_DOMAIN = "dehps.m4.isolated-24h-challenger.source-contract.v11"
 SOURCE_SET_DOMAIN = "dehps.m4.isolated-24h-challenger.source-set.v11"
+REGISTERED_INPUT_SCHEMA = "dehps-m4-isolated-registered-input.v11"
+REGISTERED_INPUT_DOMAIN = "dehps.m4.isolated-24h-challenger.registered-input.v11"
+RUNTIME_MIGRATION_INPUT_TYPE = "M4IsolatedRuntimeMigrationAttestationInputV11"
+DAILY_RECOVERY_TASK_KEY = "m4-isolated-24h-challenger-v11-daily-20260828-summary"
+DAILY_RECOVERY_TASK_DIGEST = (
+    "514c1c9d1401dd6275825d8032ab09ce34f8f4bc37be1c32d01e888682015f8d"
+)
+DAILY_RECOVERY_EXECUTION_ID = (
+    "e38651bc6908bd4af08f7202f718da1fc3e81c16ddf22078bc46b991d7f879d7"
+)
+DAILY_RECOVERY_FAILED_MANIFEST_DIGEST = (
+    "a4d0082026a6140e6391efd13845b9f6d7f73602fca5086497eeef0fbe46e454"
+)
+DAILY_RECOVERY_ORIGINAL_GIT_COMMIT = "10a2069bdd2d351b76fdf4ade697fe6a60fd6f2d"
+DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST = (
+    "b677db9527c7819ffa15c9a04e829c566e6ace21c46636a7cae8a4f3de44dcb1"
+)
+DAILY_RECOVERY_STARTED_EVENT_DIGEST = (
+    "5cb3389fbc23cb32638fb854599f333e5d63595e9b525dbbefb961cc1bb125cf"
+)
+DAILY_RECOVERY_FAILED_EVENT_DIGEST = (
+    "6c68f0ed665795cf08d4ae9bc420db471ae0b2ebb5586393b89a0ad1257259f6"
+)
+DAILY_RECOVERY_INCIDENT_ID = (
+    "d41d231661c9f5454d45f71b9ed8d1ffe786baa7e5642e66e16f30df03ef38c9"
+)
+DAILY_RECOVERY_INCIDENT_ARTIFACT_DIGEST = (
+    "5cdcee57b3711a74292242b8ec28335c249cb92e2dc9e5c3876efda05e001425"
+)
+DAILY_RECOVERY_INCIDENT_RECEIPT_DIGEST = (
+    "5fd3942313c2581320b58b4c1716410d1809ad9ca3d8a142ee78eecbd3fca513"
+)
 ARTIFACT_DOMAIN = "dehps.m4.isolated-24h-challenger.artifact.v11"
 ARTIFACT_SCHEMA = "dehps-m4-isolated-24h-challenger-artifact.v11"
 FORMAL_P3_LINEAGE = "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_V1"
@@ -164,9 +207,7 @@ def next_ssq_draw_date(after: date) -> date:
     return current
 
 
-def next_official_issue(
-    source_max_issue: str, *, candidate_draw_date: date
-) -> str:
+def next_official_issue(source_max_issue: str, *, candidate_draw_date: date) -> str:
     source_max_issue = require_issue(source_max_issue)
     year = int(source_max_issue[:4])
     ordinal = int(source_max_issue[4:])
@@ -268,9 +309,7 @@ def render_context(
         try:
             parsed_projection_time = datetime.fromisoformat(projection_time)
         except ValueError as exc:
-            raise IsolatedChallengerContractError(
-                "projection_time_invalid"
-            ) from exc
+            raise IsolatedChallengerContractError("projection_time_invalid") from exc
         if parsed_projection_time.tzinfo is None:
             raise IsolatedChallengerContractError("projection_time_not_aware")
         parsed_projection_time = parsed_projection_time.astimezone(TIMEZONE)
@@ -298,9 +337,10 @@ def render_context(
     draw_day = parsed_target_draw_date
     epoch_date = epoch_date or draw_day.strftime("%Y%m%d")
     minute = minute or draw_day.strftime("%Y%m%d") + "0000"
-    incident_offending_digest = incident_offending_digest or hashlib.sha256(
-        f"SIMULATION-OFFENDING\0{target_issue}".encode()
-    ).hexdigest()
+    incident_offending_digest = (
+        incident_offending_digest
+        or hashlib.sha256(f"SIMULATION-OFFENDING\0{target_issue}".encode()).hexdigest()
+    )
     incident_offending_digest = require_digest(
         incident_offending_digest, field="incident_offending_digest"
     )
@@ -313,9 +353,10 @@ def render_context(
         raise IsolatedChallengerContractError("epoch_date_invalid")
     if re.fullmatch(r"[0-9]{12}", minute) is None:
         raise IsolatedChallengerContractError("minute_invalid")
-    if cut_checkpoint_ref != "GENESIS" and re.fullmatch(
-        r"[0-9]{12}", cut_checkpoint_ref
-    ) is None:
+    if (
+        cut_checkpoint_ref != "GENESIS"
+        and re.fullmatch(r"[0-9]{12}", cut_checkpoint_ref) is None
+    ):
         raise IsolatedChallengerContractError("cut_checkpoint_ref_invalid")
     require_digest(incident_id, field="incident_id")
     if incident_id != expected_incident_id:
@@ -539,7 +580,7 @@ TASK_TEMPLATES = (
         "incident",
         "m4-isolated-24h-challenger-v11-incident-{incident_id}-open",
         "M4IsolatedIncidentOpenCapabilityV11",
-        ("M4IsolatedIncidentV11", "M4IsolatedIncidentHeadV11"),
+        ("M4IsolatedIncidentV11", "M4IsolatedIncidentLedgerHeadV11"),
         SELF,
         "INCIDENT_OPEN",
     ),
@@ -569,6 +610,18 @@ TASK_TEMPLATES = (
         ("M4IsolatedMailEnvelopeV11",),
         PAIRED,
         "INCIDENT_REPLAY_WAIT",
+    ),
+    TaskTemplate(
+        "incident_resolution",
+        "incident",
+        "m4-isolated-24h-challenger-v11-incident-{incident_id}-resolution-v1",
+        "M4IsolatedIncidentResolutionCapabilityV11",
+        (
+            "M4IsolatedIncidentResolutionV11",
+            "M4IsolatedIncidentLedgerHeadV11",
+        ),
+        SELF,
+        "INCIDENT_RESOLVED",
     ),
     TaskTemplate(
         "prediction",
@@ -762,6 +815,7 @@ ARTIFACT_TYPES = frozenset(
 ) | frozenset(
     {
         "M4IsolatedIncidentV11",
+        "M4IsolatedIncidentHeadV11",
         "M4IsolatedMailConfigurationV11",
         "M4IsolatedMailEnvelopeV11",
         "M4IsolatedMailReplayV11",
@@ -779,7 +833,7 @@ def task_template_by_name(name: str) -> TaskTemplate:
 
 def rendered_task_keys(context: Mapping[str, str]) -> tuple[str, ...]:
     keys = tuple(item.key(context) for item in TASK_TEMPLATES)
-    if len(keys) != 42 or len(set(keys)) != 42:
+    if len(keys) != 43 or len(set(keys)) != 43:
         raise IsolatedChallengerContractError("rendered_task_key_set_changed")
     return keys
 
@@ -810,9 +864,9 @@ def formal_p3_activity_state(observation: Mapping[str, object]) -> str:
 
 
 def assert_frozen_contract_surface() -> None:
-    if len(TASK_TEMPLATES) != 42:
+    if len(TASK_TEMPLATES) != 43:
         raise IsolatedChallengerContractError("task_template_count_changed")
-    if len(ARTIFACT_TYPES) != 43:
+    if len(ARTIFACT_TYPES) != 45:
         raise IsolatedChallengerContractError("artifact_type_count_changed")
     if WORKER_COUNT != 18 or ATTEMPTS_PER_BATCH != 18:
         raise IsolatedChallengerContractError("parallelism_contract_changed")
