@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "c5a55514061e71936328beea41954a094ff2f04606574c7251490e6f3c6243f4",
+  "artifact_digest": "f04aaf3c0e73725a9c54e32024fda62c296fa24fd02bf93372994c5c7ef0c830",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -12,6 +12,11 @@
     "daily_mail_recovery_engineering_approval_decision_id": 3337,
     "daily_mail_recovery_engineering_execution_id": 633,
     "daily_mail_recovery_engineering_request_payload_sha256": "3dd8a26750c778e436546b01f91f7d81dfc34c8f20cfba6e1be585e7c11cc759",
+    "runtime_migration_input_schema_base_merged_commit": "64d55148d07bb181fd928ad325f9cd090de9dc1b",
+    "runtime_migration_input_schema_engineering_request_id": 786,
+    "runtime_migration_input_schema_engineering_approval_decision_id": 3350,
+    "runtime_migration_input_schema_engineering_execution_id": 635,
+    "runtime_migration_input_schema_engineering_request_payload_sha256": "dab557016ce70d21958dded09497fcac9681c0013b7a9967864f4ad09eb9e2c5",
     "audited_target_projection_research_approval_decision_id": 2978,
     "audited_target_projection_research_request_id": 708,
     "audited_target_projection_research_request_key": "research-m4-isolated-v11-audited-history-target-projection-clarification-v1",
@@ -244,6 +249,11 @@
       "sha256": "86d5aab656866b369a908db2a7342255438371c01144c16483ecc28317439280"
     },
     {
+      "bytes": 2534,
+      "path": "infra/postgres/migrations/004_m4_isolated_v11_runtime_migration_attestation_input.sql",
+      "sha256": "ec2bd5c6baa1b1afc8247eb08eb545f1bde6ce022960bf27eec7ebf8a745fa71"
+    },
+    {
       "bytes": 1288,
       "path": "infra/systemd/dehps-m4-isolated-24h-challenger-v11.service",
       "sha256": "9864343c0821a1872cbac42a586cd434daeb5c2adba9718d0eb921f47aa8f3a2"
@@ -299,5 +309,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "6c24835a89fe4051ab77fddcf2afa7899bc2d1c2e119ddaec27c43fffecdfc3d"
+  "source_set_digest": "95c97eeff2693cb4d9c2f906e1f1c6160b36043a101831476fb0491aca2198cc"
 }
