@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import itertools
 from datetime import datetime
@@ -14,10 +15,10 @@ from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2 import (
     forward_prequential_confirmatory as p3,
 )
-from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.models import ControlPlaneManifest, Task
 from pydantic import SecretStr
 
-ISSUE = "2026098"
+ISSUE = "2026100"
 RECIPIENT = "reader@example.com"
 RECIPIENT_DIGEST = notification._recipient_digest(RECIPIENT)
 SOURCE_DIGEST = "f" * 64
@@ -265,7 +266,7 @@ def test_payout_rejects_fixed_tier_or_draw_drift() -> None:
         notification.normalize_payout_record(record=wrong_fixed, bundle=bundle)
 
     wrong_issue = _raw_payout()
-    wrong_issue["issue"] = "2026099"
+    wrong_issue["issue"] = "2026101"
     with pytest.raises(notification.P3Top100NotificationError, match="draw_identity"):
         notification.normalize_payout_record(record=wrong_issue, bundle=bundle)
 
@@ -321,22 +322,262 @@ def test_builder_projects_goal_ready_queue_then_replay_dependency_wait() -> None
     assert [item.task_key for item in snapshot.ready_queue] == [keys["pre"]]
 
 
-def test_notification_runtime_uses_only_additive_v2_control_identities() -> None:
-    assert notification.CONTROL_PLANE_KEY == "m4-p3-top100-notification-v2"
-    assert notification.GOAL_KEY == "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V2"
+def test_notification_runtime_uses_only_additive_v3_control_identities() -> None:
+    assert notification.CONTROL_PLANE_KEY == "m4-p3-top100-notification-v3"
+    assert notification.GOAL_KEY == "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V3"
     assert notification.SOURCE_CONTRACT_PATH.endswith(
-        "m4-p3-top100-notification-source-v2.json"
+        "m4-p3-top100-notification-source-v3.json"
     )
+    assert notification.MINIMUM_ISSUE == "2026100"
     assert set(notification.CAPABILITIES) == {
-        "p3_top100_pre_mail_envelope_v2",
-        "p3_top100_pre_mail_replay_v2",
-        "p3_top100_post_return_report_v2",
-        "p3_top100_post_return_replay_v2",
+        "p3_top100_pre_mail_envelope_v3",
+        "p3_top100_pre_mail_replay_v3",
+        "p3_top100_post_return_report_v3",
+        "p3_top100_post_return_replay_v3",
     }
     assert all(
-        "notification-v2-" in key
+        "notification-v3-" in key
         for key in notification.issue_task_keys(ISSUE).values()
     )
+
+
+def test_v3_source_contract_is_exact_and_p3_science_is_unmodified() -> None:
+    source = notification.load_source_contract(root_dir=ROOT_DIR)
+    assert source["artifact_digest"] == (
+        "9831490a024664a5023c88d660d8d7c4be2e06be5db3456834ff65abf86d2b82"
+    )
+    assert source["source_set_digest"] == (
+        "cde3c689057e7c5110f8e9fa3f5dbb75c00229cc24d2d9d69c8a9100531db7d0"
+    )
+    assert source["governance_bindings"] == {
+        "research_request_id": 675,
+        "research_approval_decision_id": 2852,
+        "research_payload_sha256": (
+            "31776e8dcf25177dd66505a2a9a4b1c7c092c37d50e3f8623644eb650b54f0c3"
+        ),
+        "engineering_request_id": 800,
+        "engineering_approval_decision_id": 3404,
+        "engineering_execution_id": 642,
+        "engineering_payload_sha256": (
+            "7989380318cda6afb9b44950ae79a295a15e790a99b6731e43cd38ca6071660a"
+        ),
+        "p3_lineage_id": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_V1",
+        "p3_scientific_lineage_modified": False,
+        "production_authorized": False,
+    }
+
+
+def test_v1_and_v2_source_contracts_remain_immutable_history() -> None:
+    expected = {
+        "configs/research-os/m4-p3-top100-notification-source-v1.json": (
+            "c58be56d50f2041d17ccdf00480538b8749a6a28840f11224aa5d7834bd1e509"
+        ),
+        "configs/research-os/m4-p3-top100-notification-source-v2.json": (
+            "f3633801ed8686ceb7dbe1d8ffca616b92cde296122bdfff03d733601d20ec9b"
+        ),
+    }
+    for relative, digest in expected.items():
+        path = ROOT_DIR / relative
+        assert path.is_file() and not path.is_symlink()
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+
+
+def test_runner_installs_only_v3_from_issue_2026100_without_delivery(
+    monkeypatch,
+) -> None:
+    runner = _runner()
+    imported: dict = {}
+
+    class _MissingManifest(Exception):
+        pass
+
+    class _Repository:
+        def ensure_schema(self):
+            return None
+
+        def load_manifest(self, *, control_plane_key):
+            assert control_plane_key == notification.CONTROL_PLANE_KEY
+            raise _MissingManifest
+
+        def import_manifest(self, *, control_plane_key, payload, source):
+            assert control_plane_key == "m4-p3-top100-notification-v3"
+            assert payload["goals"][0]["goal_key"] == notification.GOAL_KEY
+            assert payload["tasks"] == []
+            assert "v3-install" in source
+            imported.update(
+                {"control_plane_key": control_plane_key, "payload": payload}
+            )
+            return "IMPORTED"
+
+    monkeypatch.setattr(runner, "ResearchOSValidationError", _MissingManifest)
+    monkeypatch.setattr(runner, "AgentRequestRepository", lambda: object())
+    monkeypatch.setattr(runner.notification, "verify_governance", lambda _repo: None)
+    output = runner.install(
+        apply=True,
+        repository=_Repository(),
+        config=_mail_config(),
+    )
+
+    assert output["status"] == "INSTALLED"
+    assert output["minimum_issue"] == "2026100"
+    assert output["dispatch_performed"] is False
+    assert output["external_delivery"] is False
+    assert imported["control_plane_key"] == notification.CONTROL_PLANE_KEY
+    assert "notification-v1" not in repr(imported)
+    assert "notification-v2" not in repr(imported)
+
+
+def test_v3_builder_rejects_noncanonical_or_historical_activation_issue() -> None:
+    build = _builder()
+    for minimum_issue in ("2026099", "2026101"):
+        with pytest.raises(
+            (notification.P3Top100NotificationError, build.P3Top100ManifestError)
+        ):
+            build.build_initial_manifest(
+                minimum_issue=minimum_issue,
+                recipient_digest=RECIPIENT_DIGEST,
+                source_digest=SOURCE_DIGEST,
+            )
+
+
+def test_v3_additive_builder_and_runner_reject_tampered_live_minimum() -> None:
+    build = _builder()
+    runner = _runner()
+    initial = ControlPlaneManifest.from_dict(
+        build.build_initial_manifest(
+            minimum_issue=notification.MINIMUM_ISSUE,
+            recipient_digest=RECIPIENT_DIGEST,
+            source_digest=SOURCE_DIGEST,
+        )
+    ).to_dict(include_digest=False)
+    target = dict(initial["goals"][0]["target_metric_manifest"])
+    target["minimum_issue"] = "2026099"
+    initial["goals"][0]["target_metric_manifest"] = target
+
+    with pytest.raises(build.P3Top100ManifestError, match="goal_binding_changed"):
+        build._assert_goal_identity(
+            initial,
+            recipient_digest=RECIPIENT_DIGEST,
+            source_digest=SOURCE_DIGEST,
+        )
+
+    class _Repository:
+        def load_manifest(self, *, control_plane_key):
+            assert control_plane_key == notification.CONTROL_PLANE_KEY
+            return ControlPlaneManifest.from_dict(initial)
+
+    with pytest.raises(runner.P3Top100RunnerError, match="goal target changed"):
+        runner._goal_target(_Repository())
+
+
+def test_v3_capability_and_registered_delivery_reject_historical_issue(
+    monkeypatch,
+) -> None:
+    build = _builder()
+    bundle = _predraw_bundle()
+    envelope = notification.build_pre_envelope(
+        bundle=bundle, recipient_digest=RECIPIENT_DIGEST
+    )
+    initial = build.build_initial_manifest(
+        minimum_issue=notification.MINIMUM_ISSUE,
+        recipient_digest=RECIPIENT_DIGEST,
+        source_digest=SOURCE_DIGEST,
+    )
+    payload, _ = build.add_pre_tasks(
+        initial,
+        issue=ISSUE,
+        recipient_digest=RECIPIENT_DIGEST,
+        source_digest=SOURCE_DIGEST,
+        predraw_input_digests=bundle.input_digests,
+        envelope_digest=envelope["artifact_digest"],
+    )
+    task = next(
+        item
+        for item in ControlPlaneManifest.from_dict(payload).tasks
+        if item.task_key == notification.issue_task_keys(ISSUE)["pre"]
+    )
+    historical_payload = task.to_dict()
+    historical_payload["task_key"] = "m4-p3-top100-notification-v3-2026099-pre-envelope"
+    historical_payload["metric_contract"]["issue"] = "2026099"
+    historical = Task.from_dict(
+        historical_payload, goal_digest=historical_payload["goal_digest"]
+    )
+    monkeypatch.setattr(
+        notification,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": SOURCE_DIGEST},
+    )
+    monkeypatch.setattr(notification, "verify_governance", lambda _repo: None)
+
+    with pytest.raises(
+        notification.P3Top100NotificationError,
+        match="precedes_v3_activation",
+    ):
+        notification.P3Top100NotificationCapability(repository=object()).execute(
+            control_plane_key=notification.CONTROL_PLANE_KEY,
+            task=historical,
+            execution_id="e" * 64,
+            git_commit="a" * 40,
+        )
+    with pytest.raises(
+        notification.P3Top100NotificationError,
+        match="precedes_v3_activation",
+    ):
+        notification.registered_delivery_email(
+            object(),
+            issue="2026099",
+            kind="post",
+            recipient=RECIPIENT,
+        )
+
+
+def test_v3_runner_never_dispatches_live_shaped_v1_or_v2_tasks(monkeypatch) -> None:
+    runner = _runner()
+    calls: list[str] = []
+
+    class _Supervisor:
+        def __init__(self, *, repository):
+            assert repository is not None
+
+        def run_once(self, *, task_key):
+            calls.append(task_key)
+            raise AssertionError("legacy task must not dispatch")
+
+        def replay(self, *, task_key):
+            calls.append(task_key)
+            raise AssertionError("legacy task must not replay")
+
+    class _Repository:
+        control_plane = None
+
+        def __init__(self):
+            self.control_plane = self
+
+        def load_manifest(self, *, control_plane_key):
+            assert control_plane_key == notification.CONTROL_PLANE_KEY
+            return object()
+
+        def resolve(self, manifest):
+            assert manifest is not None
+            return SimpleNamespace(
+                resolutions=[
+                    SimpleNamespace(
+                        task_key=f"m4-p3-top100-notification-v{version}-2026099-post-return-report",
+                        status=SimpleNamespace(value="ready"),
+                    )
+                    for version in (1, 2)
+                ]
+            )
+
+    monkeypatch.setattr(
+        runner.notification, "P3Top100NotificationSupervisor", _Supervisor
+    )
+    with pytest.raises(runner.P3Top100RunnerError, match="not Ready"):
+        runner._run_exact_tasks(
+            _Repository(),
+            task_keys=tuple(notification.issue_task_keys(ISSUE).values())[:2],
+        )
+    assert calls == []
 
 
 def test_capability_compiles_only_exact_pre_task(monkeypatch) -> None:
@@ -626,6 +867,6 @@ def test_source_contract_is_bound_and_excludes_frozen_p3_sources() -> None:
     }
     assert paths.isdisjoint(frozen)
     assert source["governance_bindings"]["research_request_id"] == 675
-    assert source["governance_bindings"]["engineering_request_id"] == 681
-    assert source["governance_bindings"]["engineering_approval_decision_id"] == 2880
-    assert source["governance_bindings"]["engineering_execution_id"] == 555
+    assert source["governance_bindings"]["engineering_request_id"] == 800
+    assert source["governance_bindings"]["engineering_approval_decision_id"] == 3404
+    assert source["governance_bindings"]["engineering_execution_id"] == 642

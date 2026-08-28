@@ -131,8 +131,27 @@ THREAD_PROFILES = {
         "OPENBLAS_NUM_THREADS": 22,
         "MKL_NUM_THREADS": 1,
         "NUMEXPR_NUM_THREADS": 1,
-    }
+    },
 }
+
+RUNTIME_COMPATIBILITY_CLOSURE_SCHEMA = (
+    "dehps-m4-p3-runtime-descendant-compatibility-closure.v1"
+)
+RUNTIME_COMPATIBILITY_CLOSURE_DOMAIN = (
+    "dehps.m4.p3.runtime-descendant-compatibility-closure.v1"
+)
+RUNTIME_COMPATIBILITY_PATHS = (
+    "apps/worker-python/dehps/prediction/v2/generator.py",
+    "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/forward_prequential_confirmatory.py",
+    "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_contract.py",
+    "apps/worker-python/dehps/research_os/repository.py",
+    "apps/worker-python/dehps/research_os/supervisor.py",
+    "apps/worker-python/scripts/build_m4_p3_forward_prequential_confirmatory_manifest.py",
+    "apps/worker-python/scripts/run_m4_p3_forward_prequential_confirmatory.py",
+    "apps/worker-python/scripts/run_m4_p3_performance_runtime.py",
+    "deploy/systemd/dehps-forward-prequential-successor.service",
+    "deploy/systemd/dehps-forward-prequential-successor.timer",
+)
 
 
 class P3PerformanceRuntimeError(RuntimeError):
@@ -144,6 +163,193 @@ def _canonical_sha256(value: Mapping[str, Any]) -> str:
         dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _closure_digest(value: Mapping[str, Any]) -> str:
+    raw = json.dumps(
+        dict(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(
+        RUNTIME_COMPATIBILITY_CLOSURE_DOMAIN.encode("utf-8") + b"\0" + raw
+    ).hexdigest()
+
+
+def _git_output(root_dir: Path, *arguments: str, text: bool = True) -> str | bytes:
+    try:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=text,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise P3PerformanceRuntimeError(
+            "runtime compatibility git boundary changed: " + " ".join(arguments)
+        ) from exc
+    return completed.stdout
+
+
+def _commit(value: Any, *, root_dir: Path) -> str:
+    commit = str(value or "")
+    if (
+        len(commit) != 40
+        or commit.lower() != commit
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        raise P3PerformanceRuntimeError("runtime compatibility commit is invalid")
+    _git_output(root_dir, "cat-file", "-e", f"{commit}^{{commit}}")
+    return commit
+
+
+def _git_blob_record(root_dir: Path, *, commit: str, relative: str) -> dict[str, Any]:
+    listing = str(_git_output(root_dir, "ls-tree", commit, "--", relative)).strip()
+    metadata, separator, observed_path = listing.partition("\t")
+    values = metadata.split()
+    if (
+        separator != "\t"
+        or observed_path != relative
+        or len(values) != 3
+        or values[0] != "100644"
+        or values[1] != "blob"
+    ):
+        raise P3PerformanceRuntimeError(
+            f"runtime compatibility path is not one regular blob: {relative}"
+        )
+    data = bytes(_git_output(root_dir, "show", f"{commit}:{relative}", text=False))
+    return {
+        "path": relative,
+        "git_mode": values[0],
+        "git_type": values[1],
+        "git_blob": values[2],
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def build_runtime_compatibility_closure(
+    commit: str, *, root_dir: Path = ROOT_DIR
+) -> dict[str, Any]:
+    root = root_dir.resolve()
+    resolved_commit = _commit(commit, root_dir=root)
+    preimage = {
+        "schema_version": RUNTIME_COMPATIBILITY_CLOSURE_SCHEMA,
+        "records": [
+            _git_blob_record(root, commit=resolved_commit, relative=relative)
+            for relative in RUNTIME_COMPATIBILITY_PATHS
+        ],
+    }
+    return {**preimage, "closure_digest": _closure_digest(preimage)}
+
+
+def _validate_runtime_compatibility_closure(
+    value: Any,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {
+        "schema_version",
+        "records",
+        "closure_digest",
+    }:
+        raise P3PerformanceRuntimeError("runtime compatibility closure shape changed")
+    records = value.get("records")
+    if not isinstance(records, list) or len(records) != len(
+        RUNTIME_COMPATIBILITY_PATHS
+    ):
+        raise P3PerformanceRuntimeError("runtime compatibility record count changed")
+    expected_keys = {
+        "path",
+        "git_mode",
+        "git_type",
+        "git_blob",
+        "bytes",
+        "sha256",
+    }
+    if [item.get("path") for item in records if isinstance(item, Mapping)] != list(
+        RUNTIME_COMPATIBILITY_PATHS
+    ) or any(
+        not isinstance(item, Mapping) or set(item) != expected_keys for item in records
+    ):
+        raise P3PerformanceRuntimeError("runtime compatibility path order changed")
+    for item in records:
+        if (
+            item["git_mode"] != "100644"
+            or item["git_type"] != "blob"
+            or not isinstance(item["git_blob"], str)
+            or len(item["git_blob"]) != 40
+            or item["git_blob"].lower() != item["git_blob"]
+            or any(
+                character not in "0123456789abcdef" for character in item["git_blob"]
+            )
+            or not isinstance(item["sha256"], str)
+            or len(item["sha256"]) != 64
+            or item["sha256"].lower() != item["sha256"]
+            or any(character not in "0123456789abcdef" for character in item["sha256"])
+            or isinstance(item["bytes"], bool)
+            or not isinstance(item["bytes"], int)
+            or item["bytes"] < 1
+        ):
+            raise P3PerformanceRuntimeError("runtime compatibility record changed")
+    preimage = {
+        "schema_version": value["schema_version"],
+        "records": [dict(item) for item in records],
+    }
+    if value["schema_version"] != RUNTIME_COMPATIBILITY_CLOSURE_SCHEMA or value[
+        "closure_digest"
+    ] != _closure_digest(preimage):
+        raise P3PerformanceRuntimeError("runtime compatibility digest changed")
+    return {**preimage, "closure_digest": str(value["closure_digest"])}
+
+
+def verify_runtime_compatibility_closure(
+    *,
+    operator_commit: str,
+    closure: Any,
+    root_dir: Path = ROOT_DIR,
+) -> None:
+    root = root_dir.resolve()
+    stored = _validate_runtime_compatibility_closure(closure)
+    commit = _commit(operator_commit, root_dir=root)
+    head = str(_git_output(root, "rev-parse", "HEAD")).strip()
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit, head],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise P3PerformanceRuntimeError(
+            "operator merged commit is not an ancestor of HEAD"
+        ) from exc
+    if str(_git_output(root, "status", "--porcelain")).strip():
+        raise P3PerformanceRuntimeError("runtime compatibility worktree is dirty")
+    expected = build_runtime_compatibility_closure(commit, root_dir=root)
+    if stored != expected:
+        raise P3PerformanceRuntimeError(
+            "operator runtime compatibility closure changed"
+        )
+    head_closure = build_runtime_compatibility_closure(head, root_dir=root)
+    if head_closure != stored:
+        raise P3PerformanceRuntimeError("descendant runtime compatibility drifted")
+    for record in stored["records"]:
+        path = root / str(record["path"])
+        if not path.is_file() or path.is_symlink():
+            raise P3PerformanceRuntimeError(
+                f"runtime compatibility worktree path changed: {record['path']}"
+            )
+        data = path.read_bytes()
+        if (
+            len(data) != int(record["bytes"])
+            or hashlib.sha256(data).hexdigest() != record["sha256"]
+        ):
+            raise P3PerformanceRuntimeError(
+                f"runtime compatibility worktree bytes changed: {record['path']}"
+            )
 
 
 def _json_load(path: Path) -> dict[str, Any]:
@@ -235,7 +441,9 @@ def verify_operator_governance(config: Mapping[str, Any]) -> None:
     repository = AgentRequestRepository()
     request = repository.get_request(str(operator["request_key"]))
     if not request.request_type.value.startswith("operator_"):
-        raise P3PerformanceRuntimeError("production operation requires Operator Request")
+        raise P3PerformanceRuntimeError(
+            "production operation requires Operator Request"
+        )
     _verify_request(
         repository,
         key=str(operator["request_key"]),
@@ -244,15 +452,17 @@ def verify_operator_governance(config: Mapping[str, Any]) -> None:
         payload_sha256=str(operator["payload_sha256"]),
         execution_id=int(operator["execution_id"]),
     )
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=ROOT_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if head != str(operator["merged_commit"]):
-        raise P3PerformanceRuntimeError("operator merged commit identity changed")
+    verify_runtime_compatibility_closure(
+        operator_commit=str(operator["merged_commit"]),
+        closure=config.get("runtime_compatibility_closure"),
+    )
+    successor.verify_governance(repository)
+    source = successor.load_source_contract(root_dir=ROOT_DIR)
+    if (
+        source.get("artifact_digest") != EXPECTED_SOURCE_DIGEST
+        or source.get("source_set_digest") != EXPECTED_SOURCE_SET_DIGEST
+    ):
+        raise P3PerformanceRuntimeError("Formal P3 source identity changed")
 
 
 def _registered_payload(
@@ -269,9 +479,7 @@ def _registered_payload(
         if item.get("event_type") == "completed"
     ]
     if len(completed) != 1:
-        raise P3PerformanceRuntimeError(
-            f"expected one completed P3 task: {task_key}"
-        )
+        raise P3PerformanceRuntimeError(f"expected one completed P3 task: {task_key}")
     registrations = repository.list_mainline_artifacts(
         control_plane_key=CONTROL_PLANE_KEY,
         execution_id=str(completed[0]["execution_id"]),
@@ -284,7 +492,9 @@ def _registered_payload(
     registration = matches[0]
     path = (ROOT_DIR / str(registration["artifact_path"])).resolve()
     if not path.is_relative_to(ROOT_DIR.resolve()) or not path.is_file():
-        raise P3PerformanceRuntimeError(f"registered artifact path invalid: {artifact_type}")
+        raise P3PerformanceRuntimeError(
+            f"registered artifact path invalid: {artifact_type}"
+        )
     payload = _json_load(path)
     expected = EXPECTED_DIGESTS[artifact_type]
     if (
@@ -556,9 +766,7 @@ def reconcile_platform_profile(*, apply: bool) -> dict[str, Any]:
 def _throttle_counts() -> dict[str, int]:
     output: dict[str, int] = {}
     paths = tuple(
-        Path("/sys/devices/system/cpu").glob(
-            "cpu*/thermal_throttle/*_throttle_count"
-        )
+        Path("/sys/devices/system/cpu").glob("cpu*/thermal_throttle/*_throttle_count")
     ) + tuple(
         Path("/sys/devices/system/cpu").glob(
             "cpu*/thermal_throttle/*_throttle_total_time_ms"
@@ -649,9 +857,7 @@ class TelemetrySampler:
             "pkg_watt_peak": (
                 max(item["pkg_watt"] for item in values) if values else None
             ),
-            "temperature_c_peak": (
-                max(item["temperature_c"] for item in values)
-            ),
+            "temperature_c_peak": (max(item["temperature_c"] for item in values)),
             "frequency_mhz_mean": statistics.fmean(
                 item["frequency_mhz"] for item in values
             ),
@@ -900,9 +1106,10 @@ def _merge_telemetry(values: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     )
     output: dict[str, Any] = {"sample_count": total_samples}
     for field in mean_fields:
-        output[field] = sum(
-            float(item[field]) * int(item["sample_count"]) for item in values
-        ) / total_samples
+        output[field] = (
+            sum(float(item[field]) * int(item["sample_count"]) for item in values)
+            / total_samples
+        )
     for field in peak_fields:
         output[field] = max(float(item[field]) for item in values)
     for field in (
@@ -921,9 +1128,7 @@ def _merge_config_results(values: Sequence[Mapping[str, Any]]) -> dict[str, Any]
         if key in first
     }
     measurements = [
-        measurement
-        for item in values
-        for measurement in item["measurements"]
+        measurement for item in values for measurement in item["measurements"]
     ]
     return _summarize_config(
         config=config,
@@ -952,7 +1157,9 @@ def run_benchmark(
     selected_thread_profile: str | None = None,
 ) -> dict[str, Any]:
     if runs < 5:
-        raise P3PerformanceRuntimeError("benchmark requires at least five measured runs")
+        raise P3PerformanceRuntimeError(
+            "benchmark requires at least five measured runs"
+        )
     matrix = (
         [
             {
@@ -1006,15 +1213,18 @@ def run_benchmark(
             replacements = {
                 identity: _merge_config_results(
                     [
-                        next(item for item in results if _config_identity(item) == identity),
+                        next(
+                            item
+                            for item in results
+                            if _config_identity(item) == identity
+                        ),
                         *extension,
                     ]
                 )
                 for identity, extension in extensions.items()
             }
             results = [
-                replacements.get(_config_identity(item), item)
-                for item in results
+                replacements.get(_config_identity(item), item) for item in results
             ]
             eligible = [item for item in results if item["outer"] == 1]
             ordered = sorted(
@@ -1069,9 +1279,7 @@ def run_power_profile_benchmark(
         "affinity": str(selected["affinity"]),
         "thread_profile": str(selected["thread_profile"]),
     }
-    values: dict[int, list[dict[str, Any]]] = {
-        item: [] for item in ALLOWED_MMIO_WATTS
-    }
+    values: dict[int, list[dict[str, Any]]] = {item: [] for item in ALLOWED_MMIO_WATTS}
     trial_order: list[int] = []
 
     def measure_round(round_index: int) -> None:
@@ -1100,9 +1308,7 @@ def run_power_profile_benchmark(
 
     for index in range(runs):
         measure_round(index)
-    merged = {
-        watts: _merge_config_results(items) for watts, items in values.items()
-    }
+    merged = {watts: _merge_config_results(items) for watts, items in values.items()}
     ordered = sorted(
         merged,
         key=lambda watts: merged[watts]["median_reference_seconds"],
@@ -1228,9 +1434,11 @@ def _load_runtime_config(path: Path) -> dict[str, Any]:
         "active_interval_seconds",
         "passive_interval_seconds",
         "operator",
+        "runtime_compatibility_closure",
     }
-    if set(value) != required or value["schema_version"] != "dehps.p3.performance.v1":
+    if set(value) != required or value["schema_version"] != "dehps.p3.performance.v2":
         raise P3PerformanceRuntimeError("runtime config identity changed")
+    _validate_runtime_compatibility_closure(value["runtime_compatibility_closure"])
     selected = value["selected"]
     if (
         not isinstance(selected, Mapping)
@@ -1299,11 +1507,16 @@ def watchdog_once(
     mode = _mode(mode_path)
     stale_active_recovered = False
     p3_unit_state = p3_unit_state_override or _p3_unit_state()
-    if mode == "active" and apply and p3_unit_state not in {
-        "active",
-        "activating",
-        "deactivating",
-    }:
+    if (
+        mode == "active"
+        and apply
+        and p3_unit_state
+        not in {
+            "active",
+            "activating",
+            "deactivating",
+        }
+    ):
         set_mode(mode="passive", path=mode_path)
         mode = "passive"
         stale_active_recovered = True
@@ -1324,8 +1537,7 @@ def watchdog_once(
         result = {"status": "PASSIVE_MONITOR", "power": read_power_limits()}
     power = result.get("after") or result.get("power") or {}
     if (
-        int(power.get("msr_pl2_uw", 0))
-        != int(profile["msr_pl2_watts"]) * 1_000_000
+        int(power.get("msr_pl2_uw", 0)) != int(profile["msr_pl2_watts"]) * 1_000_000
         or int(power.get("mmio_pl2_uw", 0))
         != int(profile["mmio_pl2_watts"]) * 1_000_000
     ):
@@ -1353,15 +1565,11 @@ def watchdog_once(
         "temperature_c": telemetry.get("temperature_c_peak"),
         "reapply_count": count,
         "last_reapply_at": (
-            now
-            if writes or changed
-            else previous.get("last_reapply_at")
+            now if writes or changed else previous.get("last_reapply_at")
         ),
         "stale_active_recovered": stale_active_recovered,
         "status": (
-            "ACTIVE_READBACK_VERIFIED"
-            if mode == "active"
-            else "PASSIVE_WAIT_FORWARD"
+            "ACTIVE_READBACK_VERIFIED" if mode == "active" else "PASSIVE_WAIT_FORWARD"
         ),
         "last_result": result,
     }
@@ -1382,9 +1590,7 @@ def run_drift_fixture(
     selected_msr = int(profile["msr_watts"]) * 1_000_000
     selected_mmio = int(profile["mmio_watts"]) * 1_000_000
     alternate_msr = 28_000_000
-    alternate_mmio = (
-        28_000_000 if int(profile["mmio_watts"]) == 20 else 20_000_000
-    )
+    alternate_mmio = 28_000_000 if int(profile["mmio_watts"]) == 20 else 20_000_000
     reconcile_platform_profile(apply=True)
     reconcile_power_limits(
         msr_watts=int(profile["msr_watts"]),
@@ -1459,8 +1665,10 @@ def install_runtime(
     if selected_thread_profile not in THREAD_PROFILES:
         raise P3PerformanceRuntimeError("install thread profile invalid")
     thread_environment = THREAD_PROFILES[selected_thread_profile]
+    merged_commit = str(operator.get("merged_commit") or "")
+    runtime_compatibility_closure = build_runtime_compatibility_closure(merged_commit)
     config = {
-        "schema_version": "dehps.p3.performance.v1",
+        "schema_version": "dehps.p3.performance.v2",
         "selected": {
             "outer": 1,
             "inner": selected_inner,
@@ -1476,6 +1684,7 @@ def install_runtime(
         "active_interval_seconds": 2,
         "passive_interval_seconds": 60,
         "operator": dict(operator),
+        "runtime_compatibility_closure": runtime_compatibility_closure,
     }
     _validated_targets(msr_watts=40, mmio_watts=mmio_watts)
     if (
@@ -1515,9 +1724,7 @@ def install_runtime(
             "DEHPS_P3_INNER_THREADS=1", f"DEHPS_P3_INNER_THREADS={selected_inner}"
         )
         for variable, value in thread_environment.items():
-            dropin_text = dropin_text.replace(
-                f"{variable}=1", f"{variable}={value}"
-            )
+            dropin_text = dropin_text.replace(f"{variable}=1", f"{variable}={value}")
         dropin_text = dropin_text.replace(
             "DEHPS_P3_CPU_AFFINITY=0-21",
             f"DEHPS_P3_CPU_AFFINITY={AFFINITIES[selected_affinity]}",
@@ -1529,7 +1736,9 @@ def install_runtime(
         unit_target.chmod(0o644)
         dropin_target.chmod(0o644)
         for command in commands:
-            completed = subprocess.run(command, check=False, capture_output=True, text=True)
+            completed = subprocess.run(
+                command, check=False, capture_output=True, text=True
+            )
             if command[2:4] == ["disable", "--now"] and completed.returncode != 0:
                 combined = completed.stdout + completed.stderr
                 if "does not exist" not in combined and "not loaded" not in combined:
@@ -1584,10 +1793,10 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--runs", type=int, default=5)
     benchmark.add_argument("--selected-only", action="store_true")
     benchmark.add_argument("--selected-inner", type=int, default=1)
-    benchmark.add_argument("--selected-affinity", choices=tuple(AFFINITIES), default="all")
     benchmark.add_argument(
-        "--selected-thread-profile", choices=tuple(THREAD_PROFILES)
+        "--selected-affinity", choices=tuple(AFFINITIES), default="all"
     )
+    benchmark.add_argument("--selected-thread-profile", choices=tuple(THREAD_PROFILES))
     benchmark.add_argument("--expect-msr-watts", type=int, default=40)
     benchmark.add_argument("--expect-mmio-watts", type=int, default=20)
     baseline = subparsers.add_parser("baseline")
@@ -1613,11 +1822,15 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--apply", action="store_true")
     install.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     install.add_argument("--selected-inner", type=int, required=True)
-    install.add_argument("--selected-affinity", choices=tuple(AFFINITIES), required=True)
+    install.add_argument(
+        "--selected-affinity", choices=tuple(AFFINITIES), required=True
+    )
     install.add_argument(
         "--selected-thread-profile", choices=tuple(THREAD_PROFILES), required=True
     )
-    install.add_argument("--mmio-watts", type=int, choices=ALLOWED_MMIO_WATTS, required=True)
+    install.add_argument(
+        "--mmio-watts", type=int, choices=ALLOWED_MMIO_WATTS, required=True
+    )
     install.add_argument("--operator-request-key", required=True)
     install.add_argument("--operator-request-id", type=int, required=True)
     install.add_argument("--operator-approval-decision-id", type=int, required=True)
@@ -1667,16 +1880,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = run_drift_fixture(config=config)
     elif args.command == "profile-benchmark":
         if not args.apply:
-            raise P3PerformanceRuntimeError("profile benchmark requires Operator --apply")
+            raise P3PerformanceRuntimeError(
+                "profile benchmark requires Operator --apply"
+            )
         config = _load_runtime_config(args.config)
         verify_operator_governance(config)
         bundle = load_reference_bundle()
         selected = config["selected"]
         selected_mmio = int(config["power_profile"]["mmio_watts"])
         try:
-            with tempfile.TemporaryDirectory(
-                prefix="dehps-p3-power-profile-"
-            ) as temp:
+            with tempfile.TemporaryDirectory(prefix="dehps-p3-power-profile-") as temp:
                 fixture = Path(temp) / "reference.json"
                 _json_write(fixture, bundle)
                 output = run_power_profile_benchmark(
@@ -1689,9 +1902,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _json_write(args.config, config)
             _json_write(args.output, output)
         finally:
-            reconcile_power_limits(
-                msr_watts=40, mmio_watts=selected_mmio, apply=True
-            )
+            reconcile_power_limits(msr_watts=40, mmio_watts=selected_mmio, apply=True)
     elif args.command in {"enter", "exit", "watch"}:
         config = _load_runtime_config(args.config)
         if args.apply:
@@ -1704,9 +1915,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mmio_watts=int(profile["mmio_watts"]),
                 apply=args.apply,
             )
-            output["platform_profile"] = reconcile_platform_profile(
-                apply=args.apply
-            )
+            output["platform_profile"] = reconcile_platform_profile(apply=args.apply)
         elif args.command == "exit":
             output = (
                 set_mode(mode="passive")

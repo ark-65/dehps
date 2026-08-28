@@ -1,0 +1,76 @@
+{
+  "schema_version": "dehps-m4-p3-top100-notification-source-contract.v3",
+  "artifact_type": "m4_p3_top100_notification_source_contract_v3",
+  "artifact_digest": "9831490a024664a5023c88d660d8d7c4be2e06be5db3456834ff65abf86d2b82",
+  "contract_key": "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V3",
+  "governance_bindings": {
+    "research_request_id": 675,
+    "research_approval_decision_id": 2852,
+    "research_payload_sha256": "31776e8dcf25177dd66505a2a9a4b1c7c092c37d50e3f8623644eb650b54f0c3",
+    "engineering_request_id": 800,
+    "engineering_approval_decision_id": 3404,
+    "engineering_execution_id": 642,
+    "engineering_payload_sha256": "7989380318cda6afb9b44950ae79a295a15e790a99b6731e43cd38ca6071660a",
+    "p3_lineage_id": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_V1",
+    "p3_scientific_lineage_modified": false,
+    "production_authorized": false
+  },
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/notifications/p3_top100.py",
+      "bytes": 56940,
+      "sha256": "c1f9e55fdc554fd4249bc40a2bee8b4142af1a789db26f464cb6750067a6b636"
+    },
+    {
+      "path": "apps/worker-python/dehps/crawler/ssq_client.py",
+      "bytes": 11157,
+      "sha256": "afc47507bf3d4db691422a4553aad1e34ebdef84f6b21d51852f65debeacc9fb"
+    },
+    {
+      "path": "apps/worker-python/dehps/notifications/mail.py",
+      "bytes": 6400,
+      "sha256": "f54a2766dad303bed0092d128918eceaa2e223e8acf05f33ae6374bda280ad8c"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "bytes": 1587846,
+      "sha256": "6357be6e8dc6e2aad9aea8f14367166b83e7f3bfa7f876b37aa5ed4a6a8e3fea"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/repository.py",
+      "bytes": 209350,
+      "sha256": "64719c3d493496a4ecadfc83b08e4f46462c4b6262ccbe4d8b247336f74694bd"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_p3_top100_notification_manifest.py",
+      "bytes": 12746,
+      "sha256": "c8ce54cfe10140f5b6e82ce5848f6e1ea7b0e43f3afaceca47b3b9038588df98"
+    },
+    {
+      "path": "apps/worker-python/scripts/run_m4_p3_top100_notification.py",
+      "bytes": 16994,
+      "sha256": "92a387d0ec74039111d38e2886f2dde1b6736ee9d79285d88efdef9e59e73506"
+    },
+    {
+      "path": "deploy/systemd/dehps-p3-top100-pre-draw-mail.service",
+      "bytes": 785,
+      "sha256": "4fe3abd4ddc45cfc5338b40160119e2535e820d68860e61e188cb29bbe415c6f"
+    },
+    {
+      "path": "deploy/systemd/dehps-p3-top100-pre-draw-mail.timer",
+      "bytes": 257,
+      "sha256": "899df8a23c7838b54f6243c073e68c97ecc0679176e2cc6ea78a95b3d3cb81f8"
+    },
+    {
+      "path": "deploy/systemd/dehps-p3-top100-post-draw-mail.service",
+      "bytes": 795,
+      "sha256": "91f236ef55be7dc1cb2f10d3c8bc722847cf4c1e98b1fa64332a1ee700cbc276"
+    },
+    {
+      "path": "deploy/systemd/dehps-p3-top100-post-draw-mail.timer",
+      "bytes": 251,
+      "sha256": "0673761a1644d37b03aa58271c318fcfaf6e62a8e685578c5de69420c1662579"
+    }
+  ],
+  "source_set_digest": "cde3c689057e7c5110f8e9fa3f5dbb75c00229cc24d2d9d69c8a9100531db7d0"
+}

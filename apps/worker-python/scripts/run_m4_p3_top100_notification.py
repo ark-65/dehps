@@ -76,7 +76,24 @@ def _goal_target(repository: PostgresResearchOSRepository) -> dict[str, Any]:
     manifest = _notification_manifest(repository)
     if len(manifest.goals) != 1 or manifest.goals[0].goal_key != notification.GOAL_KEY:
         raise P3Top100RunnerError("notification goal changed")
-    return json.loads(manifest.goals[0].target_metric_manifest)
+    target = json.loads(manifest.goals[0].target_metric_manifest)
+    if (
+        set(target)
+        != {
+            "minimum_issue",
+            "recipient_digest",
+            "source_contract_digest",
+            "hypothetical_cost_cny",
+            "tax_free_boundary_cny",
+            "typed_and_generic_replay_required",
+        }
+        or target.get("minimum_issue") != notification.MINIMUM_ISSUE
+        or target.get("hypothetical_cost_cny") != "200.00"
+        or target.get("tax_free_boundary_cny") != "10000.00"
+        or target.get("typed_and_generic_replay_required") is not True
+    ):
+        raise P3Top100RunnerError("notification goal target changed")
+    return target
 
 
 def install(
@@ -91,11 +108,7 @@ def install(
     source = notification.load_source_contract()
     notification.verify_governance(AgentRequestRepository())
     recipient_digest = _recipient_digest(config)
-    minimum_issue = _latest_issue(repository, phase="pre")
-    if minimum_issue is None:
-        raise P3Top100RunnerError(
-            "no completed successor-P3 predraw replay is available"
-        )
+    minimum_issue = notification.MINIMUM_ISSUE
     payload = builder.build_initial_manifest(
         minimum_issue=minimum_issue,
         recipient_digest=recipient_digest,
@@ -126,7 +139,7 @@ def install(
         imported = repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source="m4-p3-top100-notification-v2-install",
+            source="m4-p3-top100-notification-v3-install",
         )
         result = str(imported)
     return {
@@ -216,6 +229,8 @@ def pre(
     recipient_digest = _recipient_digest(config)
     if target.get("recipient_digest") != recipient_digest:
         raise P3Top100RunnerError("notification recipient binding changed")
+    if target.get("source_contract_digest") != source["artifact_digest"]:
+        raise P3Top100RunnerError("notification source binding changed")
     issue = _latest_issue(
         repository, phase="pre", minimum_issue=str(target["minimum_issue"])
     )
@@ -254,7 +269,7 @@ def pre(
         repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source=f"m4-p3-top100-notification-v2-pre-{issue}",
+            source=f"m4-p3-top100-notification-v3-pre-{issue}",
         )
     elif keys["pre_replay"] not in task_keys:
         raise P3Top100RunnerError("notification pre task pair is partial")
@@ -298,6 +313,8 @@ def post(
     recipient_digest = _recipient_digest(config)
     if target.get("recipient_digest") != recipient_digest:
         raise P3Top100RunnerError("notification recipient binding changed")
+    if target.get("source_contract_digest") != source["artifact_digest"]:
+        raise P3Top100RunnerError("notification source binding changed")
     issue = _latest_issue(
         repository, phase="post", minimum_issue=str(target["minimum_issue"])
     )
@@ -348,7 +365,7 @@ def post(
         repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source=f"m4-p3-top100-notification-v2-post-{issue}",
+            source=f"m4-p3-top100-notification-v3-post-{issue}",
         )
     elif keys["post_replay"] not in task_keys:
         raise P3Top100RunnerError("notification post task pair is partial")
@@ -391,7 +408,7 @@ def status(*, repository: PostgresResearchOSRepository | None = None) -> dict[st
         return {"status": "NOT_INSTALLED", "automatic_mail": False}
     snapshot = repository.control_plane.resolve(manifest)
     tasks = {item.task_key: item.status.value for item in snapshot.resolutions}
-    target = json.loads(manifest.goals[0].target_metric_manifest)
+    target = _goal_target(repository)
     return {
         "status": "ARMED",
         "control_plane_key": notification.CONTROL_PLANE_KEY,
