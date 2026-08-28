@@ -11,7 +11,7 @@ import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +112,18 @@ LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS = frozenset(
 )
 DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST = (
     "eb2c70cbaec4e22993f4e0e17c498fe963890558bd774e04e0f28deb9e9a9b8e"
+)
+DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST = (
+    "d2cce00e714fa041789d2114addd109d32f31f9d283dac7beb311a1b0e54b1cf"
+)
+DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST = (
+    "710783396226aa6b643c302e4de61238ff75d905f611d6f215ba0eecb28f04b4"
+)
+DAILY_RECOVERY_FAILED_OPERATOR_ATTESTATION_DIGEST = (
+    "31543855b1d1fce08f51cdfb6a90b97f2860d23a9b4a44783dd257f716f68cd0"
+)
+FORMAL_P3_FROZEN_SOURCE_SET_DIGEST = (
+    "a3b34318d784d9477fe82f7e66c3c04e5640eaed87e2b4c49cd8b397fc27cd9c"
 )
 DAILY_RECOVERY_LEGACY_INCIDENT_OPEN_TASK_DIGEST = (
     "959b2b2809420fce64a4609a3bf60f83b4c632dbac3bea55745346a63cdaea50"
@@ -272,6 +284,18 @@ DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_EXECUTION_ID = 638
 DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_PAYLOAD_SHA256 = (
     "aed8a3ed96ae39d276246a60c5ee926135793e438c0cee57cd936b04c72f9df3"
 )
+HEALTH_PROVENANCE_RUNNING_RECOVERY_BASE_COMMIT = (
+    "38a00a2c46427677e893b355c553e01b086f04eb"
+)
+HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-health-provenance-and-running-daily-recovery-fix-v2"
+)
+HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_REQUEST_ID = 795
+HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_DECISION_ID = 3387
+HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_EXECUTION_ID = 640
+HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_PAYLOAD_SHA256 = (
+    "20047c995e9ecaf64ac2732118c649488341dc65dd936b9d4a2b6b523d7fc21e"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -343,6 +367,37 @@ def _validate_daily_recovery_transition_fix_source_binding(
         raise IsolatedRunnerError(
             "daily_recovery_historical_source_transition_fix_binding_changed"
         )
+
+
+def _validate_health_provenance_running_recovery_source_binding(
+    source_contract: Mapping[str, Any],
+) -> None:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "health_provenance_running_recovery_base_merged_commit": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_BASE_COMMIT
+        ),
+        "health_provenance_running_recovery_engineering_request_key": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_REQUEST_KEY
+        ),
+        "health_provenance_running_recovery_engineering_request_id": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_REQUEST_ID
+        ),
+        "health_provenance_running_recovery_engineering_approval_decision_id": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_DECISION_ID
+        ),
+        "health_provenance_running_recovery_engineering_execution_id": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_EXECUTION_ID
+        ),
+        "health_provenance_running_recovery_engineering_request_payload_sha256": (
+            HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+    ):
+        raise IsolatedRunnerError("health_provenance_running_recovery_binding_changed")
 
 
 def _validate_user_scope_resume_event_set(
@@ -1235,14 +1290,14 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         ):
             raise IsolatedRunnerError("daily_recovery_event_gate_reentrant")
         current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
-        if current.artifact_digest != DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST:
+        if current.artifact_digest != DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST:
             raise IsolatedRunnerError("daily_recovery_current_manifest_changed")
         self._daily_recovery_event_gate = True
         self._daily_recovery_transition_gate = {
-            "current_manifest_digest": current.artifact_digest,
-            "running_manifest_digest": None,
-            "router_consumed": False,
-            "completion_consumed": False,
+            "current_manifest_digest": DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST,
+            "running_manifest_digest": DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+            "router_consumed": True,
+            "completion_consumed": True,
             "authoritative_completion_consumed": False,
         }
         try:
@@ -2428,34 +2483,25 @@ def _latest_registered_health_artifact(
     before: datetime,
     context: Mapping[str, str],
 ) -> dict[str, Any]:
-    candidates: list[tuple[str, str]] = []
-    before_minute = before.strftime("%Y%m%d%H%M")
-    for task in manifest.tasks:
-        metric = json.loads(task.metric_contract)
-        if metric.get("task_template") != "runtime_health":
-            continue
-        item_context = _task_context(task)
-        minute = item_context["minute"]
-        if minute < before_minute and f"{task.task_key}:HEALTH_RECORDED" in facts:
-            candidates.append((minute, task.task_key))
-    if not candidates:
-        return mainline._unique_type(
-            mainline.load_completed_task_artifacts(
-                repository=repository,
-                root_dir=ROOT_DIR,
-                task_key=contract.task_template_by_name("preregistration").key(context),
-            ),
-            "M4IsolatedPreregistrationV11",
-        )
-    _, task_key = max(candidates)
-    return mainline._unique_type(
+    if facts != set(manifest.facts.artifacts):
+        raise IsolatedRunnerError("runtime_health_manifest_facts_changed")
+    preregistration = mainline._unique_type(
         mainline.load_completed_task_artifacts(
             repository=repository,
             root_dir=ROOT_DIR,
-            task_key=task_key,
+            task_key=contract.task_template_by_name("preregistration").key(context),
         ),
-        "M4IsolatedRuntimeHealthV11",
+        "M4IsolatedPreregistrationV11",
     )
+    history = mainline.validated_runtime_health_history(
+        repository=repository,
+        root_dir=ROOT_DIR,
+        preregistration=preregistration,
+        manifest=manifest,
+    )
+    before_utc = before.astimezone(UTC)
+    eligible = [item for item in history if item["completed_at"] < before_utc]
+    return dict(eligible[-1]["artifact"]) if eligible else preregistration
 
 
 def _roll_forward(
@@ -4378,25 +4424,165 @@ def install(
     }
 
 
-def _isolated_units_quiescent() -> dict[str, str]:
+def _isolated_units_quiescent() -> dict[str, dict[str, str | int]]:
     units = (
         "dehps-m4-isolated-24h-challenger-v11.timer",
         "dehps-m4-isolated-24h-challenger-v11.service",
     )
-    observed: dict[str, str] = {}
+    observed: dict[str, dict[str, str | int]] = {}
     for unit in units:
-        result = subprocess.run(
-            ["systemctl", "--user", "is-active", unit],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        state = result.stdout.strip() or "unknown"
-        observed[unit] = state
-        if state not in {"inactive", "failed"}:
+        is_service = unit.endswith(".service")
+        required = {"LoadState", "ActiveState", "SubState"}
+        if is_service:
+            required |= {"MainPID", "ControlPID"}
+        try:
+            result = subprocess.run(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    unit,
+                    "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
+                    "--no-pager",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise IsolatedRunnerError(
+                "daily_recovery_isolated_units_not_quiescent"
+            ) from exc
+        values: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if not line:
+                continue
+            if "=" not in line:
+                raise IsolatedRunnerError("daily_recovery_isolated_units_not_quiescent")
+            key, value = line.split("=", 1)
+            if key not in required or key in values:
+                raise IsolatedRunnerError("daily_recovery_isolated_units_not_quiescent")
+            values[key] = value
+        main_pid = control_pid = 0
+        if is_service:
+            try:
+                main_pid = int(values.get("MainPID", "-1"))
+                control_pid = int(values.get("ControlPID", "-1"))
+            except ValueError as exc:
+                raise IsolatedRunnerError(
+                    "daily_recovery_isolated_units_not_quiescent"
+                ) from exc
+        if (
+            result.returncode != 0
+            or set(values) != required
+            or values["LoadState"] != "loaded"
+            or values["ActiveState"] != "inactive"
+            or values["SubState"] != "dead"
+            or (is_service and (main_pid != 0 or control_pid != 0))
+        ):
             raise IsolatedRunnerError("daily_recovery_isolated_units_not_quiescent")
+        observed[unit] = {
+            "LoadState": values["LoadState"],
+            "ActiveState": values["ActiveState"],
+            "SubState": values["SubState"],
+        }
+        if is_service:
+            observed[unit].update({"MainPID": main_pid, "ControlPID": control_pid})
     return observed
+
+
+def _daily_recovery_failed_operator_input_prestate(
+    *, repository: IsolatedChallengerRepository
+) -> None:
+    expected = {
+        DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST,
+        DAILY_RECOVERY_FAILED_OPERATOR_ATTESTATION_DIGEST,
+    }
+    with (
+        repository.connection_factory() as connection,
+        connection.cursor(row_factory=dict_row) as cursor,
+    ):
+        rows = cursor.execute(
+            "SELECT artifact_digest,artifact_type,artifact_json,"
+            "parent_digests_json,git_commit,source_path,content_sha256 "
+            "FROM m4_isolated_v11.registered_inputs WHERE artifact_digest=ANY(%s)",
+            (list(expected),),
+        ).fetchall()
+    if len(rows) != 2 or {str(row["artifact_digest"]) for row in rows} != expected:
+        raise IsolatedRunnerError("daily_recovery_failed_operator_input_changed")
+    parsed_by_digest: dict[str, dict[str, Any]] = {}
+    git_by_digest: dict[str, str] = {}
+    for row in rows:
+        digest = str(row["artifact_digest"])
+        parsed = mainline.validate_registered_input_payload(dict(row["artifact_json"]))
+        parents = list(row["parent_digests_json"])
+        git_commit = str(row["git_commit"] or "")
+        source_path = row["source_path"]
+        if (
+            parsed["artifact_digest"] != digest
+            or parsed["artifact_type"] != str(row["artifact_type"])
+            or list(parsed.get("parent_digests") or ()) != parents
+            or _GIT_COMMIT.fullmatch(git_commit) is None
+        ):
+            raise IsolatedRunnerError("daily_recovery_failed_operator_input_changed")
+        if digest == DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST:
+            if source_path != contract.SOURCE_CONTRACT_PATH or parents:
+                raise IsolatedRunnerError(
+                    "daily_recovery_failed_operator_source_changed"
+                )
+            archived = subprocess.run(
+                ["git", "show", f"{git_commit}:{source_path}"],
+                cwd=ROOT_DIR,
+                check=False,
+                capture_output=True,
+            )
+            try:
+                archived_json = json.loads(archived.stdout)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise IsolatedRunnerError(
+                    "daily_recovery_failed_operator_source_changed"
+                ) from exc
+            if (
+                archived.returncode != 0
+                or hashlib.sha256(archived.stdout).hexdigest()
+                != str(row["content_sha256"] or "")
+                or archived_json != parsed
+            ):
+                raise IsolatedRunnerError(
+                    "daily_recovery_failed_operator_source_changed"
+                )
+        else:
+            content = contract.canonical_json(parsed).encode("ascii")
+            if source_path is not None or hashlib.sha256(content).hexdigest() != str(
+                row["content_sha256"] or ""
+            ):
+                raise IsolatedRunnerError(
+                    "daily_recovery_failed_operator_attestation_changed"
+                )
+        parsed_by_digest[digest] = parsed
+        git_by_digest[digest] = git_commit
+    attestation = parsed_by_digest[DAILY_RECOVERY_FAILED_OPERATOR_ATTESTATION_DIGEST]
+    body = attestation["body"]
+    if (
+        attestation["parent_digests"]
+        != [
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST,
+        ]
+        or body.get("runtime_source_contract_digest")
+        != DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST
+        or body.get("runtime_git_commit")
+        != git_by_digest[DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST]
+        or git_by_digest[DAILY_RECOVERY_FAILED_OPERATOR_ATTESTATION_DIGEST]
+        != body.get("runtime_git_commit")
+        or body.get("operator_request_id") != 793
+        or body.get("operator_approval_decision_id") != 3379
+        or body.get("operator_execution_id") != 639
+        or body.get("operator_payload_sha256")
+        != "315c8271b91f4a6d454f16ac393f32d5d05ac9861a4e15bef60088ee0baa64d9"
+    ):
+        raise IsolatedRunnerError("daily_recovery_failed_operator_attestation_changed")
 
 
 def _daily_recovery_live_preflight(
@@ -4414,12 +4600,19 @@ def _daily_recovery_live_preflight(
             running.append(task)
         if task.task_key == contract.DAILY_RECOVERY_TASK_KEY:
             daily_task = task
+    if daily_task is None:
+        raise IsolatedRunnerError("daily_recovery_live_task_state_changed")
+    daily_state = manifest.task_state_by_digest[daily_task.artifact_digest]
+    running_shape = (
+        manifest.artifact_digest == DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST
+        and not failures
+        and running == [daily_task]
+        and daily_state.declared_status is TaskStatus.RUNNING
+        and daily_state.completion_classification is CompletionClassification.INTEGRATED
+    )
     if (
-        len(failures) != 1
-        or failures[0].task_key != contract.DAILY_RECOVERY_TASK_KEY
-        or failures[0].artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
-        or running
-        or daily_task is None
+        not running_shape
+        or daily_task.artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
         or json.loads(daily_task.metric_contract).get("source_contract_digest")
         != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
     ):
@@ -4435,8 +4628,31 @@ def _daily_recovery_live_preflight(
         != [("started", 0), ("failed", 1)]
         or records[0].artifact_digest != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
         or records[1].artifact_digest != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+        or any(
+            item.execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+            or item.task_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+            for item in records
+        )
     ):
         raise IsolatedRunnerError("daily_recovery_live_event_prefix_changed")
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+    )
+    if registrations:
+        raise IsolatedRunnerError("daily_recovery_live_registration_changed")
+    execution_roots = (
+        ROOT_DIR
+        / "runtime/isolated-24h-challenger-v11/artifacts"
+        / contract.DAILY_RECOVERY_TASK_KEY
+        / contract.DAILY_RECOVERY_EXECUTION_ID,
+        ROOT_DIR
+        / "runtime/research-os/mainline/.staging"
+        / contract.DAILY_RECOVERY_TASK_KEY
+        / contract.DAILY_RECOVERY_EXECUTION_ID,
+    )
+    if any(path.exists() for path in execution_roots):
+        raise IsolatedRunnerError("daily_recovery_live_output_changed")
     with repository.connection_factory() as connection, connection.cursor() as cursor:
         daily_rows = int(
             cursor.execute(
@@ -4454,6 +4670,14 @@ def _daily_recovery_live_preflight(
         or incident_state["transition_seq"] != 0
     ):
         raise IsolatedRunnerError("daily_recovery_delivery_or_incident_state_changed")
+    p3 = _p3_source_identity()
+    if (
+        p3["artifact_digest"] != contract.FORMAL_P3_SOURCE_DIGEST
+        or p3["source_set_digest"] != FORMAL_P3_FROZEN_SOURCE_SET_DIGEST
+    ):
+        raise IsolatedRunnerError("daily_recovery_formal_p3_identity_changed")
+    _daily_recovery_failed_operator_input_prestate(repository=repository)
+    _isolated_units_quiescent()
     return manifest, _task_context(daily_task), incident_state
 
 
@@ -5190,6 +5414,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     source = artifacts.load_source_contract(root_dir=ROOT_DIR)
     _validate_mirror_completeness_repair_source_binding(source)
     _validate_daily_recovery_transition_fix_source_binding(source)
+    _validate_health_provenance_running_recovery_source_binding(source)
     source_digest = str(source["artifact_digest"])
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True

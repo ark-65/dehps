@@ -26,6 +26,7 @@ from dehps.agents.requests import (
 )
 from dehps.agents.roles import AgentRole
 from dehps.config import ROOT_DIR
+from dehps.contracts import canonical_digest
 from dehps.notifications import isolated_challenger_v11 as mail
 from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.models import (
@@ -109,6 +110,103 @@ _EXACT_COMMITTED_CHILD_TYPE_COUNTS = {
     "M4IsolatedMultiplicityRegistrationDeltaV11": 1,
     "M4IsolatedMultiplicityRegistrationHeadV11": 1,
     "M4IsolatedSearchBatchV11": 1,
+}
+_RUNTIME_HEALTH_LEGACY_COHORT_DOMAIN = (
+    "dehps.m4.isolated-24h-challenger.runtime-health-legacy-cohort.v11"
+)
+_RUNTIME_HEALTH_LEGACY_COHORT_SCHEMA = (
+    "dehps-m4-isolated-v11-runtime-health-legacy-cohort.v1"
+)
+_RUNTIME_HEALTH_LEGACY_FIELD_ORDER = (
+    "minute",
+    "task_key",
+    "task_digest",
+    "source_contract_digest",
+    "execution_id",
+    "started_event_digest",
+    "completed_event_digest",
+    "completed_recorded_at_utc",
+    "completion_fact",
+    "activation_fact",
+    "runtime_health_artifact_digest",
+    "runtime_health_registration_digest",
+    "execution_artifact_digest",
+    "execution_registration_digest",
+    "parent_digest",
+)
+_RUNTIME_HEALTH_LEGACY_COUNT = 72
+_RUNTIME_HEALTH_LEGACY_ROOT_DIGEST = (
+    "ea84b27703adec6b0d4c8244a5c1fdbe97613e0cfb475948471c4a01a803fe7d"
+)
+_RUNTIME_HEALTH_LEGACY_COHORT_DIGEST = (
+    "3836accf82ac161d59d10a2c0c4303ef69f9f26e2174b3ce6aabcc574b2d0f2e"
+)
+_RUNTIME_HEALTH_LEGACY_ANCHOR_RECORDED_AT = "2026-08-28T01:31:59.796013+00:00"
+_RUNTIME_HEALTH_LEGACY_ANCHOR_TASK_KEY = (
+    "m4-isolated-24h-challenger-v11-runtime-health-202608280931"
+)
+_RUNTIME_HEALTH_LEGACY_ANCHOR_COMPLETED_EVENT_DIGEST = (
+    "6d99757ca6467eb7f17feb5d9d3e6c1c4dc6d46b5eea85ea2cd55aa456b74797"
+)
+_RUNTIME_HEALTH_LEGACY_ANCHOR_ARTIFACT_DIGEST = (
+    "c644c9787048fb154a46b846fb9a17e3809feb6974960148a7ffd54108c7f544"
+)
+_RUNTIME_HEALTH_EXECUTION_DYNAMIC_KEYS = frozenset(
+    {
+        "artifact_digest",
+        "execution_id",
+        "git_commit",
+        "input_artifact_digests",
+        "parent_digests",
+        "task_digest",
+        "task_key",
+    }
+)
+_RUNTIME_HEALTH_EXECUTION_STATIC = {
+    "actual_fold_count": 0,
+    "artifact_type": "research_os_mainline_execution",
+    "capability": "M4IsolatedRuntimeHealthCapabilityV11",
+    "completion_classification": "VALIDATED_IN_MAINLINE",
+    "completion_facts": [],
+    "control_plane_key": contract.CONTROL_PLANE_KEY,
+    "evidence_created": False,
+    "formal_p3_mutated": False,
+    "goal_key": contract.GOAL_KEY,
+    "historical_database_reads": 0,
+    "isolated_lineage": contract.LINEAGE_ID,
+    "numerical_result_payload_reads": 0,
+    "owned_accepted_workload_paths": [],
+    "owned_accepted_workload_sha256": [],
+    "production_action": "none",
+    "promotion_gate_opened": False,
+    "promotion_triggered": False,
+    "registered_artifact_count": 2,
+    "schema_version": supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+    "simulation": False,
+    "status": "COMPLETE",
+    "task_template": "runtime_health",
+    "working_tree_clean": True,
+    "workload_rerun": False,
+}
+_RUNTIME_HEALTH_COMPLETED_DYNAMIC_KEYS = frozenset(
+    {
+        "execution_artifact_digest",
+        "execution_artifact_path",
+        "git_commit",
+        "publication_batch_digest",
+    }
+)
+_RUNTIME_HEALTH_COMPLETED_STATIC = {
+    "actual_fold_count": 0,
+    "additional_completed_task_keys": [],
+    "completion_facts": [],
+    "formal_p3_mutated": False,
+    "isolated_lineage": contract.LINEAGE_ID,
+    "promotion_triggered": False,
+    "registered_artifact_count": 2,
+    "simulation": False,
+    "task_template": "runtime_health",
+    "workload_rerun": False,
 }
 
 
@@ -716,6 +814,483 @@ def load_completed_task_artifacts(
     if not output:
         raise IsolatedMainlineError("upstream_artifact_set_empty")
     return tuple(output)
+
+
+def _runtime_health_task_binding(task: Task) -> tuple[dict[str, str], str]:
+    try:
+        metric = json.loads(task.metric_contract)
+        raw = metric["render_context"]
+        context = contract.render_context(
+            source_max_issue=str(raw["source_max_issue"]),
+            source_max_draw_date=str(raw["source_max_draw_date"]),
+            target_issue=str(raw["target_issue"]),
+            target_draw_date=str(raw["target_draw_date"]),
+            batch_seq=int(raw["batch_seq"]),
+            epoch_date=str(raw["epoch_date"]),
+            minute=str(raw["minute"]),
+            incident_id=str(raw["incident_id"]),
+            incident_reason_code=str(raw["incident_reason_code"]),
+            incident_offending_digest=str(raw["incident_offending_digest"]),
+            cut_checkpoint_ref=str(raw["cut_checkpoint_ref"]),
+            projection_time=str(raw["projection_time"]),
+        )
+        source_digest = contract.require_digest(
+            metric["source_contract_digest"], field="runtime_health_source_digest"
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise IsolatedMainlineError("runtime_health_task_binding_changed") from exc
+    if (
+        metric.get("task_template") != "runtime_health"
+        or context != dict(raw)
+        or task.requested_capability != "M4IsolatedRuntimeHealthCapabilityV11"
+        or tuple(task.input_artifact_digests) != (source_digest,)
+    ):
+        raise IsolatedMainlineError("runtime_health_task_binding_changed")
+    return context, source_digest
+
+
+def _runtime_health_registration_payload(
+    *,
+    registration: Mapping[str, Any],
+    root_dir: Path,
+    task_key: str,
+    task_digest: str,
+    execution_id: str,
+) -> dict[str, Any]:
+    supervisor_module._registration_record(registration)
+    relative_path = str(registration.get("artifact_path") or "")
+    expected_prefix = (
+        f"runtime/isolated-24h-challenger-v11/artifacts/{task_key}/{execution_id}/"
+    )
+    path = (root_dir / relative_path).resolve()
+    if (
+        registration.get("control_plane_key") != contract.CONTROL_PLANE_KEY
+        or registration.get("task_key") != task_key
+        or registration.get("task_digest") != task_digest
+        or registration.get("execution_id") != execution_id
+        or not relative_path.startswith(expected_prefix)
+        or not path.is_relative_to(root_dir.resolve())
+        or not path.is_file()
+    ):
+        raise IsolatedMainlineError("runtime_health_registration_path_changed")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise IsolatedMainlineError(
+            "runtime_health_registration_content_changed"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise IsolatedMainlineError("runtime_health_registration_content_changed")
+    artifact_type = str(registration.get("artifact_type") or "")
+    artifact_digest = str(payload.get("artifact_digest") or "")
+    expected_relative_path = (
+        f"{expected_prefix}execution.json"
+        if artifact_type == "research_os_mainline_execution"
+        else (
+            f"{expected_prefix}isolated-v11-000-"
+            f"m4isolatedruntimehealthv11/{artifact_digest}/artifact.json"
+        )
+    )
+    if (
+        artifact_type
+        not in {"M4IsolatedRuntimeHealthV11", "research_os_mainline_execution"}
+        or relative_path != expected_relative_path
+    ):
+        raise IsolatedMainlineError("runtime_health_registration_path_changed")
+    return payload
+
+
+def _validate_runtime_health_zero_operation_metadata(
+    *, execution: Mapping[str, Any], completed_summary: Mapping[str, Any]
+) -> None:
+    if (
+        set(execution)
+        != _RUNTIME_HEALTH_EXECUTION_DYNAMIC_KEYS
+        | set(_RUNTIME_HEALTH_EXECUTION_STATIC)
+        or any(
+            execution.get(key) != value
+            for key, value in _RUNTIME_HEALTH_EXECUTION_STATIC.items()
+        )
+        or set(completed_summary)
+        != _RUNTIME_HEALTH_COMPLETED_DYNAMIC_KEYS
+        | set(_RUNTIME_HEALTH_COMPLETED_STATIC)
+        or any(
+            completed_summary.get(key) != value
+            for key, value in _RUNTIME_HEALTH_COMPLETED_STATIC.items()
+        )
+        or re.fullmatch(r"[0-9a-f]{40}", str(execution.get("git_commit") or "")) is None
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(completed_summary.get("publication_batch_digest") or ""),
+        )
+        is None
+    ):
+        raise IsolatedMainlineError("runtime_health_zero_operation_metadata_changed")
+
+
+def _validate_runtime_health_source_registrations(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    source_digests: Sequence[str],
+) -> None:
+    expected = sorted(
+        {
+            contract.require_digest(item, field="runtime_health_source_digest")
+            for item in source_digests
+        }
+    )
+    if not expected:
+        return
+    with (
+        repository.connection_factory() as connection,
+        connection.cursor() as cursor,
+    ):
+        rows = cursor.execute(
+            "SELECT artifact_digest,artifact_type,artifact_json,"
+            "parent_digests_json,git_commit,source_path,content_sha256 "
+            "FROM m4_isolated_v11.registered_inputs "
+            "WHERE artifact_digest=ANY(%s)",
+            (expected,),
+        ).fetchall()
+    if len(rows) != len(expected):
+        raise IsolatedMainlineError("runtime_health_source_registration_missing")
+    by_digest = {str(row[0]): row for row in rows}
+    if set(by_digest) != set(expected):
+        raise IsolatedMainlineError("runtime_health_source_registration_missing")
+    for digest in expected:
+        row = by_digest[digest]
+        parsed = validate_registered_input_payload(dict(row[2]))
+        git_commit = str(row[4] or "")
+        source_path = str(row[5] or "")
+        if (
+            parsed.get("artifact_digest") != digest
+            or str(row[1]) != contract.SOURCE_ARTIFACT_TYPE
+            or parsed.get("artifact_type") != contract.SOURCE_ARTIFACT_TYPE
+            or list(row[3]) != []
+            or re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
+            or source_path != contract.SOURCE_CONTRACT_PATH
+            or re.fullmatch(r"[0-9a-f]{64}", str(row[6] or "")) is None
+        ):
+            raise IsolatedMainlineError("runtime_health_source_registration_changed")
+        archived = subprocess.run(
+            ["git", "show", f"{git_commit}:{source_path}"],
+            cwd=root_dir,
+            check=False,
+            capture_output=True,
+        )
+        try:
+            archived_payload = json.loads(archived.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise IsolatedMainlineError(
+                "runtime_health_source_content_changed"
+            ) from exc
+        if (
+            archived.returncode != 0
+            or hashlib.sha256(archived.stdout).hexdigest() != str(row[6])
+            or archived_payload != parsed
+        ):
+            raise IsolatedMainlineError("runtime_health_source_content_changed")
+
+
+def _validate_runtime_health_sequence(
+    *, entries: Sequence[dict[str, Any]], preregistration_digest: str
+) -> tuple[dict[str, Any], ...]:
+    ordered = sorted(
+        entries,
+        key=lambda item: (
+            item["completed_at"],
+            item["task_key"],
+            item["completed_event_digest"],
+        ),
+    )
+    minutes = [str(item["minute"]) for item in ordered]
+    if len(minutes) != len(set(minutes)):
+        raise IsolatedMainlineError("runtime_health_minute_not_unique")
+    legacy = [
+        item
+        for item in ordered
+        if item["parent_digest"] == _RUNTIME_HEALTH_LEGACY_ROOT_DIGEST
+    ]
+    production_lineage = bool(
+        preregistration_digest == _RUNTIME_HEALTH_LEGACY_ROOT_DIGEST or legacy
+    )
+    if production_lineage:
+        if len(legacy) != _RUNTIME_HEALTH_LEGACY_COUNT:
+            raise IsolatedMainlineError("runtime_health_legacy_cohort_count_changed")
+        preimage = {
+            "schema_version": _RUNTIME_HEALTH_LEGACY_COHORT_SCHEMA,
+            "field_order": list(_RUNTIME_HEALTH_LEGACY_FIELD_ORDER),
+            "records": [item["record"] for item in legacy],
+        }
+        if (
+            contract.domain_digest(
+                preimage, domain=_RUNTIME_HEALTH_LEGACY_COHORT_DOMAIN
+            )
+            != _RUNTIME_HEALTH_LEGACY_COHORT_DIGEST
+        ):
+            raise IsolatedMainlineError("runtime_health_legacy_cohort_digest_changed")
+        anchor = legacy[-1]
+        if (
+            anchor["completed_at"].isoformat()
+            != _RUNTIME_HEALTH_LEGACY_ANCHOR_RECORDED_AT
+            or anchor["task_key"] != _RUNTIME_HEALTH_LEGACY_ANCHOR_TASK_KEY
+            or anchor["completed_event_digest"]
+            != _RUNTIME_HEALTH_LEGACY_ANCHOR_COMPLETED_EVENT_DIGEST
+            or anchor["artifact"]["artifact_digest"]
+            != _RUNTIME_HEALTH_LEGACY_ANCHOR_ARTIFACT_DIGEST
+        ):
+            raise IsolatedMainlineError("runtime_health_legacy_anchor_changed")
+        previous = anchor
+        successors = [item for item in ordered if item not in legacy]
+        for item in successors:
+            if (
+                item["completed_at"] <= previous["completed_at"]
+                or item["parent_digest"] != previous["artifact"]["artifact_digest"]
+            ):
+                raise IsolatedMainlineError("runtime_health_successor_chain_changed")
+            previous = item
+        return (*legacy, *successors)
+
+    previous_digest = preregistration_digest
+    for item in ordered:
+        if item["parent_digest"] != previous_digest:
+            raise IsolatedMainlineError("runtime_health_parent_chain_changed")
+        previous_digest = str(item["artifact"]["artifact_digest"])
+    return tuple(ordered)
+
+
+def validated_runtime_health_history(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    preregistration: Mapping[str, Any],
+    manifest: Any | None = None,
+) -> tuple[dict[str, Any], ...]:
+    """Validate the canonical COMPLETE health provenance and frozen live cohort."""
+
+    live = manifest or repository.load_manifest(
+        control_plane_key=contract.CONTROL_PLANE_KEY
+    )
+    facts = set(live.facts.artifacts)
+    entries: list[dict[str, Any]] = []
+    completed_source_digests: list[str] = []
+    for task in live.tasks:
+        if task.requested_capability != "M4IsolatedRuntimeHealthCapabilityV11":
+            continue
+        context, source_digest = _runtime_health_task_binding(task)
+        state = live.task_state_by_digest.get(task.artifact_digest)
+        completion_fact_prefix = (
+            f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+        )
+        task_completion_facts = {
+            item
+            for item in facts
+            if item.startswith(completion_fact_prefix) and item.endswith(":completed")
+        }
+        activation_fact = f"{task.task_key}:COMPLETE"
+        forbidden_activation_fact = f"{task.task_key}:HEALTH_RECORDED"
+        if forbidden_activation_fact in facts:
+            raise IsolatedMainlineError("runtime_health_noncanonical_activation_fact")
+        if state is None:
+            raise IsolatedMainlineError("runtime_health_task_state_missing")
+        if state.declared_status is not TaskStatus.COMPLETED:
+            if task_completion_facts or activation_fact in facts:
+                raise IsolatedMainlineError("runtime_health_noncompleted_fact_changed")
+            continue
+        if state.completion_classification is not CompletionClassification.COMPLETE:
+            raise IsolatedMainlineError("runtime_health_completion_state_changed")
+
+        events = repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=task.task_key,
+        )
+        try:
+            event_pairs = sorted(
+                ((supervisor_module._event_record(item), item) for item in events),
+                key=lambda pair: pair[0].sequence,
+            )
+        except (MainlineSupervisorError, TypeError, ValueError) as exc:
+            raise IsolatedMainlineError(
+                "runtime_health_event_integrity_changed"
+            ) from exc
+        if len(event_pairs) != 2 or [
+            (item.event_type, item.sequence) for item, _ in event_pairs
+        ] != [("started", 0), ("completed", 1)]:
+            raise IsolatedMainlineError("runtime_health_event_set_changed")
+        started, _ = event_pairs[0]
+        completed, completed_raw = event_pairs[1]
+        if started.execution_id != completed.execution_id or any(
+            item.control_plane_key != contract.CONTROL_PLANE_KEY
+            or item.task_key != task.task_key
+            or item.task_digest != task.artifact_digest
+            or item.capability != "M4IsolatedRuntimeHealthCapabilityV11"
+            for item, _ in event_pairs
+        ):
+            raise IsolatedMainlineError("runtime_health_event_identity_changed")
+        try:
+            started_at = datetime.fromisoformat(started.recorded_at)
+            completed_at = datetime.fromisoformat(completed.recorded_at)
+        except ValueError as exc:
+            raise IsolatedMainlineError(
+                "runtime_health_event_timestamp_changed"
+            ) from exc
+        if (
+            started_at.tzinfo is None
+            or started_at.utcoffset() is None
+            or completed_at.tzinfo is None
+            or completed_at.utcoffset() is None
+            or completed_at <= started_at
+        ):
+            raise IsolatedMainlineError("runtime_health_event_timestamp_changed")
+        completed_at_utc = completed_at.astimezone(UTC)
+        expected_completion_fact = (
+            f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            f"{completed.execution_id}:completed"
+        )
+        if (
+            task_completion_facts != {expected_completion_fact}
+            or activation_fact not in facts
+        ):
+            raise IsolatedMainlineError("runtime_health_completion_fact_changed")
+
+        summary = _event_payload(completed_raw)
+        registrations = repository.list_mainline_artifacts(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            execution_id=completed.execution_id,
+        )
+        if len(registrations) != 2:
+            raise IsolatedMainlineError("runtime_health_registration_set_changed")
+        by_type: dict[str, Mapping[str, Any]] = {}
+        payload_by_type: dict[str, dict[str, Any]] = {}
+        for registration in registrations:
+            artifact_type = str(registration.get("artifact_type") or "")
+            if artifact_type in by_type:
+                raise IsolatedMainlineError("runtime_health_registration_set_changed")
+            by_type[artifact_type] = registration
+            payload_by_type[artifact_type] = _runtime_health_registration_payload(
+                registration=registration,
+                root_dir=root_dir,
+                task_key=task.task_key,
+                task_digest=task.artifact_digest,
+                execution_id=completed.execution_id,
+            )
+        if set(by_type) != {
+            "M4IsolatedRuntimeHealthV11",
+            "research_os_mainline_execution",
+        }:
+            raise IsolatedMainlineError("runtime_health_registration_set_changed")
+
+        health_values = load_completed_task_artifacts(
+            repository=repository,
+            root_dir=root_dir,
+            task_key=task.task_key,
+        )
+        health = _unique_type(health_values, "M4IsolatedRuntimeHealthV11")
+        health_registration = by_type["M4IsolatedRuntimeHealthV11"]
+        execution_registration = by_type["research_os_mainline_execution"]
+        execution = payload_by_type["research_os_mainline_execution"]
+        _validate_runtime_health_zero_operation_metadata(
+            execution=execution, completed_summary=summary
+        )
+        execution_identity = dict(execution)
+        execution_digest = str(execution_identity.pop("artifact_digest", ""))
+        health_parents = tuple(health.get("parent_digests") or ())
+        expected_execution_parents = (
+            *tuple(task.input_artifact_digests),
+            str(health["artifact_digest"]),
+        )
+        if (
+            len(health_parents) != 1
+            or health["body"].get("minute") != context["minute"]
+            or health["body"].get("task_key") != task.task_key
+            or health["body"].get("source_contract_digest") != source_digest
+            or health["body"].get("git_commit") != health_registration.get("git_commit")
+            or health_registration.get("artifact_digest") != health["artifact_digest"]
+            or health_registration.get("schema_version") != health.get("schema_version")
+            or health_registration.get("git_commit") != execution.get("git_commit")
+            or tuple(health_registration.get("parent_digests") or ()) != health_parents
+            or execution_digest
+            != canonical_digest(
+                execution_identity, domain="dehps.research-os.mainline-execution.v1"
+            )
+            or execution_registration.get("artifact_digest") != execution_digest
+            or execution_registration.get("schema_version")
+            != supervisor_module.MAINLINE_EXECUTION_SCHEMA
+            or tuple(execution_registration.get("parent_digests") or ())
+            != expected_execution_parents
+            or execution_registration.get("git_commit") != execution.get("git_commit")
+            or execution.get("schema_version")
+            != supervisor_module.MAINLINE_EXECUTION_SCHEMA
+            or execution.get("artifact_type") != "research_os_mainline_execution"
+            or execution.get("execution_id") != completed.execution_id
+            or execution.get("control_plane_key") != contract.CONTROL_PLANE_KEY
+            or execution.get("task_key") != task.task_key
+            or execution.get("task_digest") != task.artifact_digest
+            or execution.get("capability") != "M4IsolatedRuntimeHealthCapabilityV11"
+            or execution.get("status") != "COMPLETE"
+            or execution.get("completion_classification") != "VALIDATED_IN_MAINLINE"
+            or execution.get("input_artifact_digests")
+            != list(task.input_artifact_digests)
+            or execution.get("registered_artifact_count") != 2
+            or execution.get("parent_digests") != list(expected_execution_parents)
+            or execution.get("workload_rerun") is not False
+            or dict(started.payload)
+            != {
+                "git_commit": execution.get("git_commit"),
+                "input_artifact_digests": list(task.input_artifact_digests),
+            }
+            or summary.get("execution_artifact_digest") != execution_digest
+            or summary.get("execution_artifact_path")
+            != execution_registration.get("artifact_path")
+            or summary.get("registered_artifact_count") != 2
+            or summary.get("git_commit") != execution.get("git_commit")
+        ):
+            raise IsolatedMainlineError("runtime_health_artifact_provenance_changed")
+
+        completed_source_digests.append(source_digest)
+
+        record = [
+            context["minute"],
+            task.task_key,
+            task.artifact_digest,
+            source_digest,
+            completed.execution_id,
+            started.artifact_digest,
+            completed.artifact_digest,
+            completed_at_utc.isoformat(),
+            expected_completion_fact,
+            activation_fact,
+            health["artifact_digest"],
+            health_registration["registration_digest"],
+            execution_digest,
+            execution_registration["registration_digest"],
+            health_parents[0],
+        ]
+        entries.append(
+            {
+                "record": record,
+                "artifact": health,
+                "completed_at": completed_at_utc,
+                "task_key": task.task_key,
+                "minute": context["minute"],
+                "parent_digest": health_parents[0],
+                "completed_event_digest": completed.artifact_digest,
+                "execution": execution,
+                "completed_summary": summary,
+                "started_payload": dict(started.payload),
+            }
+        )
+
+    _validate_runtime_health_source_registrations(
+        repository=repository,
+        root_dir=root_dir,
+        source_digests=completed_source_digests,
+    )
+    preregistration_digest = str(preregistration.get("artifact_digest") or "")
+    return _validate_runtime_health_sequence(
+        entries=entries, preregistration_digest=preregistration_digest
+    )
 
 
 def replay_exact_sequence3_committed_execution(
@@ -5870,7 +6445,6 @@ class IsolatedV11Capability:
         preregistration = _unique_type(
             self._upstream("preregistration"), "M4IsolatedPreregistrationV11"
         )
-        self._latest_runtime_health(preregistration=preregistration)
         epoch_day = date.fromisoformat(
             f"{self.context['epoch_date'][:4]}-"
             f"{self.context['epoch_date'][4:6]}-"
@@ -5984,40 +6558,22 @@ class IsolatedV11Capability:
         manifest = self.repository.load_manifest(
             control_plane_key=contract.CONTROL_PLANE_KEY
         )
-        manifest_facts = set(manifest.facts.artifacts)
-        health_events = [
+        health_history = validated_runtime_health_history(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            preregistration=preregistration,
+            manifest=manifest,
+        )
+        window_health = [
             item
-            for item in self.repository.list_mainline_execution_event_metadata(
-                control_plane_key=contract.CONTROL_PLANE_KEY
-            )
-            if item["event_type"] == "completed"
-            and item["task_key"].startswith(
-                "m4-isolated-24h-challenger-v11-runtime-health-"
-            )
-            and window_start
-            <= datetime.fromisoformat(str(item["recorded_at"]))
-            < window_end
+            for item in health_history
+            if window_start.astimezone(UTC)
+            <= item["completed_at"]
+            < window_end.astimezone(UTC)
         ]
-        health_events.sort(key=lambda item: str(item["task_key"]))
-        health_artifacts: list[dict[str, Any]] = []
-        minutes: list[str] = []
-        for event in health_events:
-            health = _unique_type(
-                load_completed_task_artifacts(
-                    repository=self.repository,
-                    root_dir=self.root_dir,
-                    task_key=str(event["task_key"]),
-                ),
-                "M4IsolatedRuntimeHealthV11",
-            )
-            minute = str(health["body"].get("minute") or "")
-            if (
-                f"{event['task_key']}:HEALTH_RECORDED" not in manifest_facts
-                or minute in minutes
-            ):
-                raise IsolatedMainlineError("daily_health_registration_changed")
-            minutes.append(minute)
-            health_artifacts.append(health)
+        window_health.sort(key=lambda item: str(item["minute"]))
+        minutes = [str(item["minute"]) for item in window_health]
+        health_artifacts = [dict(item["artifact"]) for item in window_health]
         if minutes != sorted(minutes):
             raise IsolatedMainlineError("daily_health_minute_order_changed")
         observed_memory = [
@@ -6411,29 +6967,12 @@ class IsolatedV11Capability:
     def _latest_runtime_health(
         self, *, preregistration: Mapping[str, Any]
     ) -> dict[str, Any]:
-        manifest = self.repository.load_manifest(
-            control_plane_key=contract.CONTROL_PLANE_KEY
+        history = validated_runtime_health_history(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            preregistration=preregistration,
         )
-        facts = set(manifest.facts.artifacts)
-        health: list[dict[str, Any]] = []
-        for task in manifest.tasks:
-            if (
-                task.requested_capability != "M4IsolatedRuntimeHealthCapabilityV11"
-                or f"{task.task_key}:HEALTH_RECORDED" not in facts
-            ):
-                continue
-            values = load_completed_task_artifacts(
-                repository=self.repository,
-                root_dir=self.root_dir,
-                task_key=task.task_key,
-            )
-            health.append(_unique_type(values, "M4IsolatedRuntimeHealthV11"))
-        previous = dict(preregistration)
-        for item in sorted(health, key=lambda value: str(value["body"]["minute"])):
-            if item["parent_digests"] != [previous["artifact_digest"]]:
-                raise IsolatedMainlineError("runtime_health_parent_chain_changed")
-            previous = item
-        return previous
+        return dict(history[-1]["artifact"]) if history else dict(preregistration)
 
     def _runtime_health(
         self, *, task_key: str, git_commit: str

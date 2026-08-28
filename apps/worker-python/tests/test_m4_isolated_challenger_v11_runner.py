@@ -144,6 +144,53 @@ def test_daily_recovery_command_is_an_explicit_operator_surface() -> None:
         match="historical_source_transition_fix_binding_changed",
     ):
         runner._validate_daily_recovery_transition_fix_source_binding(corrupted)
+    health_expected = {
+        "health_provenance_running_recovery_base_merged_commit": (
+            "38a00a2c46427677e893b355c553e01b086f04eb"
+        ),
+        "health_provenance_running_recovery_engineering_request_key": (
+            "engineering-m4-isolated-v11-health-provenance-and-running-daily-recovery-fix-v2"
+        ),
+        "health_provenance_running_recovery_engineering_request_id": 795,
+        "health_provenance_running_recovery_engineering_approval_decision_id": 3387,
+        "health_provenance_running_recovery_engineering_execution_id": 640,
+        "health_provenance_running_recovery_engineering_request_payload_sha256": (
+            "20047c995e9ecaf64ac2732118c649488341dc65dd936b9d4a2b6b523d7fc21e"
+        ),
+    }
+    assert {
+        key: source["governance_bindings"].get(key) for key in health_expected
+    } == health_expected
+    runner._validate_health_provenance_running_recovery_source_binding(source)
+    corrupted = json.loads(json.dumps(source))
+    corrupted["governance_bindings"].pop(next(iter(health_expected)))
+    with pytest.raises(
+        runner.IsolatedRunnerError,
+        match="health_provenance_running_recovery_binding_changed",
+    ):
+        runner._validate_health_provenance_running_recovery_source_binding(corrupted)
+
+
+def test_runtime_health_activation_is_canonical_complete_and_never_backfilled() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = _context()
+    template = contract.task_template_by_name("runtime_health")
+    task_key = template.key(context)
+    assert runner._activation_facts(
+        task_key=task_key,
+        template=template,
+        context=context,
+        repository=SimpleNamespace(),
+    ) == (f"{task_key}:COMPLETE",)
+    source = (
+        ROOT / "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py"
+    ).read_text(encoding="utf-8")
+    activation = source[
+        source.index("def _activation_facts(") : source.index(
+            "def _activation_present(", source.index("def _activation_facts(")
+        )
+    ]
+    assert "HEALTH_RECORDED" not in activation
 
 
 def test_install_without_apply_is_non_mutating() -> None:
@@ -568,6 +615,358 @@ def test_daily_recovery_gate_allows_only_exact_historical_source_transition(
             )
 
 
+def test_daily_recovery_exact_running_manifest_resumes_same_single_use_gate(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        batch_seq=0,
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    payload, _ = runner.builder.build_manifest(
+        context=context,
+        source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        operator_configuration_authorized=True,
+        simulation_events=False,
+    )
+    base = ControlPlaneManifest.from_dict(payload)
+    original_tasks = {item.artifact_digest: item for item in base.tasks}
+    frozen_tasks = tuple(
+        replace(item, goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        for item in base.tasks
+    )
+    frozen_by_key = {item.task_key: item for item in frozen_tasks}
+    daily = frozen_by_key[contract.DAILY_RECOVERY_TASK_KEY]
+    frozen_states = tuple(
+        replace(
+            state,
+            task_digest=frozen_by_key[
+                original_tasks[state.task_digest].task_key
+            ].artifact_digest,
+        )
+        for state in base.task_states
+    )
+    failed = replace(
+        base,
+        tasks=frozen_tasks,
+        task_states=tuple(
+            replace(
+                state,
+                declared_status=TaskStatus.FAILED,
+                completion_classification=CompletionClassification.INTEGRATED,
+            )
+            if state.task_digest == daily.artifact_digest
+            else state
+            for state in frozen_states
+        ),
+    )
+    running = replace(
+        failed,
+        task_states=tuple(
+            replace(
+                state,
+                declared_status=TaskStatus.RUNNING,
+                completion_classification=CompletionClassification.INTEGRATED,
+            )
+            if state.task_digest == daily.artifact_digest
+            else state
+            for state in failed.task_states
+        ),
+    )
+    completion_fact = (
+        f"mainline-execution:{daily.task_key}:{daily.artifact_digest}:"
+        f"{contract.DAILY_RECOVERY_EXECUTION_ID}:completed"
+    )
+    completed = replace(
+        running,
+        task_states=tuple(
+            replace(
+                state,
+                declared_status=TaskStatus.COMPLETED,
+                completion_classification=CompletionClassification.COMPLETE,
+            )
+            if state.task_digest == daily.artifact_digest
+            else state
+            for state in running.task_states
+        ),
+        facts=replace(
+            running.facts,
+            artifacts=running.facts.artifacts | frozenset({completion_fact}),
+        ),
+    )
+    monkeypatch.setattr(
+        runner, "DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST", failed.artifact_digest
+    )
+    monkeypatch.setattr(
+        runner, "DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST", running.artifact_digest
+    )
+    repository = object.__new__(runner.IsolatedChallengerRepository)
+    repository.context = context
+    repository.source_digest = "f" * 64
+    repository._fact_gate = None
+    repository._definition_gate = None
+    repository._bootstrap_rebind_gate = None
+    repository._user_scope_resume_event_gate = False
+    repository._user_scope_failed_transition_gate = None
+    repository._daily_recovery_event_gate = False
+    repository._daily_recovery_transition_gate = None
+    repository._evolving_source_rebind_gate = None
+    repository.load_manifest = lambda **_kwargs: running
+    monkeypatch.setattr(
+        runner.PostgresResearchOSRepository,
+        "_verify_mainline_completion_records",
+        lambda *_args, **_kwargs: None,
+    )
+
+    class _Cursor:
+        statement = ""
+
+        def execute(self, statement, _params):
+            self.statement = statement
+            return self
+
+        def fetchone(self):
+            if "current_manifest_digest" in self.statement:
+                return {"current_manifest_digest": running.artifact_digest}
+            return {"manifest_json": running.to_dict(include_digest=True)}
+
+    with repository.daily_recovery_event_view():
+        assert repository._daily_recovery_transition_gate == {
+            "current_manifest_digest": failed.artifact_digest,
+            "running_manifest_digest": running.artifact_digest,
+            "router_consumed": True,
+            "completion_consumed": True,
+            "authoritative_completion_consumed": False,
+        }
+        repository._verify_exact_transition(completed)
+        monkeypatch.setattr(
+            runner.ControlPlaneManifest,
+            "from_dict",
+            classmethod(lambda _cls, _value: running),
+        )
+        repository._verify_mainline_completion_records(
+            _Cursor(),
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            manifest=completed,
+        )
+        assert (
+            repository._daily_recovery_transition_gate[
+                "authoritative_completion_consumed"
+            ]
+            is True
+        )
+        with pytest.raises(
+            runner.ResearchOSValidationError,
+            match="authoritative_completion_gate_changed",
+        ):
+            repository._verify_mainline_completion_records(
+                _Cursor(),
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                manifest=completed,
+            )
+    assert repository._daily_recovery_event_gate is False
+    assert repository._daily_recovery_transition_gate is None
+
+    for corrupted in (
+        "0" * 64,
+        failed.artifact_digest,
+    ):
+        monkeypatch.setattr(runner, "DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST", corrupted)
+        with (
+            pytest.raises(runner.IsolatedRunnerError, match="current_manifest_changed"),
+            repository.daily_recovery_event_view(),
+        ):
+            pass
+
+    repository.load_manifest = lambda **_kwargs: failed
+    monkeypatch.setattr(
+        runner, "DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST", running.artifact_digest
+    )
+    with (
+        pytest.raises(runner.IsolatedRunnerError, match="current_manifest_changed"),
+        repository.daily_recovery_event_view(),
+    ):
+        pass
+
+
+@pytest.mark.parametrize(
+    ("corruption", "expected_error"),
+    (
+        (None, None),
+        ("registration", "live_registration_changed"),
+        ("output", "live_output_changed"),
+        ("delivery", "delivery_or_incident_state_changed"),
+        ("incident", "delivery_or_incident_state_changed"),
+        ("p3", "formal_p3_identity_changed"),
+        ("source", "failed_operator_source_changed"),
+        ("attestation", "failed_operator_attestation_changed"),
+    ),
+)
+def test_daily_recovery_live_preflight_accepts_only_exact_d2c_resume_shape(
+    monkeypatch, tmp_path, corruption, expected_error
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        batch_seq=0,
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    daily_task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+        metric_contract=json.dumps(
+            {
+                "render_context": context,
+                "source_contract_digest": contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    state = SimpleNamespace(
+        declared_status=TaskStatus.RUNNING,
+        completion_classification=CompletionClassification.INTEGRATED,
+    )
+    manifest = SimpleNamespace(
+        artifact_digest=runner.DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        tasks=(daily_task,),
+        task_state_by_digest={daily_task.artifact_digest: state},
+    )
+    events = (
+        SimpleNamespace(
+            event_type="started",
+            sequence=0,
+            artifact_digest=contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+            task_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+        ),
+        SimpleNamespace(
+            event_type="failed",
+            sequence=1,
+            artifact_digest=contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+            task_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+        ),
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _statement, _params=None):
+            return self
+
+        def fetchone(self):
+            return (1 if corruption == "delivery" else 0,)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return manifest
+
+        @staticmethod
+        def list_mainline_execution_events(**_kwargs):
+            return events
+
+        @staticmethod
+        def list_mainline_artifacts(**_kwargs):
+            return ({"unexpected": True},) if corruption == "registration" else ()
+
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    monkeypatch.setattr(runner, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(runner, "_event_record", lambda value: value)
+    monkeypatch.setattr(
+        runner.mainline,
+        "latest_incident_ledger_state",
+        lambda **_kwargs: {
+            "open_incident_ids": (
+                []
+                if corruption == "incident"
+                else [contract.DAILY_RECOVERY_INCIDENT_ID]
+            ),
+            "transition_seq": 0,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_p3_source_identity",
+        lambda: {
+            "artifact_digest": (
+                "0" * 64 if corruption == "p3" else contract.FORMAL_P3_SOURCE_DIGEST
+            ),
+            "source_set_digest": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
+        },
+    )
+
+    def _input_prestate(**_kwargs):
+        if corruption == "source":
+            raise runner.IsolatedRunnerError(
+                "daily_recovery_failed_operator_source_changed"
+            )
+        if corruption == "attestation":
+            raise runner.IsolatedRunnerError(
+                "daily_recovery_failed_operator_attestation_changed"
+            )
+
+    monkeypatch.setattr(
+        runner, "_daily_recovery_failed_operator_input_prestate", _input_prestate
+    )
+    monkeypatch.setattr(
+        runner,
+        "_isolated_units_quiescent",
+        lambda: {"timer": "inactive", "service": "inactive", "main_pid": 0},
+    )
+    if corruption == "output":
+        output = (
+            tmp_path
+            / "runtime/isolated-24h-challenger-v11/artifacts"
+            / contract.DAILY_RECOVERY_TASK_KEY
+            / contract.DAILY_RECOVERY_EXECUTION_ID
+        )
+        output.mkdir(parents=True)
+
+    if expected_error is None:
+        live, live_context, incident = runner._daily_recovery_live_preflight(
+            repository=_Repository()
+        )
+        assert live is manifest
+        assert live_context == context
+        assert incident["open_incident_ids"] == [contract.DAILY_RECOVERY_INCIDENT_ID]
+    else:
+        with pytest.raises(runner.IsolatedRunnerError, match=expected_error):
+            runner._daily_recovery_live_preflight(repository=_Repository())
+
+
 def test_daily_recovery_historical_tasks_require_exact_transient_states() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
     context = contract.render_context(
@@ -940,9 +1339,9 @@ def test_daily_recovery_exact_live_shape_enters_only_the_frozen_gate(
     for source_digest, count in source_counts.items():
         for _ in range(count):
             rendered = dict(context)
-            rendered["minute"] = (minute_zero + timedelta(minutes=minute_index)).strftime(
-                "%Y%m%d%H%M"
-            )
+            rendered["minute"] = (
+                minute_zero + timedelta(minutes=minute_index)
+            ).strftime("%Y%m%d%H%M")
             minute_index += 1
             payload, _ = runner.builder.build_manifest(
                 context=rendered,
@@ -954,12 +1353,9 @@ def test_daily_recovery_exact_live_shape_enters_only_the_frozen_gate(
             raw_task = next(
                 item
                 for item in generated.tasks
-                if json.loads(item.metric_contract)["task_template"]
-                == "runtime_health"
+                if json.loads(item.metric_contract)["task_template"] == "runtime_health"
             )
-            task = replace(
-                raw_task, goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST
-            )
+            task = replace(raw_task, goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
             state = replace(
                 generated.task_state_by_digest[raw_task.artifact_digest],
                 task_digest=task.artifact_digest,
@@ -1010,9 +1406,7 @@ def test_daily_recovery_exact_live_shape_enters_only_the_frozen_gate(
     )
     assert draft_keys.issubset(daily_tasks)
     frozen_drafts = tuple(
-        replace(
-            daily_tasks[key], goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST
-        )
+        replace(daily_tasks[key], goal_digest=runner.LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
         for key in sorted(draft_keys)
     )
     draft_states = tuple(
@@ -1084,9 +1478,7 @@ def test_daily_recovery_exact_live_shape_enters_only_the_frozen_gate(
     repository.load_manifest = lambda **_kwargs: current
 
     status_counts = {
-        status: sum(
-            state.declared_status is status for state in current.task_states
-        )
+        status: sum(state.declared_status is status for state in current.task_states)
         for status in (TaskStatus.COMPLETED, TaskStatus.DRAFT, TaskStatus.FAILED)
     }
     assert len(current.tasks) == 110
@@ -1307,9 +1699,7 @@ def test_daily_mail_recovery_reuses_failed_attempt_inputs_and_sends_exactly_once
     monkeypatch,
 ) -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    source_digest = (
-        "f04aaf3c0e73725a9c54e32024fda62c296fa24fd02bf93372994c5c7ef0c830"
-    )
+    source_digest = "f04aaf3c0e73725a9c54e32024fda62c296fa24fd02bf93372994c5c7ef0c830"
     attestation_digest = (
         "0f9e8bf4bbffbc1e2188f49ed261515a49ec24e03d17be3d88befe05a3b2477d"
     )
@@ -1521,6 +1911,115 @@ def test_daily_mail_recovery_reuses_failed_attempt_inputs_and_sends_exactly_once
     assert result["scientific_workloads"] == 0
     assert result["formal_p3_mutated"] is False
     assert result["p4_p5_p6_or_promotion_triggered"] is False
+
+
+def test_recovery_completion_is_committed_then_replayed_before_activation(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+    )
+    manifest = SimpleNamespace(
+        tasks=(task,), facts=SimpleNamespace(artifacts=frozenset())
+    )
+    order: list[str] = []
+
+    class _Supervisor:
+        def __init__(self, **_kwargs):
+            pass
+
+        @staticmethod
+        def run_once(*, task_key):
+            order.append("atomic_commit")
+            return {
+                "status": "COMPLETE",
+                "task_key": task_key,
+                "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            }
+
+        @staticmethod
+        def replay(*, task_key, execution_id):
+            assert task_key == contract.DAILY_RECOVERY_TASK_KEY
+            assert execution_id == contract.DAILY_RECOVERY_EXECUTION_ID
+            order.append("typed_and_generic_replay")
+            return {
+                "status": "REPLAY_VERIFIED",
+                "same_execution_identity": True,
+                "same_artifact_identity": True,
+                "same_artifact_content": True,
+                "all_registrations_and_parent_chains_exact": True,
+                "manual_input_assembly": False,
+                "dispatch_performed": False,
+            }
+
+    class _Repository:
+        def __init__(self):
+            self.imported: list[tuple[str, ...]] = []
+
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return manifest
+
+        def import_verified_facts(self, facts):
+            order.append("ordinary_activation")
+            self.imported.append(tuple(facts))
+
+    monkeypatch.setattr(runner.mainline, "IsolatedChallengerSupervisor", _Supervisor)
+    original_activation = runner._activation_facts
+
+    def _activation(**activation_kwargs):
+        order.append("ordinary_activation")
+        return original_activation(**activation_kwargs)
+
+    monkeypatch.setattr(runner, "_activation_facts", _activation)
+    repository = _Repository()
+    kwargs = {
+        "repository": repository,
+        "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+        "context": context,
+        "source_digest": contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+        "runtime_source_digest": "a" * 64,
+        "runtime_git_commit": "b" * 40,
+        "attestation_digest": "c" * 64,
+    }
+    result = runner._dispatch_recovery_task(**kwargs)
+    assert order == [
+        "atomic_commit",
+        "typed_and_generic_replay",
+        "ordinary_activation",
+    ]
+    assert repository.imported == []
+    assert result["generic_replay"] == "REPLAY_VERIFIED"
+
+    order.clear()
+    repository.imported.clear()
+    monkeypatch.setattr(
+        _Supervisor,
+        "replay",
+        staticmethod(
+            lambda **_kwargs: {
+                "status": "REPLAY_FAILED",
+                "same_execution_identity": False,
+            }
+        ),
+    )
+    with pytest.raises(runner.IsolatedRunnerError, match="generic_replay_failed"):
+        runner._dispatch_recovery_task(**kwargs)
+    assert order == ["atomic_commit"]
+    assert repository.imported == []
 
 
 def test_roll_forward_before_preregistration_never_loads_completed_health(
@@ -1962,6 +2461,86 @@ def test_resource_probe_reads_exact_user_manager_formal_p3_unit(monkeypatch) -> 
         ]
     ]
     assert contract.formal_p3_activity_state(observation) == "QUIESCENT"
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    (None, "failed", "running_pid", "missing", "duplicate", "noninteger", "error"),
+)
+def test_daily_recovery_quiescence_requires_exact_dead_pidless_isolated_units(
+    monkeypatch, corruption
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        assert kwargs == {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "timeout": 5,
+        }
+        values = [
+            "LoadState=loaded",
+            "ActiveState=inactive",
+            "SubState=dead",
+        ]
+        is_service = command[3].endswith(".service")
+        if is_service:
+            values.extend(("MainPID=0", "ControlPID=0"))
+        if corruption == "failed":
+            values[1:3] = ["ActiveState=failed", "SubState=failed"]
+        elif corruption == "running_pid" and is_service:
+            values[3] = "MainPID=123"
+        elif corruption == "missing" and is_service:
+            values.pop()
+        elif corruption == "duplicate":
+            values.append("LoadState=loaded")
+        elif corruption == "noninteger" and is_service:
+            values[4] = "ControlPID=not-an-integer"
+        return SimpleNamespace(
+            returncode=1 if corruption == "error" else 0,
+            stdout="\n".join(values) + "\n",
+        )
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    if corruption is None:
+        observed = runner._isolated_units_quiescent()
+        assert tuple(observed) == (
+            "dehps-m4-isolated-24h-challenger-v11.timer",
+            "dehps-m4-isolated-24h-challenger-v11.service",
+        )
+        assert observed == {
+            "dehps-m4-isolated-24h-challenger-v11.timer": {
+                "LoadState": "loaded",
+                "ActiveState": "inactive",
+                "SubState": "dead",
+            },
+            "dehps-m4-isolated-24h-challenger-v11.service": {
+                "LoadState": "loaded",
+                "ActiveState": "inactive",
+                "SubState": "dead",
+                "MainPID": 0,
+                "ControlPID": 0,
+            },
+        }
+        assert len(calls) == 2
+        for command, unit in zip(calls, observed, strict=True):
+            assert command == [
+                "systemctl",
+                "--user",
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
+                "--no-pager",
+            ]
+    else:
+        with pytest.raises(
+            runner.IsolatedRunnerError,
+            match="daily_recovery_isolated_units_not_quiescent",
+        ):
+            runner._isolated_units_quiescent()
 
 
 def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
