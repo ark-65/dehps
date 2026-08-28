@@ -1,9 +1,17 @@
 {
-  "artifact_digest": "b677db9527c7819ffa15c9a04e829c566e6ace21c46636a7cae8a4f3de44dcb1",
+  "artifact_digest": "c5a55514061e71936328beea41954a094ff2f04606574c7251490e6f3c6243f4",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
   "governance_bindings": {
+    "daily_mail_recovery_base_merged_commit": "10a2069bdd2d351b76fdf4ade697fe6a60fd6f2d",
+    "daily_mail_recovery_research_request_id": 782,
+    "daily_mail_recovery_research_approval_decision_id": 3334,
+    "daily_mail_recovery_research_request_payload_sha256": "6acf9d4a522343f993be5f3be752c488777793a440241d70f0e4be8a710a3f99",
+    "daily_mail_recovery_engineering_request_id": 783,
+    "daily_mail_recovery_engineering_approval_decision_id": 3337,
+    "daily_mail_recovery_engineering_execution_id": 633,
+    "daily_mail_recovery_engineering_request_payload_sha256": "3dd8a26750c778e436546b01f91f7d81dfc34c8f20cfba6e1be585e7c11cc759",
     "audited_target_projection_research_approval_decision_id": 2978,
     "audited_target_projection_research_request_id": 708,
     "audited_target_projection_research_request_key": "research-m4-isolated-v11-audited-history-target-projection-clarification-v1",
@@ -191,9 +199,9 @@
   "schema_version": "dehps-m4-isolated-24h-challenger-source-contract.v11",
   "source_entries": [
     {
-      "bytes": 28629,
+      "bytes": 30886,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_contract.py",
-      "sha256": "92697cd39ab44b052e52639ae835dac2226453e5a70c923a5ed50057726a8fb5"
+      "sha256": "2e17a7ee44e87d13f8d8ae937ceb6d707299a06837a082aeee33f719c679098f"
     },
     {
       "bytes": 23282,
@@ -206,9 +214,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 273773,
+      "bytes": 325407,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "9781710274e4466821169f01d54b007b78797cd97aabba4366c7befa8e0b8114"
+      "sha256": "3827374500e9e194c26f76735763d0f79a76f11e3957269f26296670f9e32ff5"
     },
     {
       "bytes": 9947,
@@ -221,14 +229,14 @@
       "sha256": "19cc9e17709f8bd177a676dfa7d7ec2b2aa7df3c59db87ca73f480defdefcea2"
     },
     {
-      "bytes": 22578,
+      "bytes": 24046,
       "path": "apps/worker-python/scripts/build_m4_isolated_24h_challenger_v11_manifest.py",
-      "sha256": "4f5cfabf23fa46ea7ff91797b3eb71dce5e5b108b2f43b9b124e15e7a1891031"
+      "sha256": "28aa79fa5c45766643d44d0df62eb6a37d1f8992c7ae245dfa2020494f107cd1"
     },
     {
-      "bytes": 179879,
+      "bytes": 216300,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "6e192275d04b8dced1ded92d743b17cadf3fbc492363d9dcd05e74a2b7d5ce8b"
+      "sha256": "ecbd6ce4bf6b4e3ba8f22b28725143b3d3fb743d3f362c134aea00803ec23cc3"
     },
     {
       "bytes": 17768,
@@ -291,5 +299,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "0942e7b6095e6197e149da4b246b1702dcc61e3f21f138736fa3c0318dcc9cb8"
+  "source_set_digest": "6c24835a89fe4051ab77fddcf2afa7899bc2d1c2e119ddaec27c43fffecdfc3d"
 }

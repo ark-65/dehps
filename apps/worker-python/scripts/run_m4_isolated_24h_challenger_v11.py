@@ -107,7 +107,11 @@ LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS = frozenset(
         "f067bc89f60826c15793e1ab6325a3dce088dd7c2af3e1c99e984d3aada50dd1",
         "5452fc522812220b6654c2bb8e54b8844b0c2fdab251d392c2af8de501e659ec",
         "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011",
+        contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
     }
+)
+DAILY_RECOVERY_LEGACY_INCIDENT_OPEN_TASK_DIGEST = (
+    "959b2b2809420fce64a4609a3bf60f83b4c632dbac3bea55745346a63cdaea50"
 )
 LIVE_PARTIAL_FROZEN_GOAL_DIGEST = (
     "b13054b699c75325c3a0fbb27ccc697e0a3176568140a7f0d5e59c9aa362d69a"
@@ -986,6 +990,184 @@ def validate_user_scope_committed_recovery_governance(
     }
 
 
+DAILY_RECOVERY_RESEARCH_REQUEST_KEY = (
+    "research-m4-isolated-v11-daily-mail-failure-recovery-addendum-v5"
+)
+DAILY_RECOVERY_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-real-daily-mail-recovery-v1"
+)
+DAILY_RECOVERY_OPERATOR_ENV_KEY = "DEHPS_ISOLATED_V11_OPERATOR_REQUEST_KEY"
+DAILY_RECOVERY_OPERATOR_DECISION_ENV = "DEHPS_ISOLATED_V11_OPERATOR_DECISION_ID"
+DAILY_RECOVERY_OPERATOR_EXECUTION_ENV = "DEHPS_ISOLATED_V11_OPERATOR_EXECUTION_ID"
+DAILY_RECOVERY_OPERATIONS = (
+    "disable-isolated-timer-and-wait-quiescent",
+    "register-new-source-and-runtime-migration-input",
+    "recover-daily-summary-sequence2-and-generic-replay",
+    "rebind-all-unexecuted-old-source-tasks",
+    "complete-daily-mail-chain-with-one-data250",
+    "resolve-current-incident-and-advance-ledger",
+    "prove-duplicate-cycle-zero-smtp",
+    "reenable-isolated-timer-and-verify-status",
+)
+
+
+def validate_daily_mail_recovery_governance(
+    *,
+    repository: AgentRequestRepository,
+    source_contract: Mapping[str, Any],
+    runtime_source_digest: str,
+    git_commit: str,
+) -> dict[str, Any]:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "daily_mail_recovery_base_merged_commit": (
+            contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+        ),
+        "daily_mail_recovery_research_request_id": (
+            contract.DAILY_RECOVERY_RESEARCH_REQUEST_ID
+        ),
+        "daily_mail_recovery_research_approval_decision_id": (
+            contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID
+        ),
+        "daily_mail_recovery_research_request_payload_sha256": (
+            contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256
+        ),
+        "daily_mail_recovery_engineering_request_id": (
+            contract.DAILY_RECOVERY_ENGINEERING_REQUEST_ID
+        ),
+        "daily_mail_recovery_engineering_approval_decision_id": (
+            contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID
+        ),
+        "daily_mail_recovery_engineering_execution_id": (
+            contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID
+        ),
+        "daily_mail_recovery_engineering_request_payload_sha256": (
+            contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+        or source_contract.get("artifact_digest") != runtime_source_digest
+        or _GIT_COMMIT.fullmatch(git_commit) is None
+    ):
+        raise IsolatedRunnerError("daily_recovery_source_governance_changed")
+    research = repository.get_request(DAILY_RECOVERY_RESEARCH_REQUEST_KEY)
+    engineering = repository.get_request(DAILY_RECOVERY_ENGINEERING_REQUEST_KEY)
+    research_approvals = [
+        item
+        for item in repository.list_decisions(DAILY_RECOVERY_RESEARCH_REQUEST_KEY)
+        if item.id == contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID
+        and item.decision_code == "request_approved"
+        and item.new_status == "approved"
+        and item.decided_by_role is AgentRole.REVIEWER
+    ]
+    engineering_approvals = [
+        item
+        for item in repository.list_decisions(DAILY_RECOVERY_ENGINEERING_REQUEST_KEY)
+        if item.id == contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID
+        and item.decision_code == "request_approved"
+        and item.new_status == "approved"
+        and item.decided_by_role is AgentRole.REVIEWER
+    ]
+    engineering_executions = [
+        item
+        for item in repository.list_execution_metadata(
+            DAILY_RECOVERY_ENGINEERING_REQUEST_KEY
+        )
+        if item.id == contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID
+    ]
+    if (
+        research.id != contract.DAILY_RECOVERY_RESEARCH_REQUEST_ID
+        or research.status is not AgentRequestStatus.APPROVED
+        or research.metadata.get("payload_sha256")
+        != contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256
+        or len(research_approvals) != 1
+        or engineering.id != contract.DAILY_RECOVERY_ENGINEERING_REQUEST_ID
+        or engineering.status is not AgentRequestStatus.COMPLETED
+        or engineering.parent_request_id != research.id
+        or engineering.metadata.get("payload_sha256")
+        != contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+        or len(engineering_approvals) != 1
+        or len(engineering_executions) != 1
+        or engineering_executions[0].status is not AgentExecutionStatus.COMPLETED
+        or engineering_executions[0].environment != "development"
+        or engineering_executions[0].executor_role is not AgentRole.ENGINEERING
+    ):
+        raise IsolatedRunnerError("daily_recovery_engineering_governance_changed")
+    operator_key = os.environ.get(DAILY_RECOVERY_OPERATOR_ENV_KEY, "")
+    try:
+        operator_decision_id = int(
+            os.environ.get(DAILY_RECOVERY_OPERATOR_DECISION_ENV, "")
+        )
+        operator_execution_id = int(
+            os.environ.get(DAILY_RECOVERY_OPERATOR_EXECUTION_ENV, "")
+        )
+    except ValueError as exc:
+        raise IsolatedRunnerError("daily_recovery_operator_identity_invalid") from exc
+    if not operator_key or operator_decision_id < 1 or operator_execution_id < 1:
+        raise IsolatedRunnerError("daily_recovery_operator_identity_invalid")
+    operator = repository.get_request(operator_key)
+    approvals = [
+        item
+        for item in repository.list_decisions(operator_key)
+        if item.id == operator_decision_id
+        and item.decision_code == "request_approved"
+        and item.new_status == "approved"
+        and item.decided_by_role is AgentRole.REVIEWER
+    ]
+    executions = [
+        item
+        for item in repository.list_execution_metadata(operator_key)
+        if item.id == operator_execution_id
+    ]
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(operator.payload).encode("utf-8")
+    ).hexdigest()
+    expected_failed = {
+        "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+        "task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+        "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+        "started_event_digest": contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+        "failed_event_digest": contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+        "original_source_contract_digest": (
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+        ),
+        "original_git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+        "workload_rerun": False,
+    }
+    if (
+        operator.request_type is not AgentRequestType.OPERATOR_RELEASE
+        or operator.status is not AgentRequestStatus.EXECUTING
+        or operator.parent_request_id != engineering.id
+        or len(approvals) != 1
+        or len(executions) != 1
+        or executions[0].status is not AgentExecutionStatus.RUNNING
+        or executions[0].environment != "production"
+        or executions[0].executor_role is not AgentRole.OPERATOR
+        or operator.payload.get("version")
+        != "m4-isolated-v11-daily-mail-recovery-operator-v1"
+        or operator.payload.get("commit") != git_commit
+        or operator.payload.get("source_contract_digest") != runtime_source_digest
+        or operator.payload.get("failed_execution") != expected_failed
+        or tuple(operator.payload.get("ordered_operations") or ())
+        != DAILY_RECOVERY_OPERATIONS
+        or operator.payload.get("smtp_budget") != 1
+        or operator.payload.get("scientific_workload_budget") != 0
+        or operator.payload.get("formal_p3_access_or_mutation") is not False
+        or operator.payload.get("p4_p5_p6_or_promotion") is not False
+        or operator.metadata.get("payload_sha256") != payload_sha
+    ):
+        raise IsolatedRunnerError("daily_recovery_operator_scope_changed")
+    return {
+        "operator_request_id": operator.id,
+        "operator_approval_decision_id": operator_decision_id,
+        "operator_execution_id": operator_execution_id,
+        "operator_payload_sha256": payload_sha,
+        "operator_execution_started_at": executions[0].started_at.isoformat(),
+    }
+
+
 class IsolatedChallengerRepository(PostgresResearchOSRepository):
     """Exact fail-closed repository gate for the independent V11 control plane."""
 
@@ -1000,6 +1182,31 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         self._bootstrap_rebind_gate: dict[str, Any] | None = None
         self._user_scope_resume_event_gate = False
         self._user_scope_failed_transition_gate: dict[str, Any] | None = None
+        self._daily_recovery_event_gate = False
+        self._daily_recovery_transition_gate: dict[str, Any] | None = None
+        self._evolving_source_rebind_gate: dict[str, Any] | None = None
+
+    @contextmanager
+    def daily_recovery_event_view(self) -> Iterator[None]:
+        if (
+            self._daily_recovery_event_gate
+            or self._daily_recovery_transition_gate is not None
+            or self._user_scope_resume_event_gate
+        ):
+            raise IsolatedRunnerError("daily_recovery_event_gate_reentrant")
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        self._daily_recovery_event_gate = True
+        self._daily_recovery_transition_gate = {
+            "current_manifest_digest": current.artifact_digest,
+            "running_manifest_digest": None,
+            "router_consumed": False,
+            "completion_consumed": False,
+        }
+        try:
+            yield
+        finally:
+            self._daily_recovery_event_gate = False
+            self._daily_recovery_transition_gate = None
 
     @contextmanager
     def user_scope_resume_event_view(self) -> Iterator[None]:
@@ -1026,16 +1233,55 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         task_key: str | None = None,
         execution_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
-        guarded_query = self._user_scope_resume_event_gate and (
-            task_key == USER_SCOPE_RESUME_TASK_KEY
-            or execution_id == USER_SCOPE_RESUME_EXECUTION_ID
+        daily_query = getattr(self, "_daily_recovery_event_gate", False) and (
+            task_key == contract.DAILY_RECOVERY_TASK_KEY
+            or execution_id == contract.DAILY_RECOVERY_EXECUTION_ID
         )
+        guarded_query = (
+            self._user_scope_resume_event_gate
+            and (
+                task_key == USER_SCOPE_RESUME_TASK_KEY
+                or execution_id == USER_SCOPE_RESUME_EXECUTION_ID
+            )
+        ) or daily_query
         if not guarded_query:
             return super().list_mainline_execution_events(
                 control_plane_key=control_plane_key,
                 task_key=task_key,
                 execution_id=execution_id,
             )
+        if daily_query:
+            if (
+                control_plane_key != contract.CONTROL_PLANE_KEY
+                or task_key not in {None, contract.DAILY_RECOVERY_TASK_KEY}
+                or execution_id not in {None, contract.DAILY_RECOVERY_EXECUTION_ID}
+            ):
+                raise IsolatedRunnerError("daily_recovery_event_query_changed")
+            unfiltered = super().list_mainline_execution_events(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                task_key=contract.DAILY_RECOVERY_TASK_KEY,
+            )
+            records = [_event_record(item) for item in unfiltered]
+            if (
+                len(records) not in {2, 3}
+                or [(item.event_type, item.sequence) for item in records[:2]]
+                != [("started", 0), ("failed", 1)]
+                or records[0].artifact_digest
+                != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
+                or records[1].artifact_digest
+                != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+                or any(
+                    item.execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+                    or item.task_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+                    for item in records
+                )
+                or (
+                    len(records) == 3
+                    and (records[2].event_type, records[2].sequence) != ("completed", 2)
+                )
+            ):
+                raise IsolatedRunnerError("daily_recovery_event_set_changed")
+            return tuple(unfiltered)
         if (
             control_plane_key != contract.CONTROL_PLANE_KEY
             or task_key not in {None, USER_SCOPE_RESUME_TASK_KEY}
@@ -1112,7 +1358,17 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             )
             if (
                 bound_source_digest not in LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS
-                or state.declared_status is not TaskStatus.COMPLETED
+                or (
+                    state.declared_status is not TaskStatus.COMPLETED
+                    and not (
+                        task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+                        and bound_source_digest
+                        == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                        and state.declared_status
+                        in {TaskStatus.FAILED, TaskStatus.RUNNING}
+                        and self._daily_recovery_transition_gate is not None
+                    )
+                )
                 or not any(
                     fact.startswith(completion_prefix) and fact.endswith(":completed")
                     for fact in artifact_facts
@@ -1132,6 +1388,17 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         if len(matches) != 1:
             raise ResearchOSValidationError("isolated_v11_task_definition_changed")
         expected_task = matches[0]
+        if (
+            task.task_key
+            == (
+                "m4-isolated-24h-challenger-v11-incident-"
+                f"{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
+            )
+            and task.artifact_digest == DAILY_RECOVERY_LEGACY_INCIDENT_OPEN_TASK_DIGEST
+            and bound_source_digest == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            and state.declared_status is TaskStatus.COMPLETED
+        ):
+            return
         if partial_live_rebind:
             expected_task = replace(
                 expected_task, goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST
@@ -1193,6 +1460,24 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 != {item.artifact_digest for item in expected.tasks}
             ):
                 raise ResearchOSValidationError("isolated_v11_initial_facts_changed")
+            return
+        evolving_gate = getattr(self, "_evolving_source_rebind_gate", None)
+        if evolving_gate is not None:
+            if (
+                evolving_gate.get("consumed") is not False
+                or evolving_gate.get("current_manifest_digest")
+                != current.artifact_digest
+                or evolving_gate.get("incoming_manifest_digest")
+                != incoming.artifact_digest
+                or evolving_gate.get("current_manifest")
+                != current.to_dict(include_digest=True)
+                or evolving_gate.get("incoming_manifest")
+                != incoming.to_dict(include_digest=True)
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_evolving_rebind_gate_changed"
+                )
+            evolving_gate["consumed"] = True
             return
         rebind_gate = self._bootstrap_rebind_gate
         if rebind_gate is not None:
@@ -1263,21 +1548,42 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             changed_task_key, old, new = state_changes[0]
             transition = (old, new)
             if transition == (TaskStatus.FAILED.value, TaskStatus.RUNNING.value):
-                gate = self._user_scope_failed_transition_gate
-                if (
-                    gate is None
-                    or gate.get("router_consumed") is not False
-                    or gate.get("completion_consumed") is not False
-                    or current.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST
-                    or incoming.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST
-                    or changed_task_key != USER_SCOPE_RESUME_TASK_KEY
-                    or current_tasks[changed_task_key].artifact_digest
-                    != USER_SCOPE_RESUME_TASK_DIGEST
-                ):
-                    raise ResearchOSValidationError(
-                        "isolated_v11_failed_recovery_transition_gate_changed"
-                    )
-                gate["router_consumed"] = True
+                daily_gate = getattr(self, "_daily_recovery_transition_gate", None)
+                if changed_task_key == contract.DAILY_RECOVERY_TASK_KEY:
+                    if (
+                        daily_gate is None
+                        or daily_gate.get("router_consumed") is not False
+                        or daily_gate.get("completion_consumed") is not False
+                        or daily_gate.get("current_manifest_digest")
+                        != current.artifact_digest
+                        or daily_gate.get("running_manifest_digest")
+                        not in {None, incoming.artifact_digest}
+                        or current_tasks[changed_task_key].artifact_digest
+                        != contract.DAILY_RECOVERY_TASK_DIGEST
+                        or added_tasks
+                        or added_events
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_daily_recovery_transition_gate_changed"
+                        )
+                    daily_gate["running_manifest_digest"] = incoming.artifact_digest
+                    daily_gate["router_consumed"] = True
+                else:
+                    gate = self._user_scope_failed_transition_gate
+                    if (
+                        gate is None
+                        or gate.get("router_consumed") is not False
+                        or gate.get("completion_consumed") is not False
+                        or current.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST
+                        or incoming.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST
+                        or changed_task_key != USER_SCOPE_RESUME_TASK_KEY
+                        or current_tasks[changed_task_key].artifact_digest
+                        != USER_SCOPE_RESUME_TASK_DIGEST
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_failed_recovery_transition_gate_changed"
+                        )
+                    gate["router_consumed"] = True
             elif transition not in {
                 (TaskStatus.DRAFT.value, TaskStatus.RUNNING.value),
                 (TaskStatus.RUNNING.value, TaskStatus.COMPLETED.value),
@@ -1327,6 +1633,29 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             if stored is None:
                 raise ResearchOSValidationError("isolated_v11_current_manifest_missing")
             current = ControlPlaneManifest.from_dict(dict(stored["manifest_json"]))
+            evolving_gate = getattr(self, "_evolving_source_rebind_gate", None)
+            if evolving_gate is not None:
+                if (
+                    evolving_gate.get("consumed") is not True
+                    or evolving_gate.get("current_manifest_digest")
+                    != current.artifact_digest
+                    or evolving_gate.get("incoming_manifest_digest")
+                    != manifest.artifact_digest
+                    or evolving_gate.get("current_manifest")
+                    != current.to_dict(include_digest=True)
+                    or evolving_gate.get("incoming_manifest")
+                    != manifest.to_dict(include_digest=True)
+                ):
+                    raise ResearchOSValidationError(
+                        "isolated_v11_evolving_rebind_completion_gate_changed"
+                    )
+                PostgresResearchOSRepository._verify_mainline_completion_records(
+                    cursor,
+                    control_plane_key=control_plane_key,
+                    manifest=manifest,
+                    m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+                )
+                return
             rebind_gate = self._bootstrap_rebind_gate
             if rebind_gate is not None:
                 if (
@@ -1379,20 +1708,39 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                     )
                 transition = state_changes[0][1:]
                 if transition == ("failed", "running"):
-                    gate = self._user_scope_failed_transition_gate
-                    if (
-                        gate is None
-                        or gate.get("router_consumed") is not True
-                        or gate.get("completion_consumed") is not False
-                        or current.artifact_digest != USER_SCOPE_FAILED_MANIFEST_DIGEST
-                        or manifest.artifact_digest != USER_SCOPE_RESUME_MANIFEST_DIGEST
-                        or state_changes[0][0] != USER_SCOPE_RESUME_TASK_KEY
-                        or added_facts
-                    ):
-                        raise ResearchOSValidationError(
-                            "isolated_v11_failed_recovery_completion_gate_changed"
-                        )
-                    gate["completion_consumed"] = True
+                    if state_changes[0][0] == contract.DAILY_RECOVERY_TASK_KEY:
+                        gate = getattr(self, "_daily_recovery_transition_gate", None)
+                        if (
+                            gate is None
+                            or gate.get("router_consumed") is not True
+                            or gate.get("completion_consumed") is not False
+                            or gate.get("current_manifest_digest")
+                            != current.artifact_digest
+                            or gate.get("running_manifest_digest")
+                            != manifest.artifact_digest
+                            or added_facts
+                        ):
+                            raise ResearchOSValidationError(
+                                "isolated_v11_daily_recovery_completion_gate_changed"
+                            )
+                        gate["completion_consumed"] = True
+                    else:
+                        gate = self._user_scope_failed_transition_gate
+                        if (
+                            gate is None
+                            or gate.get("router_consumed") is not True
+                            or gate.get("completion_consumed") is not False
+                            or current.artifact_digest
+                            != USER_SCOPE_FAILED_MANIFEST_DIGEST
+                            or manifest.artifact_digest
+                            != USER_SCOPE_RESUME_MANIFEST_DIGEST
+                            or state_changes[0][0] != USER_SCOPE_RESUME_TASK_KEY
+                            or added_facts
+                        ):
+                            raise ResearchOSValidationError(
+                                "isolated_v11_failed_recovery_completion_gate_changed"
+                            )
+                        gate["completion_consumed"] = True
                 elif transition in {("draft", "running"), ("running", "failed")}:
                     if added_facts:
                         raise ResearchOSValidationError(
@@ -1617,6 +1965,140 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             return result
         finally:
             self._fact_gate = None
+
+    def rebind_unexecuted_daily_recovery_source(self) -> dict[str, Any]:
+        if self._evolving_source_rebind_gate is not None:
+            raise ResearchOSValidationError(
+                "isolated_v11_evolving_rebind_gate_reentrant"
+            )
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        task_by_key = {item.task_key: item for item in current.tasks}
+        daily = task_by_key.get(contract.DAILY_RECOVERY_TASK_KEY)
+        if daily is None:
+            raise ResearchOSValidationError("isolated_v11_daily_recovery_task_missing")
+        daily_state = current.task_state_by_digest[daily.artifact_digest]
+        if (
+            daily.artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+            or daily_state.declared_status is not TaskStatus.COMPLETED
+        ):
+            raise ResearchOSValidationError(
+                "isolated_v11_daily_recovery_not_completed_before_rebind"
+            )
+        candidates: list[Any] = []
+        for task in current.tasks:
+            source = str(json.loads(task.metric_contract)["source_contract_digest"])
+            state = current.task_state_by_digest[task.artifact_digest]
+            if source != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST:
+                continue
+            if state.declared_status is TaskStatus.COMPLETED:
+                continue
+            if state.declared_status is not TaskStatus.DRAFT:
+                raise ResearchOSValidationError(
+                    "isolated_v11_old_source_nonterminal_state_changed"
+                )
+            candidates.append(task)
+        if not candidates:
+            raise ResearchOSValidationError("isolated_v11_old_source_rebind_set_empty")
+        candidate_keys = tuple(item.task_key for item in candidates)
+        if self.list_mainline_execution_event_metadata(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_keys=candidate_keys,
+        ):
+            raise ResearchOSValidationError(
+                "isolated_v11_rebind_candidate_has_execution_event"
+            )
+        with self.connection_factory() as connection, connection.cursor() as cursor:
+            registration_count = int(
+                cursor.execute(
+                    "SELECT count(*) FROM research_os_mainline_artifacts "
+                    "WHERE control_plane_key=%s AND task_key=ANY(%s)",
+                    (contract.CONTROL_PLANE_KEY, list(candidate_keys)),
+                ).fetchone()[0]
+            )
+        if registration_count:
+            raise ResearchOSValidationError(
+                "isolated_v11_rebind_candidate_has_registration"
+            )
+        if any(
+            fact.startswith((f"{task_key}:", f"mainline-execution:{task_key}:"))
+            for task_key in candidate_keys
+            for fact in current.facts.artifacts
+        ):
+            raise ResearchOSValidationError("isolated_v11_rebind_candidate_has_fact")
+        replacements: dict[str, tuple[Any, Any]] = {}
+        for task in candidates:
+            item_context = _task_context(task)
+            payload, _ = builder.build_manifest(
+                context=item_context,
+                source_digest=self.source_digest,
+                operator_configuration_authorized=True,
+                simulation_events=False,
+            )
+            expected = ControlPlaneManifest.from_dict(payload)
+            matches = [
+                item for item in expected.tasks if item.task_key == task.task_key
+            ]
+            if len(matches) != 1:
+                raise ResearchOSValidationError(
+                    "isolated_v11_rebind_expected_task_changed"
+                )
+            replacement = replace(
+                matches[0], goal_digest=current.goals[0].artifact_digest
+            )
+            replacement_state = replace(
+                expected.task_state_by_digest[matches[0].artifact_digest],
+                task_digest=replacement.artifact_digest,
+            )
+            replacements[task.task_key] = (
+                replacement,
+                replacement_state,
+            )
+        tasks: list[Any] = []
+        states: list[Any] = []
+        for task in current.tasks:
+            replacement = replacements.get(task.task_key)
+            if replacement is None:
+                tasks.append(task)
+                states.append(current.task_state_by_digest[task.artifact_digest])
+            else:
+                tasks.append(replacement[0])
+                states.append(replacement[1])
+        incoming = ControlPlaneManifest(
+            goals=current.goals,
+            tasks=tuple(tasks),
+            goal_states=current.goal_states,
+            task_states=tuple(states),
+            facts=current.facts,
+            schema_version=current.schema_version,
+        )
+        self._evolving_source_rebind_gate = {
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": incoming.artifact_digest,
+            "current_manifest": current.to_dict(include_digest=True),
+            "incoming_manifest": incoming.to_dict(include_digest=True),
+            "candidate_keys": frozenset(candidate_keys),
+            "consumed": False,
+        }
+        try:
+            self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-v11-exact-unexecuted-old-source-rebind",
+            )
+            if self._evolving_source_rebind_gate.get("consumed") is not True:
+                raise ResearchOSValidationError(
+                    "isolated_v11_evolving_rebind_gate_not_consumed"
+                )
+        finally:
+            self._evolving_source_rebind_gate = None
+        return {
+            "status": "OLD_SOURCE_UNEXECUTED_TASKS_REBOUND",
+            "previous_manifest_digest": current.artifact_digest,
+            "manifest_digest": incoming.artifact_digest,
+            "task_keys": sorted(candidate_keys),
+            "task_count": len(candidate_keys),
+            "source_digest": self.source_digest,
+        }
 
     def import_extension(self, payload: Mapping[str, Any]):
         incoming = ControlPlaneManifest.from_dict(dict(payload))
@@ -1954,11 +2436,10 @@ def _roll_forward(
         events.add("DAILY_SEND")
 
     incident_context: dict[str, str] | None = None
-    has_open_incident = any(
-        fact.startswith("m4-isolated-24h-challenger-v11-incident-")
-        and fact.endswith("-open:OPEN")
-        for fact in facts
+    incident_ledger = mainline.projected_incident_ledger_state(
+        repository=repository, root_dir=ROOT_DIR, manifest=manifest
     )
+    has_open_incident = incident_ledger["open_count"] > 0
     latest_health: dict[str, Any] | None = None
     if contract.FREEZE_FACT in facts:
         latest_health = _latest_registered_health_artifact(
@@ -2356,6 +2837,27 @@ def _activation_facts(
         if status not in {"COMPLETE", "PENDING_LEGAL_COMPARISON"}:
             raise IsolatedRunnerError("formal_p3_comparison_status_changed")
         return (f"{task_key}:{status}", f"{task_key}:RESOLVED")
+    if template.name == "incident_resolution":
+        values = mainline.load_completed_task_artifacts(
+            repository=repository,
+            root_dir=ROOT_DIR,
+            task_key=task_key,
+        )
+        resolution = mainline._unique_type(values, "M4IsolatedIncidentResolutionV11")
+        head = mainline._unique_type(values, "M4IsolatedIncidentLedgerHeadV11")
+        if (
+            resolution["body"].get("status") != "RESOLVED"
+            or head["body"].get("transition_kind") != "RESOLVED"
+            or resolution["body"].get("incident_id") != head["body"].get("incident_id")
+        ):
+            raise IsolatedRunnerError("incident_resolution_artifact_set_changed")
+        return (
+            f"{task_key}:RESOLVED",
+            (
+                "m4-isolated-24h-challenger-v11-incident-ledger-head-"
+                f"{head['body']['transition_seq']}:ADVANCED"
+            ),
+        )
     suffix = {
         "preregistration": contract.FREEZE_FACT,
         "operator_attestation": contract.OPERATOR_ATTESTATION_FACT,
@@ -3746,6 +4248,326 @@ def install(
     }
 
 
+def _isolated_units_quiescent() -> dict[str, str]:
+    units = (
+        "dehps-m4-isolated-24h-challenger-v11.timer",
+        "dehps-m4-isolated-24h-challenger-v11.service",
+    )
+    observed: dict[str, str] = {}
+    for unit in units:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", unit],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        state = result.stdout.strip() or "unknown"
+        observed[unit] = state
+        if state not in {"inactive", "failed"}:
+            raise IsolatedRunnerError("daily_recovery_isolated_units_not_quiescent")
+    return observed
+
+
+def _daily_recovery_live_preflight(
+    *, repository: IsolatedChallengerRepository
+) -> tuple[ControlPlaneManifest, dict[str, str], dict[str, Any]]:
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    failures: list[Any] = []
+    running: list[Any] = []
+    daily_task = None
+    for task in manifest.tasks:
+        state = manifest.task_state_by_digest[task.artifact_digest]
+        if state.declared_status is TaskStatus.FAILED:
+            failures.append(task)
+        elif state.declared_status is TaskStatus.RUNNING:
+            running.append(task)
+        if task.task_key == contract.DAILY_RECOVERY_TASK_KEY:
+            daily_task = task
+    if (
+        len(failures) != 1
+        or failures[0].task_key != contract.DAILY_RECOVERY_TASK_KEY
+        or failures[0].artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+        or running
+        or daily_task is None
+        or json.loads(daily_task.metric_contract).get("source_contract_digest")
+        != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+    ):
+        raise IsolatedRunnerError("daily_recovery_live_task_state_changed")
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+    )
+    records = [_event_record(item) for item in events]
+    if (
+        len(records) != 2
+        or [(item.event_type, item.sequence) for item in records]
+        != [("started", 0), ("failed", 1)]
+        or records[0].artifact_digest != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
+        or records[1].artifact_digest != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+    ):
+        raise IsolatedRunnerError("daily_recovery_live_event_prefix_changed")
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        daily_rows = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger "
+                "WHERE mail_kind='DAILY_24H_RESEARCH_SUMMARY' "
+                "AND target_identity='20260828'"
+            ).fetchone()[0]
+        )
+    incident_state = mainline.latest_incident_ledger_state(
+        repository=repository, root_dir=ROOT_DIR
+    )
+    if (
+        daily_rows != 0
+        or incident_state["open_incident_ids"] != [contract.DAILY_RECOVERY_INCIDENT_ID]
+        or incident_state["transition_seq"] != 0
+    ):
+        raise IsolatedRunnerError("daily_recovery_delivery_or_incident_state_changed")
+    return manifest, _task_context(daily_task), incident_state
+
+
+def _dispatch_recovery_task(
+    *,
+    repository: IsolatedChallengerRepository,
+    task_key: str,
+    context: Mapping[str, str],
+    source_digest: str,
+    git_commit: str,
+    runtime_source_digest: str,
+    runtime_git_commit: str,
+    attestation_digest: str,
+) -> dict[str, Any]:
+    supervisor = mainline.IsolatedChallengerSupervisor(
+        repository=repository,
+        context=context,
+        source_digest=source_digest,
+        git_commit=git_commit,
+        simulation=False,
+        failed_recovery_event_digest=contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+        failed_recovery_attestation_digest=attestation_digest,
+        runtime_git_commit=runtime_git_commit,
+        runtime_source_contract_digest=runtime_source_digest,
+    )
+    result = supervisor.run_once(task_key=task_key)
+    if result.get("status") != "COMPLETE" or result.get("task_key") != task_key:
+        raise IsolatedRunnerError("daily_recovery_dispatch_not_complete")
+    generic = supervisor.replay(
+        task_key=task_key, execution_id=str(result["execution_id"])
+    )
+    _verify_generic_replay(generic)
+    task = next(
+        item
+        for item in repository.load_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY
+        ).tasks
+        if item.task_key == task_key
+    )
+    template = mainline.template_for_task_key(task_key, context=context)
+    activated = _activation_facts(
+        task_key=task_key,
+        template=template,
+        context=context,
+        repository=repository,
+    )
+    live_facts = set(
+        repository.load_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY
+        ).facts.artifacts
+    )
+    additions = tuple(item for item in activated if item not in live_facts)
+    if additions:
+        repository.import_verified_facts(additions)
+    return {
+        "task_key": task_key,
+        "task_digest": task.artifact_digest,
+        "execution_id": result["execution_id"],
+        "activated_facts": list(activated),
+        "generic_replay": "REPLAY_VERIFIED",
+    }
+
+
+def recover_daily_mail_chain(
+    *,
+    apply: bool,
+    context: Mapping[str, str],
+    source_contract: Mapping[str, Any],
+    source_digest: str,
+    git_commit: str,
+) -> dict[str, Any]:
+    p3_before = _p3_source_identity()
+    repository = IsolatedChallengerRepository(
+        context=context, source_digest=source_digest
+    )
+    manifest, daily_context, incident_before = _daily_recovery_live_preflight(
+        repository=repository
+    )
+    preflight = {
+        "status": "DAILY_MAIL_RECOVERY_PREFLIGHT_VALID",
+        "apply": False,
+        "manifest_digest": manifest.artifact_digest,
+        "failed_task_key": contract.DAILY_RECOVERY_TASK_KEY,
+        "failed_execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+        "open_incident_ids": incident_before["open_incident_ids"],
+        "smtp_calls": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+    if not apply:
+        return preflight
+    units = _isolated_units_quiescent()
+    governance = validate_daily_mail_recovery_governance(
+        repository=AgentRequestRepository(),
+        source_contract=source_contract,
+        runtime_source_digest=source_digest,
+        git_commit=git_commit,
+    )
+    registered_source = mainline.register_input_artifact(
+        repository=repository,
+        payload=source_contract,
+        git_commit=git_commit,
+        source_path=contract.SOURCE_CONTRACT_PATH,
+        content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+    )
+    attestation = mainline.build_runtime_migration_attestation_input(
+        runtime_git_commit=git_commit,
+        runtime_source_contract_digest=source_digest,
+        **governance,
+    )
+    mainline.register_input_artifact(
+        repository=repository,
+        payload=attestation,
+        git_commit=git_commit,
+    )
+    with repository.daily_recovery_event_view():
+        recovered_summary = _dispatch_recovery_task(
+            repository=repository,
+            task_key=contract.DAILY_RECOVERY_TASK_KEY,
+            context=daily_context,
+            source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            git_commit=contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            runtime_source_digest=source_digest,
+            runtime_git_commit=git_commit,
+            attestation_digest=attestation["artifact_digest"],
+        )
+    rebind = repository.rebind_unexecuted_daily_recovery_source()
+    downstream: list[dict[str, Any]] = []
+    for template_name in (
+        "daily_summary_replay",
+        "daily_mail_envelope",
+        "daily_mail_replay",
+        "daily_delivery",
+    ):
+        downstream.append(
+            _dispatch_recovery_task(
+                repository=repository,
+                task_key=contract.task_template_by_name(template_name).key(
+                    daily_context
+                ),
+                context=daily_context,
+                source_digest=source_digest,
+                git_commit=git_commit,
+                runtime_source_digest=source_digest,
+                runtime_git_commit=git_commit,
+                attestation_digest=attestation["artifact_digest"],
+            )
+        )
+    incident_task_key = (
+        "m4-isolated-24h-challenger-v11-incident-"
+        f"{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
+    )
+    current = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    incident_task = next(
+        item for item in current.tasks if item.task_key == incident_task_key
+    )
+    incident_context = _task_context(incident_task)
+    extension = builder.extend_manifest(
+        repository.export_manifest(control_plane_key=contract.CONTROL_PLANE_KEY),
+        context=incident_context,
+        source_digest=source_digest,
+        template_names=frozenset({"incident_resolution"}),
+    )
+    repository.import_extension(extension)
+    resolution_key = contract.task_template_by_name("incident_resolution").key(
+        incident_context
+    )
+    resolution = _dispatch_recovery_task(
+        repository=repository,
+        task_key=resolution_key,
+        context=incident_context,
+        source_digest=source_digest,
+        git_commit=git_commit,
+        runtime_source_digest=source_digest,
+        runtime_git_commit=git_commit,
+        attestation_digest=attestation["artifact_digest"],
+    )
+    state = mainline.latest_incident_ledger_state(
+        repository=repository, root_dir=ROOT_DIR
+    )
+    if (
+        state["open_count"] != 0
+        or contract.DAILY_RECOVERY_INCIDENT_ID not in state["resolved_incident_ids"]
+        or state["transition_seq"] != 1
+    ):
+        raise IsolatedRunnerError("daily_recovery_incident_not_resolved")
+    daily_delivery_key = contract.task_template_by_name("daily_delivery").key(
+        daily_context
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        before_duplicate = cursor.execute(
+            "SELECT count(*),min(receipt_artifact_digest),max(receipt_artifact_digest) "
+            "FROM m4_isolated_v11.delivery_ledger "
+            "WHERE mail_kind='DAILY_24H_RESEARCH_SUMMARY' "
+            "AND target_identity='20260828' AND state='SENT'"
+        ).fetchone()
+    duplicate = _dispatch_recovery_task(
+        repository=repository,
+        task_key=daily_delivery_key,
+        context=daily_context,
+        source_digest=source_digest,
+        git_commit=git_commit,
+        runtime_source_digest=source_digest,
+        runtime_git_commit=git_commit,
+        attestation_digest=attestation["artifact_digest"],
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        after_duplicate = cursor.execute(
+            "SELECT count(*),min(receipt_artifact_digest),max(receipt_artifact_digest) "
+            "FROM m4_isolated_v11.delivery_ledger "
+            "WHERE mail_kind='DAILY_24H_RESEARCH_SUMMARY' "
+            "AND target_identity='20260828' AND state='SENT'"
+        ).fetchone()
+    if (
+        tuple(before_duplicate) != tuple(after_duplicate)
+        or int(after_duplicate[0]) != 1
+        or after_duplicate[1] != after_duplicate[2]
+        or duplicate["execution_id"] != downstream[-1]["execution_id"]
+    ):
+        raise IsolatedRunnerError("daily_recovery_duplicate_delivery_changed")
+    p3_after = _p3_source_identity()
+    if p3_before != p3_after:
+        raise IsolatedRunnerError("formal_p3_source_changed_during_daily_recovery")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-daily-mail-recovery.v1",
+        "status": "DAILY_MAIL_RECOVERED_SENT_AND_INCIDENT_RESOLVED",
+        "apply": True,
+        "quiescent_units": units,
+        "registered_source_contract_digest": registered_source["artifact_digest"],
+        "runtime_migration_attestation_digest": attestation["artifact_digest"],
+        "recovered_summary": recovered_summary,
+        "source_rebind": rebind,
+        "downstream": downstream,
+        "incident_resolution": resolution,
+        "terminal_incident_open_count": state["open_count"],
+        "daily_sent_receipt_digest": after_duplicate[1],
+        "duplicate_cycle_smtp_calls": 0,
+        "smtp_calls": 1,
+        "scientific_workloads": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def _attest_database_schema(
     *, repository: IsolatedChallengerRepository, git_commit: str
 ) -> dict[str, str]:
@@ -3996,7 +4818,7 @@ def simulation(
         simulation_events=True,
     )
     manifest = ControlPlaneManifest.from_dict(payload)
-    if len(manifest.tasks) != 42:
+    if len(manifest.tasks) != 43:
         raise IsolatedRunnerError("simulation_manifest_task_count_changed")
     chain = mainline.simulate_artifact_chain(
         context=context,
@@ -4180,6 +5002,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "install",
             "cycle",
             "resume-p3-user-scope-running-batch",
+            "recover-daily-mail",
         ),
     )
     parser.add_argument("--apply", action="store_true")
@@ -4229,7 +5052,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.projection_time
             or (
                 datetime.now(contract.TIMEZONE).isoformat()
-                if args.command in {"status", "install", "cycle"}
+                if args.command in {"status", "install", "cycle", "recover-daily-mail"}
                 else None
             )
         ),
@@ -4257,6 +5080,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             context=context,
             source_digest=source_digest,
             operator_configuration_authorized=(args.operator_configuration_authorized),
+            git_commit=git_commit,
+        )
+    elif args.command == "recover-daily-mail":
+        result = recover_daily_mail_chain(
+            apply=args.apply,
+            context=context,
+            source_contract=source,
+            source_digest=source_digest,
             git_commit=git_commit,
         )
     else:

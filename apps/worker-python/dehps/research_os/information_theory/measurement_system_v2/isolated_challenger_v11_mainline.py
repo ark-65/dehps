@@ -112,7 +112,9 @@ _EXACT_COMMITTED_CHILD_TYPE_COUNTS = {
 }
 
 
-def _external_delivery_evidence(facts: set[str]) -> dict[str, Any]:
+def _external_delivery_evidence(
+    facts: set[str], *, open_incident_ids: Sequence[str] | None = None
+) -> dict[str, Any]:
     predraw: set[str] = set()
     postdraw: set[str] = set()
     daily: set[str] = set()
@@ -141,14 +143,25 @@ def _external_delivery_evidence(facts: set[str]) -> dict[str, Any]:
                 identity.removeprefix("incident-").removesuffix("-delivery")
             )
     completed_issues = predraw.intersection(postdraw)
+    unresolved = (
+        sorted(open_incident_ids)
+        if open_incident_ids is not None
+        else sorted(
+            fact.removeprefix("m4-isolated-24h-challenger-v11-incident-").removesuffix(
+                "-open:OPEN"
+            )
+            for fact in incidents
+        )
+    )
     return {
         "predraw_sent_issues": sorted(predraw),
         "postdraw_sent_issues": sorted(postdraw),
         "daily_sent_epochs": sorted(daily),
         "incident_sent_ids": sorted(incident_receipts),
         "complete_external_issue_cycles": sorted(completed_issues),
-        "open_incident_count": len(incidents),
-        "real_mail_acceptance": bool(completed_issues and daily and not incidents),
+        "open_incident_ids": unresolved,
+        "open_incident_count": len(unresolved),
+        "real_mail_acceptance": bool(completed_issues and daily and not unresolved),
     }
 
 
@@ -668,7 +681,6 @@ def load_completed_task_artifacts(
         if (
             registration.get("task_key") != task_key
             or registration.get("execution_id") != execution_id
-            or registration.get("git_commit") != summary.get("git_commit")
         ):
             raise IsolatedMainlineError("upstream_registration_identity_changed")
         relative_path = str(registration.get("artifact_path") or "")
@@ -683,11 +695,16 @@ def load_completed_task_artifacts(
         ):
             raise IsolatedMainlineError("upstream_registration_path_changed")
         payload = json.loads(path.read_text(encoding="utf-8"))
+        expected_registration_git = str(
+            payload.get("runtime_git_commit") or summary.get("git_commit") or ""
+        )
+        if registration.get("git_commit") != expected_registration_git:
+            raise IsolatedMainlineError("upstream_registration_git_changed")
         if registration.get("artifact_type") == "research_os_mainline_execution":
             if payload.get("artifact_digest") != registration.get("artifact_digest"):
                 raise IsolatedMainlineError("upstream_execution_digest_changed")
             continue
-        parsed = artifacts.validate_artifact(payload)
+        parsed = validate_v5_lifecycle_artifact(payload)
         if (
             parsed.get("artifact_digest") != registration.get("artifact_digest")
             or parsed.get("artifact_type") != registration.get("artifact_type")
@@ -1007,6 +1024,144 @@ def replay_exact_sequence3_committed_execution(
     }
 
 
+def replay_recovered_daily_summary_execution(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    runtime_migration_attestation_digest: str,
+) -> dict[str, Any]:
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    matches = [
+        task
+        for task in manifest.tasks
+        if task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+    ]
+    if len(matches) != 1:
+        raise MainlineSupervisorError("daily recovery replay task not unique")
+    task = matches[0]
+    state = manifest.task_state_by_digest[task.artifact_digest]
+    if (
+        task.artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+        or tuple(task.input_artifact_digests)
+        != (contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,)
+        or state.declared_status is not TaskStatus.COMPLETED
+        or state.completion_classification is not CompletionClassification.COMPLETE
+    ):
+        raise MainlineSupervisorError("daily recovery replay task identity changed")
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=task.task_key,
+        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+    )
+    records = [supervisor_module._event_record(item) for item in events]
+    if (
+        len(records) != 3
+        or [(item.event_type, item.sequence) for item in records]
+        != [("started", 0), ("failed", 1), ("completed", 2)]
+        or records[0].artifact_digest != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
+        or records[1].artifact_digest != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+    ):
+        raise MainlineSupervisorError("daily recovery replay event chain changed")
+    completed = records[2]
+    summary = dict(completed.payload)
+    if (
+        summary.get("git_commit") != contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+        or summary.get("runtime_migration_attestation_digest")
+        != runtime_migration_attestation_digest
+        or summary.get("recovered_from_failed_event_digest")
+        != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+        or summary.get("workload_rerun") is not False
+        or summary.get("registered_artifact_count") != 2
+    ):
+        raise MainlineSupervisorError(
+            "daily recovery replay completion metadata changed"
+        )
+    children = load_completed_task_artifacts(
+        repository=repository, root_dir=root_dir, task_key=task.task_key
+    )
+    daily = _unique_type(children, "M4IsolatedDailySummaryV11")
+    if daily["parent_digests"].count(runtime_migration_attestation_digest) != 1:
+        raise MainlineSupervisorError(
+            "daily recovery replay attestation parent changed"
+        )
+    attestation = load_registered_input(
+        repository=repository,
+        artifact_digest=runtime_migration_attestation_digest,
+        expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+    )
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+    )
+    execution_rows = [
+        item
+        for item in registrations
+        if item.get("artifact_type") == "research_os_mainline_execution"
+    ]
+    if len(registrations) != 2 or len(execution_rows) != 1:
+        raise MainlineSupervisorError("daily recovery replay registration set changed")
+    execution_registration = supervisor_module._registration_record(execution_rows[0])
+    execution_path = (root_dir / execution_registration.artifact_path).resolve()
+    if (
+        not execution_path.is_relative_to(root_dir.resolve())
+        or not execution_path.is_file()
+    ):
+        raise MainlineSupervisorError("daily recovery replay execution path changed")
+    execution = json.loads(execution_path.read_text(encoding="utf-8"))
+    expected_execution_digest = supervisor_module.canonical_digest(
+        {key: value for key, value in execution.items() if key != "artifact_digest"},
+        domain="dehps.research-os.mainline-execution.v1",
+    )
+    if (
+        execution.get("artifact_digest") != expected_execution_digest
+        or execution.get("artifact_digest") != execution_registration.artifact_digest
+        or execution.get("execution_id") != contract.DAILY_RECOVERY_EXECUTION_ID
+        or execution.get("task_key") != contract.DAILY_RECOVERY_TASK_KEY
+        or execution.get("task_digest") != contract.DAILY_RECOVERY_TASK_DIGEST
+        or execution.get("git_commit") != contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+        or execution.get("runtime_git_commit")
+        != attestation["body"]["runtime_git_commit"]
+        or execution.get("runtime_source_contract_digest")
+        != attestation["body"]["runtime_source_contract_digest"]
+        or execution.get("runtime_migration_attestation_digest")
+        != attestation["artifact_digest"]
+        or execution_registration.git_commit
+        != attestation["body"]["runtime_git_commit"]
+        or execution.get("workload_rerun") is not False
+        or execution.get("formal_p3_mutated") is not False
+        or execution.get("promotion_triggered") is not False
+    ):
+        raise MainlineSupervisorError(
+            "daily recovery replay execution identity changed"
+        )
+    completion_fact = supervisor_module.mainline_completion_fact(
+        task=task, execution_id=contract.DAILY_RECOVERY_EXECUTION_ID
+    )
+    if completion_fact not in manifest.facts.artifacts:
+        raise MainlineSupervisorError("daily recovery replay completion fact missing")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-daily-recovery-replay.v1",
+        "status": "REPLAY_VERIFIED",
+        "task_key": task.task_key,
+        "task_digest": task.artifact_digest,
+        "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+        "execution_artifact_digest": execution["artifact_digest"],
+        "manifest_digest": manifest.artifact_digest,
+        "registered_artifact_count": 2,
+        "runtime_migration_attestation_digest": attestation["artifact_digest"],
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "same_artifact_content": True,
+        "all_registrations_and_parent_chains_exact": True,
+        "manual_input_assembly": False,
+        "dispatch_performed": False,
+        "workload_rerun": False,
+        "smtp_calls": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def load_registered_isolated_artifact(
     *,
     repository: PostgresResearchOSRepository,
@@ -1022,13 +1177,17 @@ def load_registered_isolated_artifact(
         connection.cursor(row_factory=dict_row) as cursor,
     ):
         rows = cursor.execute(
-            "SELECT registration_json FROM research_os_mainline_artifacts "
+            "SELECT registration_digest,registration_json "
+            "FROM research_os_mainline_artifacts "
             "WHERE control_plane_key=%s AND artifact_digest=%s",
             (contract.CONTROL_PLANE_KEY, artifact_digest),
         ).fetchall()
     if len(rows) != 1:
         raise IsolatedMainlineError("registered_artifact_identity_not_unique")
-    registration = dict(rows[0]["registration_json"])
+    registration = {
+        "registration_digest": str(rows[0]["registration_digest"]),
+        **dict(rows[0]["registration_json"]),
+    }
     supervisor_module._registration_record(registration)
     if (
         registration.get("control_plane_key") != contract.CONTROL_PLANE_KEY
@@ -1048,7 +1207,9 @@ def load_registered_isolated_artifact(
         or not path.is_file()
     ):
         raise IsolatedMainlineError("registered_artifact_path_changed")
-    parsed = artifacts.validate_artifact(json.loads(path.read_text(encoding="utf-8")))
+    parsed = validate_v5_lifecycle_artifact(
+        json.loads(path.read_text(encoding="utf-8"))
+    )
     if (
         parsed["artifact_digest"] != artifact_digest
         or parsed["artifact_type"] != registration.get("artifact_type")
@@ -1165,6 +1326,330 @@ def _unique_type(
     return matches[0]
 
 
+_INCIDENT_RESOLUTION_KEYS = frozenset(
+    {
+        "incident_id",
+        "reason_code",
+        "resolution_kind",
+        "status",
+        "open_fact",
+        "incident_artifact_digest",
+        "incident_receipt_digest",
+        "repair_proof_digest",
+        "runtime_migration_attestation_digest",
+        "recovered_task_key",
+        "recovered_execution_id",
+        "recovered_completion_event_digest",
+        "daily_summary_replay_digest",
+        "daily_delivery_task_key",
+        "daily_receipt_digest",
+        "resolved_at",
+    }
+)
+_INCIDENT_LEDGER_HEAD_KEYS = frozenset(
+    {
+        "transition_seq",
+        "transition_kind",
+        "incident_id",
+        "open_incident_ids",
+        "open_count",
+        "previous_head_digest",
+        "latest_incident_digest",
+        "latest_resolution_digest",
+        "transition_at",
+    }
+)
+
+
+def validate_v5_lifecycle_artifact(value: Mapping[str, Any]) -> dict[str, Any]:
+    parsed = artifacts.validate_artifact(value)
+    artifact_type = parsed["artifact_type"]
+    if artifact_type not in {
+        "M4IsolatedIncidentResolutionV11",
+        "M4IsolatedIncidentLedgerHeadV11",
+    }:
+        return parsed
+    body = parsed["body"]
+    type_keys = {key for key in body if key not in artifacts.COMMON_BODY_KEYS}
+    expected = (
+        _INCIDENT_RESOLUTION_KEYS
+        if artifact_type == "M4IsolatedIncidentResolutionV11"
+        else _INCIDENT_LEDGER_HEAD_KEYS
+    )
+    if type_keys != expected:
+        raise IsolatedMainlineError("v5_incident_artifact_body_shape_changed")
+    incident_id = contract.require_digest(body.get("incident_id"), field="incident_id")
+    timestamp_field = (
+        "resolved_at"
+        if artifact_type == "M4IsolatedIncidentResolutionV11"
+        else "transition_at"
+    )
+    try:
+        timestamp = datetime.fromisoformat(str(body.get(timestamp_field) or ""))
+    except ValueError as exc:
+        raise IsolatedMainlineError("v5_incident_timestamp_invalid") from exc
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise IsolatedMainlineError("v5_incident_timestamp_not_aware")
+    if artifact_type == "M4IsolatedIncidentResolutionV11":
+        digest_fields = (
+            "incident_artifact_digest",
+            "incident_receipt_digest",
+            "repair_proof_digest",
+            "runtime_migration_attestation_digest",
+            "recovered_execution_id",
+            "recovered_completion_event_digest",
+            "daily_summary_replay_digest",
+            "daily_receipt_digest",
+        )
+        for field in digest_fields:
+            contract.require_digest(body.get(field), field=field)
+        if (
+            body.get("status") != "RESOLVED"
+            or body.get("resolution_kind") != "RECOVERED_DAILY_MAIL_CHAIN_V1"
+            or body.get("reason_code") not in contract.INCIDENT_REASON_CODES
+            or body.get("recovered_task_key") != contract.DAILY_RECOVERY_TASK_KEY
+            or body.get("daily_delivery_task_key")
+            != "m4-isolated-24h-challenger-v11-daily-20260828-delivery"
+            or body.get("open_fact")
+            != f"m4-isolated-24h-challenger-v11-incident-{incident_id}-open:OPEN"
+            or body.get("target_issue") is not None
+            or body.get("deterministic_seed") is not None
+            or body.get("replay_status") != "NOT_APPLICABLE"
+            or len(parsed["parent_digests"]) != 6
+            or parsed["parent_digests"][0] != body.get("incident_artifact_digest")
+            or parsed["parent_digests"][2] != body.get("incident_receipt_digest")
+            or parsed["parent_digests"][3] != body.get("daily_summary_replay_digest")
+            or body.get("repair_proof_digest")
+            != body.get("daily_summary_replay_digest")
+            or parsed["parent_digests"][4] != body.get("daily_receipt_digest")
+            or parsed["parent_digests"][5]
+            != body.get("runtime_migration_attestation_digest")
+            or body.get("resolved_at") != body.get("created_at")
+        ):
+            raise IsolatedMainlineError("v5_incident_resolution_identity_changed")
+    else:
+        transition_kind = body.get("transition_kind")
+        open_ids = body.get("open_incident_ids")
+        if (
+            transition_kind not in {"OPEN", "RESOLVED"}
+            or not isinstance(body.get("transition_seq"), int)
+            or int(body["transition_seq"]) < 0
+            or not isinstance(open_ids, list)
+            or open_ids != sorted(set(open_ids))
+            or any(
+                contract.require_digest(item, field="open_incident_id") != item
+                for item in open_ids
+            )
+            or body.get("open_count") != len(open_ids)
+            or len(parsed["parent_digests"]) != 2
+            or body.get("previous_head_digest") != parsed["parent_digests"][0]
+            or body.get("target_issue") is not None
+            or body.get("deterministic_seed") is not None
+            or body.get("replay_status") != "NOT_APPLICABLE"
+        ):
+            raise IsolatedMainlineError("v5_incident_ledger_head_identity_changed")
+        for field in (
+            "previous_head_digest",
+            "latest_incident_digest",
+        ):
+            value_at_field = body.get(field)
+            if value_at_field is not None:
+                contract.require_digest(value_at_field, field=field)
+        latest_resolution = body.get("latest_resolution_digest")
+        if latest_resolution is not None:
+            contract.require_digest(latest_resolution, field="latest_resolution_digest")
+    return parsed
+
+
+def latest_incident_ledger_state(
+    *, repository: PostgresResearchOSRepository, root_dir: Path
+) -> dict[str, Any]:
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    facts = set(manifest.facts.artifacts)
+    genesis_values = load_completed_task_artifacts(
+        repository=repository,
+        root_dir=root_dir,
+        task_key=contract.task_template_by_name("incident_head_genesis").key(
+            _task_context_from_manifest(manifest)
+        ),
+    )
+    genesis = _unique_type(genesis_values, "M4IsolatedEmptyIncidentHeadV11")
+    if (
+        genesis["body"].get("incident_seq") != -1
+        or genesis["body"].get("open_count") != 0
+        or genesis["body"].get("latest_incident_digest") is not None
+    ):
+        raise IsolatedMainlineError("incident_ledger_genesis_changed")
+    transitions: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
+    for task in manifest.tasks:
+        if task.requested_capability not in {
+            "M4IsolatedIncidentOpenCapabilityV11",
+            "M4IsolatedIncidentResolutionCapabilityV11",
+        }:
+            continue
+        events = repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=task.task_key,
+        )
+        if not any(item.get("event_type") == "completed" for item in events):
+            continue
+        values = load_completed_task_artifacts(
+            repository=repository, root_dir=root_dir, task_key=task.task_key
+        )
+        if task.requested_capability == "M4IsolatedIncidentOpenCapabilityV11":
+            primary = _unique_type(values, "M4IsolatedIncidentV11")
+            legacy = [
+                item
+                for item in values
+                if item["artifact_type"] == "M4IsolatedIncidentHeadV11"
+            ]
+            current = [
+                item
+                for item in values
+                if item["artifact_type"] == "M4IsolatedIncidentLedgerHeadV11"
+            ]
+            if len(legacy) + len(current) != 1:
+                raise IsolatedMainlineError("incident_open_head_not_unique")
+            head = (legacy or current)[0]
+            sequence = int(
+                head["body"].get(
+                    "incident_seq" if legacy else "transition_seq",
+                    -1,
+                )
+            )
+            transitions.append(
+                (sequence, "LEGACY_OPEN" if legacy else "OPEN", primary, head)
+            )
+        else:
+            primary = _unique_type(values, "M4IsolatedIncidentResolutionV11")
+            head = _unique_type(values, "M4IsolatedIncidentLedgerHeadV11")
+            transitions.append(
+                (int(head["body"].get("transition_seq", -1)), "RESOLVED", primary, head)
+            )
+    previous = genesis
+    open_ids: list[str] = []
+    resolved_ids: list[str] = []
+    for expected_seq, (sequence, kind, primary, head) in enumerate(
+        sorted(transitions, key=lambda item: (item[0], item[3]["artifact_digest"]))
+    ):
+        incident_id = contract.require_digest(
+            primary["body"].get("incident_id"), field="incident_id"
+        )
+        if sequence != expected_seq:
+            raise IsolatedMainlineError("incident_ledger_sequence_gap_or_branch")
+        if kind == "LEGACY_OPEN":
+            if expected_seq != 0 or open_ids or resolved_ids:
+                raise IsolatedMainlineError("incident_ledger_legacy_adapter_changed")
+            if (
+                head["body"].get("open_count") != 1
+                or head["body"].get("latest_incident_digest")
+                != primary["artifact_digest"]
+                or head["parent_digests"]
+                != [previous["artifact_digest"], primary["artifact_digest"]]
+            ):
+                raise IsolatedMainlineError("incident_ledger_legacy_head_changed")
+            open_ids.append(incident_id)
+        else:
+            body = head["body"]
+            if (
+                body.get("transition_kind") != kind
+                or body.get("incident_id") != incident_id
+                or body.get("previous_head_digest") != previous["artifact_digest"]
+                or head["parent_digests"]
+                != [previous["artifact_digest"], primary["artifact_digest"]]
+                or body.get("transition_at")
+                != primary["body"].get("opened_at" if kind == "OPEN" else "resolved_at")
+            ):
+                raise IsolatedMainlineError("incident_ledger_transition_changed")
+            if kind == "OPEN":
+                if incident_id in open_ids or incident_id in resolved_ids:
+                    raise IsolatedMainlineError("incident_ledger_duplicate_open")
+                open_ids.append(incident_id)
+                if (
+                    body.get("latest_incident_digest") != primary["artifact_digest"]
+                    or body.get("latest_resolution_digest") is not None
+                ):
+                    raise IsolatedMainlineError("incident_ledger_open_identity_changed")
+            else:
+                if incident_id not in open_ids or incident_id in resolved_ids:
+                    raise IsolatedMainlineError(
+                        "incident_ledger_resolution_without_open"
+                    )
+                open_ids.remove(incident_id)
+                resolved_ids.append(incident_id)
+                if body.get("latest_resolution_digest") != primary[
+                    "artifact_digest"
+                ] or body.get("latest_incident_digest") != primary["body"].get(
+                    "incident_artifact_digest"
+                ):
+                    raise IsolatedMainlineError(
+                        "incident_ledger_resolution_identity_changed"
+                    )
+            open_ids.sort()
+            resolved_ids.sort()
+            if body.get("open_incident_ids") != open_ids or body.get(
+                "open_count"
+            ) != len(open_ids):
+                raise IsolatedMainlineError("incident_ledger_open_set_changed")
+        expected_fact = (
+            f"{task_key_for_artifact(primary)}:OPEN"
+            if kind in {"OPEN", "LEGACY_OPEN"}
+            else f"{task_key_for_artifact(primary)}:RESOLVED"
+        )
+        if (
+            expected_fact not in facts
+            or f"m4-isolated-24h-challenger-v11-incident-ledger-head-{expected_seq}:ADVANCED"
+            not in facts
+            and kind != "LEGACY_OPEN"
+        ):
+            raise IsolatedMainlineError("incident_ledger_fact_binding_changed")
+        previous = head
+    return {
+        "head": previous,
+        "transition_seq": len(transitions) - 1,
+        "open_incident_ids": open_ids,
+        "open_count": len(open_ids),
+        "resolved_incident_ids": resolved_ids,
+    }
+
+
+def projected_incident_ledger_state(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    manifest: Any | None = None,
+) -> dict[str, Any]:
+    live = manifest or repository.load_manifest(
+        control_plane_key=contract.CONTROL_PLANE_KEY
+    )
+    context = _task_context_from_manifest(live)
+    genesis_fact = f"{contract.task_template_by_name('incident_head_genesis').key(context)}:COMPLETE"
+    if genesis_fact not in live.facts.artifacts:
+        return {
+            "head": None,
+            "transition_seq": -1,
+            "open_incident_ids": [],
+            "open_count": 0,
+            "resolved_incident_ids": [],
+        }
+    return latest_incident_ledger_state(repository=repository, root_dir=root_dir)
+
+
+def task_key_for_artifact(value: Mapping[str, Any]) -> str:
+    return str(value.get("body", {}).get("task_key") or "")
+
+
+def _task_context_from_manifest(manifest: Any) -> dict[str, str]:
+    if not manifest.tasks:
+        raise IsolatedMainlineError("incident_ledger_manifest_empty")
+    try:
+        metric = json.loads(manifest.tasks[0].metric_contract)
+        context = dict(metric["render_context"])
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise IsolatedMainlineError("incident_ledger_context_changed") from exc
+    return context
+
+
 def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:
     output: list[str] = []
     seen: set[str] = set()
@@ -1176,8 +1661,57 @@ def _ordered_unique(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(output)
 
 
-REGISTERED_INPUT_SCHEMA = "dehps-m4-isolated-registered-input.v11"
-REGISTERED_INPUT_DOMAIN = "dehps.m4.isolated-24h-challenger.registered-input.v11"
+REGISTERED_INPUT_SCHEMA = contract.REGISTERED_INPUT_SCHEMA
+REGISTERED_INPUT_DOMAIN = contract.REGISTERED_INPUT_DOMAIN
+_RUNTIME_MIGRATION_COMMON_KEYS = frozenset(
+    {
+        "lineage_id",
+        "task_key",
+        "target_issue",
+        "git_commit",
+        "source_contract_digest",
+        "contract_digest",
+        "config_digest",
+        "input_digest",
+        "output_digest",
+        "created_at",
+        "deterministic_seed",
+        "replay_status",
+    }
+)
+_RUNTIME_MIGRATION_TYPE_KEYS = frozenset(
+    {
+        "recovery_kind",
+        "original_task_key",
+        "original_task_digest",
+        "original_execution_id",
+        "original_manifest_digest",
+        "original_git_commit",
+        "original_source_contract_digest",
+        "started_event_digest",
+        "failed_event_digest",
+        "failed_error",
+        "completion_sequence",
+        "runtime_git_commit",
+        "runtime_source_contract_digest",
+        "research_request_id",
+        "research_approval_decision_id",
+        "research_payload_sha256",
+        "engineering_request_id",
+        "engineering_approval_decision_id",
+        "engineering_execution_id",
+        "engineering_payload_sha256",
+        "operator_request_id",
+        "operator_approval_decision_id",
+        "operator_execution_id",
+        "operator_payload_sha256",
+        "scientific_contract_changed",
+        "mail_contract_changed",
+        "formal_p3_accessed_or_mutated",
+        "workload_rerun",
+        "smtp_calls_before_daily_delivery",
+    }
+)
 
 
 def build_registered_input(
@@ -1199,6 +1733,107 @@ def build_registered_input(
     )
     validate_registered_input_payload(payload)
     return payload
+
+
+def build_runtime_migration_attestation_input(
+    *,
+    runtime_git_commit: str,
+    runtime_source_contract_digest: str,
+    operator_request_id: int,
+    operator_approval_decision_id: int,
+    operator_execution_id: int,
+    operator_payload_sha256: str,
+    operator_execution_started_at: str,
+) -> dict[str, Any]:
+    runtime_source = contract.require_digest(
+        runtime_source_contract_digest, field="runtime_source_contract_digest"
+    )
+    if re.fullmatch(r"[0-9a-f]{40}", runtime_git_commit) is None:
+        raise IsolatedMainlineError("runtime_migration_git_commit_invalid")
+    try:
+        started_at = datetime.fromisoformat(operator_execution_started_at)
+    except ValueError as exc:
+        raise IsolatedMainlineError(
+            "runtime_migration_operator_started_at_invalid"
+        ) from exc
+    if started_at.tzinfo is None or started_at.utcoffset() is None:
+        raise IsolatedMainlineError("runtime_migration_operator_started_at_not_aware")
+    created_at = started_at.astimezone(UTC).isoformat()
+    operator_payload_sha256 = contract.require_digest(
+        operator_payload_sha256, field="operator_payload_sha256"
+    )
+    type_body: dict[str, Any] = {
+        "recovery_kind": "DAILY_SUMMARY_REGISTRATION_DIGEST_COLUMN_REPAIR_V1",
+        "original_task_key": contract.DAILY_RECOVERY_TASK_KEY,
+        "original_task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+        "original_execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+        "original_manifest_digest": contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+        "original_git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+        "original_source_contract_digest": (
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+        ),
+        "started_event_digest": contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+        "failed_event_digest": contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+        "failed_error": "mainline artifact registration shape changed",
+        "completion_sequence": 2,
+        "runtime_git_commit": runtime_git_commit,
+        "runtime_source_contract_digest": runtime_source,
+        "research_request_id": contract.DAILY_RECOVERY_RESEARCH_REQUEST_ID,
+        "research_approval_decision_id": (
+            contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID
+        ),
+        "research_payload_sha256": contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256,
+        "engineering_request_id": contract.DAILY_RECOVERY_ENGINEERING_REQUEST_ID,
+        "engineering_approval_decision_id": (
+            contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID
+        ),
+        "engineering_execution_id": (contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID),
+        "engineering_payload_sha256": (
+            contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+        ),
+        "operator_request_id": operator_request_id,
+        "operator_approval_decision_id": operator_approval_decision_id,
+        "operator_execution_id": operator_execution_id,
+        "operator_payload_sha256": operator_payload_sha256,
+        "scientific_contract_changed": False,
+        "mail_contract_changed": False,
+        "formal_p3_accessed_or_mutated": False,
+        "workload_rerun": False,
+        "smtp_calls_before_daily_delivery": 0,
+    }
+    parents = [contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST, runtime_source]
+    body = {
+        "lineage_id": contract.LINEAGE_ID,
+        "task_key": (
+            "m4-isolated-24h-challenger-v11-daily-20260828-"
+            "runtime-migration-attestation-v1"
+        ),
+        "target_issue": None,
+        "git_commit": runtime_git_commit,
+        "source_contract_digest": runtime_source,
+        "contract_digest": contract.CONTRACT_DIGEST,
+        "config_digest": _config_digest(runtime_source),
+        "input_digest": contract.domain_digest(
+            parents,
+            domain="dehps.m4.isolated-24h-challenger.input-set.v11",
+        ),
+        "output_digest": contract.domain_digest(
+            type_body,
+            domain=(
+                "dehps.m4.isolated-24h-challenger.output."
+                "M4IsolatedRuntimeMigrationAttestationInputV11.v11"
+            ),
+        ),
+        "created_at": created_at,
+        "deterministic_seed": None,
+        "replay_status": "NOT_APPLICABLE",
+        **type_body,
+    }
+    return build_registered_input(
+        artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+        body=body,
+        parent_digests=parents,
+    )
 
 
 def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -1372,6 +2007,118 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
             )
             and len(parents) == 2
         )
+    elif artifact_type == contract.RUNTIME_MIGRATION_INPUT_TYPE:
+        try:
+            created_at = datetime.fromisoformat(str(body.get("created_at") or ""))
+        except ValueError as exc:
+            raise IsolatedMainlineError("runtime_migration_created_at_invalid") from exc
+        runtime_source = contract.require_digest(
+            body.get("runtime_source_contract_digest"),
+            field="runtime_source_contract_digest",
+        )
+        runtime_git = str(body.get("runtime_git_commit") or "")
+        type_body = {key: body.get(key) for key in sorted(_RUNTIME_MIGRATION_TYPE_KEYS)}
+        expected_digest = contract.domain_digest(
+            {
+                "schema_version": payload["schema_version"],
+                "artifact_type": artifact_type,
+                "body": body,
+                "parent_digests": parents,
+            },
+            domain=REGISTERED_INPUT_DOMAIN,
+        )
+        valid = (
+            set(body) == _RUNTIME_MIGRATION_COMMON_KEYS | _RUNTIME_MIGRATION_TYPE_KEYS
+            and len(parents) == 2
+            and parents[0] == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            and parents[1] == runtime_source
+            and body.get("lineage_id") == contract.LINEAGE_ID
+            and body.get("task_key")
+            == (
+                "m4-isolated-24h-challenger-v11-daily-20260828-"
+                "runtime-migration-attestation-v1"
+            )
+            and body.get("target_issue") is None
+            and body.get("git_commit") == runtime_git
+            and body.get("source_contract_digest") == runtime_source
+            and body.get("contract_digest") == contract.CONTRACT_DIGEST
+            and re.fullmatch(r"[0-9a-f]{40}", runtime_git) is not None
+            and body.get("config_digest") == _config_digest(runtime_source)
+            and body.get("input_digest")
+            == contract.domain_digest(
+                parents,
+                domain="dehps.m4.isolated-24h-challenger.input-set.v11",
+            )
+            and body.get("output_digest")
+            == contract.domain_digest(
+                type_body,
+                domain=(
+                    "dehps.m4.isolated-24h-challenger.output."
+                    "M4IsolatedRuntimeMigrationAttestationInputV11.v11"
+                ),
+            )
+            and created_at.tzinfo is not None
+            and created_at.utcoffset() is not None
+            and str(body.get("created_at")) == created_at.astimezone(UTC).isoformat()
+            and body.get("deterministic_seed") is None
+            and body.get("replay_status") == "NOT_APPLICABLE"
+            and body.get("recovery_kind")
+            == "DAILY_SUMMARY_REGISTRATION_DIGEST_COLUMN_REPAIR_V1"
+            and body.get("original_task_key") == contract.DAILY_RECOVERY_TASK_KEY
+            and body.get("original_task_digest") == contract.DAILY_RECOVERY_TASK_DIGEST
+            and body.get("original_execution_id")
+            == contract.DAILY_RECOVERY_EXECUTION_ID
+            and body.get("original_manifest_digest")
+            == contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST
+            and body.get("original_git_commit")
+            == contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+            and body.get("original_source_contract_digest")
+            == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            and body.get("started_event_digest")
+            == contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
+            and body.get("failed_event_digest")
+            == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+            and body.get("failed_error")
+            == "mainline artifact registration shape changed"
+            and body.get("completion_sequence") == 2
+            and body.get("research_request_id")
+            == contract.DAILY_RECOVERY_RESEARCH_REQUEST_ID
+            and body.get("research_approval_decision_id")
+            == contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID
+            and body.get("research_payload_sha256")
+            == contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256
+            and body.get("engineering_request_id")
+            == contract.DAILY_RECOVERY_ENGINEERING_REQUEST_ID
+            and body.get("engineering_approval_decision_id")
+            == contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID
+            and body.get("engineering_execution_id")
+            == contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID
+            and body.get("engineering_payload_sha256")
+            == contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+            and all(
+                isinstance(body.get(field), int)
+                and not isinstance(body.get(field), bool)
+                and int(body[field]) > 0
+                for field in (
+                    "operator_request_id",
+                    "operator_approval_decision_id",
+                    "operator_execution_id",
+                )
+            )
+            and len(
+                contract.require_digest(
+                    body.get("operator_payload_sha256"),
+                    field="operator_payload_sha256",
+                )
+            )
+            == 64
+            and body.get("scientific_contract_changed") is False
+            and body.get("mail_contract_changed") is False
+            and body.get("formal_p3_accessed_or_mutated") is False
+            and body.get("workload_rerun") is False
+            and body.get("smtp_calls_before_daily_delivery") == 0
+            and digest == expected_digest
+        )
     else:
         raise IsolatedMainlineError("registered_input_type_changed")
     if not valid:
@@ -1379,11 +2126,76 @@ def validate_registered_input_payload(value: Mapping[str, Any]) -> dict[str, Any
     return payload
 
 
+def _validate_runtime_migration_source_parents(
+    *, repository: PostgresResearchOSRepository, payload: Mapping[str, Any]
+) -> None:
+    if payload.get("artifact_type") != contract.RUNTIME_MIGRATION_INPUT_TYPE:
+        return
+    expected_digests = list(payload.get("parent_digests") or ())
+    if expected_digests != [
+        contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        payload.get("body", {}).get("runtime_source_contract_digest"),
+    ]:
+        raise IsolatedMainlineError("runtime_migration_source_parent_set_changed")
+    with (
+        repository.connection_factory() as connection,
+        connection.cursor() as cursor,
+    ):
+        rows = cursor.execute(
+            "SELECT artifact_digest,artifact_type,artifact_json,"
+            "parent_digests_json,git_commit,source_path,content_sha256 "
+            "FROM m4_isolated_v11.registered_inputs "
+            "WHERE artifact_digest=ANY(%s)",
+            (expected_digests,),
+        ).fetchall()
+    by_digest = {str(row[0]): row for row in rows}
+    if set(by_digest) != set(expected_digests) or len(rows) != 2:
+        raise IsolatedMainlineError("runtime_migration_source_parent_missing")
+    for digest in expected_digests:
+        row = by_digest[digest]
+        parsed = validate_registered_input_payload(dict(row[2]))
+        source_path = str(row[5] or "")
+        git_commit = str(row[4] or "")
+        if (
+            parsed["artifact_digest"] != digest
+            or str(row[1]) != contract.SOURCE_ARTIFACT_TYPE
+            or parsed["artifact_type"] != contract.SOURCE_ARTIFACT_TYPE
+            or list(row[3]) != []
+            or re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
+            or source_path != contract.SOURCE_CONTRACT_PATH
+            or re.fullmatch(r"[0-9a-f]{64}", str(row[6] or "")) is None
+        ):
+            raise IsolatedMainlineError(
+                "runtime_migration_source_parent_registration_changed"
+            )
+        archived = subprocess.run(
+            ["git", "show", f"{git_commit}:{source_path}"],
+            cwd=ROOT_DIR,
+            check=False,
+            capture_output=True,
+        )
+        try:
+            archived_payload = json.loads(archived.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise IsolatedMainlineError(
+                "runtime_migration_source_parent_content_changed"
+            ) from exc
+        if (
+            archived.returncode != 0
+            or hashlib.sha256(archived.stdout).hexdigest() != str(row[6])
+            or archived_payload != parsed
+        ):
+            raise IsolatedMainlineError(
+                "runtime_migration_source_parent_content_changed"
+            )
+
+
 def _validate_history_content_parent_binding(
     *,
     repository: PostgresResearchOSRepository,
     payload: Mapping[str, Any],
 ) -> None:
+    _validate_runtime_migration_source_parents(repository=repository, payload=payload)
     if payload.get("artifact_type") != "M4IsolatedHistoryContentInputV11":
         return
     parsed = validate_registered_input_payload(payload)
@@ -1504,6 +2316,10 @@ def load_registered_input(
         or (
             parsed["artifact_type"] != contract.SOURCE_ARTIFACT_TYPE
             and row[4] is not None
+        )
+        or (
+            parsed["artifact_type"] == contract.RUNTIME_MIGRATION_INPUT_TYPE
+            and str(row[3]) != parsed["body"].get("runtime_git_commit")
         )
         or str(row[5]) != hashlib.sha256(content).hexdigest()
         or (
@@ -1885,6 +2701,9 @@ class IsolatedV11Capability:
         simulation: bool,
         repository: PostgresResearchOSRepository,
         root_dir: Path,
+        runtime_migration_attestation_digest: str = "",
+        runtime_git_commit: str = "",
+        runtime_source_contract_digest: str = "",
     ) -> None:
         self.capability_name = capability_name
         self.context = dict(context)
@@ -1892,6 +2711,9 @@ class IsolatedV11Capability:
         self.simulation = simulation
         self.repository = repository
         self.root_dir = root_dir
+        self.runtime_migration_attestation_digest = runtime_migration_attestation_digest
+        self.runtime_git_commit = runtime_git_commit
+        self.runtime_source_contract_digest = runtime_source_contract_digest
         self._active_created_at: str | None = None
         self._active_execution_id: str | None = None
 
@@ -2494,7 +3316,28 @@ class IsolatedV11Capability:
                 contract.DAILY_SEND_TIME,
                 contract.TIMEZONE,
             )
-            if not scheduled <= now < scheduled + timedelta(minutes=1):
+            recovery_delivery = bool(
+                self.context.get("epoch_date") == "20260828"
+                and self.runtime_migration_attestation_digest
+            )
+            if recovery_delivery:
+                attestation = load_registered_input(
+                    repository=self.repository,
+                    artifact_digest=self.runtime_migration_attestation_digest,
+                    expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+                )
+                if (
+                    attestation["body"].get("original_task_key")
+                    != contract.DAILY_RECOVERY_TASK_KEY
+                    or attestation["body"].get("runtime_git_commit")
+                    != self.runtime_git_commit
+                    or attestation["body"].get("runtime_source_contract_digest")
+                    != self.runtime_source_contract_digest
+                ):
+                    raise IsolatedMainlineError(
+                        "daily_recovery_delivery_attestation_changed"
+                    )
+            elif not scheduled <= now < scheduled + timedelta(minutes=1):
                 raise IsolatedMainlineError("DAILY_DELIVERY_DEADLINE_MISSED")
         replay = _unique_type(self._upstream(replay_name), "M4IsolatedMailReplayV11")
         envelope_body = replay["body"].get("replayed_body")
@@ -5190,7 +6033,8 @@ class IsolatedV11Capability:
             is not None
         ]
         health_statuses = [str(item["body"].get("status")) for item in health_artifacts]
-        incident_head = self._latest_incident_head()
+        incident_state = self._latest_incident_state()
+        incident_head = incident_state["head"]
         m_total = int(head[1])
         cohort_records = [
             self._cohort_selection_record(item, m_total=m_total)
@@ -5216,8 +6060,30 @@ class IsolatedV11Capability:
                 *(item["artifact_digest"] for item in batch_replays),
                 *(item["artifact_digest"] for item in health_artifacts),
                 incident_head["artifact_digest"],
+                *(
+                    (self.runtime_migration_attestation_digest,)
+                    if task_key == contract.DAILY_RECOVERY_TASK_KEY
+                    and self.runtime_migration_attestation_digest
+                    else ()
+                ),
             )
         )
+        if task_key == contract.DAILY_RECOVERY_TASK_KEY and (
+            self.runtime_migration_attestation_digest
+        ):
+            attestation = load_registered_input(
+                repository=self.repository,
+                artifact_digest=self.runtime_migration_attestation_digest,
+                expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+            )
+            if (
+                attestation["body"].get("runtime_git_commit") != self.runtime_git_commit
+                or attestation["body"].get("runtime_source_contract_digest")
+                != self.runtime_source_contract_digest
+            ):
+                raise IsolatedMainlineError(
+                    "daily_recovery_runtime_attestation_changed"
+                )
         return (
             self._build(
                 artifact_type="M4IsolatedDailySummaryV11",
@@ -5277,7 +6143,14 @@ class IsolatedV11Capability:
                         ],
                         "status": "REGISTERED_REPLAY_VERIFIED",
                     },
-                    "incidents": dict(incident_head["body"]),
+                    "incidents": {
+                        "transition_seq": incident_state["transition_seq"],
+                        "open_incident_ids": list(incident_state["open_incident_ids"]),
+                        "open_count": incident_state["open_count"],
+                        "resolved_incident_ids": list(
+                            incident_state["resolved_incident_ids"]
+                        ),
+                    },
                     "recovery": {
                         "leased": int(lease_row["leased"]),
                         "stale_leases": int(lease_row["stale"]),
@@ -5312,50 +6185,13 @@ class IsolatedV11Capability:
             ),
         )
 
+    def _latest_incident_state(self) -> dict[str, Any]:
+        return latest_incident_ledger_state(
+            repository=self.repository, root_dir=self.root_dir
+        )
+
     def _latest_incident_head(self) -> dict[str, Any]:
-        genesis = _unique_type(
-            self._upstream("incident_head_genesis"),
-            "M4IsolatedEmptyIncidentHeadV11",
-        )
-        manifest = self.repository.load_manifest(
-            control_plane_key=contract.CONTROL_PLANE_KEY
-        )
-        heads: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        for task in manifest.tasks:
-            if task.requested_capability != "M4IsolatedIncidentOpenCapabilityV11":
-                continue
-            events = self.repository.list_mainline_execution_events(
-                control_plane_key=contract.CONTROL_PLANE_KEY,
-                task_key=task.task_key,
-            )
-            if (
-                len([item for item in events if item.get("event_type") == "completed"])
-                != 1
-            ):
-                continue
-            values = load_completed_task_artifacts(
-                repository=self.repository,
-                root_dir=self.root_dir,
-                task_key=task.task_key,
-            )
-            incident = _unique_type(values, "M4IsolatedIncidentV11")
-            head = _unique_type(values, "M4IsolatedIncidentHeadV11")
-            heads.append((incident, head))
-        previous = genesis
-        for expected_seq, (incident, head) in enumerate(
-            sorted(heads, key=lambda pair: int(pair[1]["body"]["incident_seq"]))
-        ):
-            if (
-                head["body"].get("incident_seq") != expected_seq
-                or head["body"].get("open_count") != expected_seq + 1
-                or head["body"].get("latest_incident_digest")
-                != incident["artifact_digest"]
-                or head["parent_digests"]
-                != [previous["artifact_digest"], incident["artifact_digest"]]
-            ):
-                raise IsolatedMainlineError("incident_head_chain_changed")
-            previous = head
-        return previous
+        return dict(self._latest_incident_state()["head"])
 
     def _incident_open(
         self, *, task_key: str, git_commit: str
@@ -5384,7 +6220,13 @@ class IsolatedV11Capability:
             )
         if count < 1:
             raise IsolatedMainlineError("incident_offending_artifact_unregistered")
-        previous = self._latest_incident_head()
+        state = self._latest_incident_state()
+        previous = state["head"]
+        if (
+            incident_id in state["open_incident_ids"]
+            or incident_id in state["resolved_incident_ids"]
+        ):
+            raise IsolatedMainlineError("incident_identity_already_used")
         opened_at = self._active_created_at
         incident = self._build(
             artifact_type="M4IsolatedIncidentV11",
@@ -5401,7 +6243,7 @@ class IsolatedV11Capability:
             },
         )
         head = self._build(
-            artifact_type="M4IsolatedIncidentHeadV11",
+            artifact_type="M4IsolatedIncidentLedgerHeadV11",
             task_key=task_key,
             target_issue=None,
             git_commit=git_commit,
@@ -5410,13 +6252,161 @@ class IsolatedV11Capability:
                 incident["artifact_digest"],
             ),
             type_body={
-                "incident_seq": int(previous["body"]["incident_seq"]) + 1,
-                "open_count": int(previous["body"]["open_count"]) + 1,
+                "transition_seq": int(state["transition_seq"]) + 1,
+                "transition_kind": "OPEN",
+                "incident_id": incident_id,
+                "open_incident_ids": sorted([*state["open_incident_ids"], incident_id]),
+                "open_count": int(state["open_count"]) + 1,
+                "previous_head_digest": previous["artifact_digest"],
                 "latest_incident_digest": incident["artifact_digest"],
-                "opened_at": opened_at,
+                "latest_resolution_digest": None,
+                "transition_at": opened_at,
             },
         )
         return incident, head
+
+    @staticmethod
+    def _require_sent_receipt(
+        value: Mapping[str, Any], *, expected_digest: str | None = None
+    ) -> dict[str, Any]:
+        receipt = artifacts.validate_artifact(value)
+        body = receipt["body"]
+        if (
+            receipt["artifact_type"] != "M4IsolatedDeliveryReceiptV11"
+            or (
+                expected_digest is not None
+                and receipt["artifact_digest"] != expected_digest
+            )
+            or body.get("state") != "SENT"
+            or body.get("smtp_final_reply_code") != 250
+            or body.get("smtp_data_accepted_at") is None
+            or not body.get("smtp_final_reply_bytes_digest")
+        ):
+            raise IsolatedMainlineError("incident_resolution_receipt_not_sent")
+        contract.require_digest(
+            body["smtp_final_reply_bytes_digest"],
+            field="smtp_final_reply_bytes_digest",
+        )
+        return receipt
+
+    def _incident_resolution(
+        self, *, task_key: str, git_commit: str
+    ) -> tuple[dict[str, Any], ...]:
+        incident_id = contract.require_digest(
+            self.context["incident_id"], field="incident_id"
+        )
+        state = self._latest_incident_state()
+        if incident_id not in state["open_incident_ids"]:
+            raise IsolatedMainlineError("incident_resolution_not_open")
+        incident = _unique_type(
+            self._upstream("incident_open"), "M4IsolatedIncidentV11"
+        )
+        if (
+            incident["artifact_digest"]
+            != contract.DAILY_RECOVERY_INCIDENT_ARTIFACT_DIGEST
+            or incident["body"].get("incident_id") != incident_id
+            or incident["body"].get("reason_code") != "DEADLINE_OR_ABSENCE"
+        ):
+            raise IsolatedMainlineError("incident_resolution_incident_changed")
+        incident_receipt = self._require_sent_receipt(
+            _unique_type(
+                self._upstream("incident_delivery"),
+                "M4IsolatedDeliveryReceiptV11",
+            ),
+            expected_digest=contract.DAILY_RECOVERY_INCIDENT_RECEIPT_DIGEST,
+        )
+        daily_replay = _unique_type(
+            self._upstream("daily_summary_replay"),
+            "M4IsolatedDailySummaryReplayV11",
+        )
+        daily_receipt = self._require_sent_receipt(
+            _unique_type(
+                self._upstream("daily_delivery"),
+                "M4IsolatedDeliveryReceiptV11",
+            )
+        )
+        attestation = load_registered_input(
+            repository=self.repository,
+            artifact_digest=self.runtime_migration_attestation_digest,
+            expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+        )
+        if (
+            incident_id != contract.DAILY_RECOVERY_INCIDENT_ID
+            or attestation["body"].get("original_task_key")
+            != contract.DAILY_RECOVERY_TASK_KEY
+            or attestation["body"].get("original_execution_id")
+            != contract.DAILY_RECOVERY_EXECUTION_ID
+        ):
+            raise IsolatedMainlineError("incident_resolution_recovery_identity_changed")
+        completed_events = self.repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=contract.DAILY_RECOVERY_TASK_KEY,
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+        )
+        completed = [
+            supervisor_module._event_record(item)
+            for item in completed_events
+            if item.get("event_type") == "completed"
+        ]
+        if len(completed) != 1 or completed[0].sequence != 2:
+            raise IsolatedMainlineError("incident_resolution_completion_event_changed")
+        resolved_at = self._active_created_at
+        previous = state["head"]
+        parents = (
+            incident["artifact_digest"],
+            previous["artifact_digest"],
+            incident_receipt["artifact_digest"],
+            daily_replay["artifact_digest"],
+            daily_receipt["artifact_digest"],
+            attestation["artifact_digest"],
+        )
+        resolution = self._build(
+            artifact_type="M4IsolatedIncidentResolutionV11",
+            task_key=task_key,
+            target_issue=None,
+            git_commit=git_commit,
+            parent_digests=parents,
+            type_body={
+                "incident_id": incident_id,
+                "reason_code": incident["body"]["reason_code"],
+                "resolution_kind": "RECOVERED_DAILY_MAIL_CHAIN_V1",
+                "status": "RESOLVED",
+                "open_fact": f"{self._task_key('incident_open')}:OPEN",
+                "incident_artifact_digest": incident["artifact_digest"],
+                "incident_receipt_digest": incident_receipt["artifact_digest"],
+                "repair_proof_digest": daily_replay["artifact_digest"],
+                "runtime_migration_attestation_digest": attestation["artifact_digest"],
+                "recovered_task_key": contract.DAILY_RECOVERY_TASK_KEY,
+                "recovered_execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+                "recovered_completion_event_digest": completed[0].artifact_digest,
+                "daily_summary_replay_digest": daily_replay["artifact_digest"],
+                "daily_delivery_task_key": self._task_key("daily_delivery"),
+                "daily_receipt_digest": daily_receipt["artifact_digest"],
+                "resolved_at": resolved_at,
+            },
+        )
+        remaining = sorted(
+            item for item in state["open_incident_ids"] if item != incident_id
+        )
+        head = self._build(
+            artifact_type="M4IsolatedIncidentLedgerHeadV11",
+            task_key=task_key,
+            target_issue=None,
+            git_commit=git_commit,
+            parent_digests=(previous["artifact_digest"], resolution["artifact_digest"]),
+            type_body={
+                "transition_seq": int(state["transition_seq"]) + 1,
+                "transition_kind": "RESOLVED",
+                "incident_id": incident_id,
+                "open_incident_ids": remaining,
+                "open_count": len(remaining),
+                "previous_head_digest": previous["artifact_digest"],
+                "latest_incident_digest": incident["artifact_digest"],
+                "latest_resolution_digest": resolution["artifact_digest"],
+                "transition_at": resolved_at,
+            },
+        )
+        return resolution, head
 
     def _latest_runtime_health(
         self, *, preregistration: Mapping[str, Any]
@@ -5572,6 +6562,7 @@ class IsolatedV11Capability:
             "operator_attestation": self._operator_attestation,
             "incident_head_genesis": self._incident_head_genesis,
             "incident_open": self._incident_open,
+            "incident_resolution": self._incident_resolution,
             "target_issue_projection": self._target_projection,
             "history_snapshot": self._history_snapshot,
             "mail_configuration": self._mail_configuration,
@@ -5750,6 +6741,25 @@ class IsolatedV11Capability:
             )
             for index, payload in enumerate(payloads)
         )
+        recovery_metadata: tuple[tuple[str, Any], ...] = ()
+        if task.task_key == contract.DAILY_RECOVERY_TASK_KEY and (
+            self.runtime_migration_attestation_digest
+        ):
+            recovery_metadata = (
+                ("runtime_git_commit", self.runtime_git_commit),
+                (
+                    "runtime_source_contract_digest",
+                    self.runtime_source_contract_digest,
+                ),
+                (
+                    "runtime_migration_attestation_digest",
+                    self.runtime_migration_attestation_digest,
+                ),
+                (
+                    "recovered_from_failed_event_digest",
+                    contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+                ),
+            )
         return AtomicCapabilityResult(
             artifacts=atomic,
             completion_facts=(),
@@ -5763,6 +6773,7 @@ class IsolatedV11Capability:
                 ("simulation", self.simulation),
                 ("formal_p3_mutated", False),
                 ("promotion_triggered", False),
+                *recovery_metadata,
             ),
         )
 
@@ -5780,6 +6791,8 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         simulation: bool = False,
         failed_recovery_event_digest: str = "",
         failed_recovery_attestation_digest: str = "",
+        runtime_git_commit: str = "",
+        runtime_source_contract_digest: str = "",
     ) -> None:
         supervisor_module._TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE[
             contract.CONTROL_PLANE_KEY
@@ -5802,6 +6815,14 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
                 simulation=simulation,
                 repository=repository,
                 root_dir=root_dir,
+                runtime_migration_attestation_digest=(
+                    failed_recovery_attestation_digest
+                    if failed_recovery_event_digest
+                    == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+                    else ""
+                ),
+                runtime_git_commit=runtime_git_commit,
+                runtime_source_contract_digest=runtime_source_contract_digest,
             )
             for name in capability_names
         }
@@ -5814,6 +6835,8 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         self.isolated_source_digest = source_digest
         self.failed_recovery_event_digest = failed_recovery_event_digest
         self.failed_recovery_attestation_digest = failed_recovery_attestation_digest
+        self.runtime_git_commit = runtime_git_commit
+        self.runtime_source_contract_digest = runtime_source_contract_digest
 
     def _validated_additional_failed_recovery_event(
         self,
@@ -5827,6 +6850,72 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         )
         if tokens == ("", ""):
             return None
+        if tokens[0] == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST:
+            if (
+                task.task_key != contract.DAILY_RECOVERY_TASK_KEY
+                or task.artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+                or tuple(task.input_artifact_digests)
+                != (contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,)
+                or self.isolated_source_digest
+                != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                or len(events) != 2
+            ):
+                raise MainlineSupervisorError(
+                    "daily recovery task or event cardinality changed"
+                )
+            records = [supervisor_module._event_record(item) for item in events]
+            by_sequence = {item.sequence: item for item in records}
+            if len(by_sequence) != 2 or set(by_sequence) != {0, 1}:
+                raise MainlineSupervisorError("daily recovery event sequence changed")
+            started, failed = by_sequence[0], by_sequence[1]
+            if (
+                started.artifact_digest != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
+                or failed.artifact_digest != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+                or any(
+                    item.execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+                    or item.control_plane_key != contract.CONTROL_PLANE_KEY
+                    or item.task_key != contract.DAILY_RECOVERY_TASK_KEY
+                    or item.task_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+                    or item.capability != "M4IsolatedDailySummaryCapabilityV11"
+                    for item in (started, failed)
+                )
+                or started.manifest_digest
+                != contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST
+                or failed.manifest_digest
+                != contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST
+                or started.event_type != "started"
+                or failed.event_type != "failed"
+                or dict(started.payload)
+                != {
+                    "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                    "input_artifact_digests": [
+                        contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                    ],
+                }
+                or dict(failed.payload)
+                != {
+                    "error": "mainline artifact registration shape changed",
+                    "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                }
+            ):
+                raise MainlineSupervisorError("daily recovery event identity changed")
+            attestation = load_registered_input(
+                repository=self.repository,
+                artifact_digest=tokens[1],
+                expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
+            )
+            if (
+                attestation["body"].get("runtime_git_commit") != self.runtime_git_commit
+                or attestation["body"].get("runtime_source_contract_digest")
+                != self.runtime_source_contract_digest
+            ):
+                raise MainlineSupervisorError("daily recovery runtime identity changed")
+            return next(
+                item
+                for item in events
+                if item.get("event_digest")
+                == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+            )
         modes = {
             (
                 _EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
@@ -6035,6 +7124,27 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
                 execution_id=execution_id,
                 terminal_sequence=terminal_sequence,
             )
+        if tokens[0] == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST:
+            if (
+                terminal_sequence != 2
+                or execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+                or task.task_key != contract.DAILY_RECOVERY_TASK_KEY
+                or task.artifact_digest != contract.DAILY_RECOVERY_TASK_DIGEST
+            ):
+                raise MainlineSupervisorError(
+                    "daily recovery completion authorization changed"
+                )
+            events = self.repository.list_mainline_execution_events(
+                control_plane_key=self.control_plane_key,
+                task_key=task.task_key,
+                execution_id=execution_id,
+            )
+            return (
+                self._validated_additional_failed_recovery_event(
+                    task=task, events=events
+                )
+                is not None
+            )
         expected_sequence = {
             (
                 _EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
@@ -6085,6 +7195,18 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
                 task=task,
                 events=events,
                 terminal_sequence=terminal_sequence,
+            )
+        if tokens[0] == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST:
+            if terminal_sequence != 2:
+                return False
+            terminal_event = self._validated_additional_failed_recovery_event(
+                task=task, events=events
+            )
+            return (
+                terminal_event.get("event_type") == "failed"
+                and terminal_event.get("sequence") == 1
+                and terminal_event.get("execution_id")
+                == contract.DAILY_RECOVERY_EXECUTION_ID
             )
         expected_sequence = {
             (
@@ -6143,6 +7265,7 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             original_artifact = supervisor_module._atomic_artifact_relative_path
             original_execution = supervisor_module._atomic_execution_relative_path
             original_canonical = supervisor_module._canonical_task_artifact_path
+            original_registration = supervisor_module._atomic_registration
             supervisor_module._atomic_artifact_relative_path = (
                 _isolated_atomic_artifact_relative_path
             )
@@ -6152,12 +7275,29 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             supervisor_module._canonical_task_artifact_path = (
                 _isolated_canonical_task_artifact_path
             )
+            if (
+                self.failed_recovery_event_digest
+                == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+            ):
+
+                def daily_recovery_registration(**registration_kwargs: Any):
+                    payload = registration_kwargs.get("payload")
+                    if (
+                        isinstance(payload, Mapping)
+                        and payload.get("artifact_type")
+                        == "research_os_mainline_execution"
+                    ):
+                        registration_kwargs["git_commit"] = self.runtime_git_commit
+                    return original_registration(**registration_kwargs)
+
+                supervisor_module._atomic_registration = daily_recovery_registration
             try:
                 return super()._complete_atomic_capability(**kwargs)
             finally:
                 supervisor_module._atomic_artifact_relative_path = original_artifact
                 supervisor_module._atomic_execution_relative_path = original_execution
                 supervisor_module._canonical_task_artifact_path = original_canonical
+                supervisor_module._atomic_registration = original_registration
 
     def replay(
         self, *, task_key: str, execution_id: str | None = None
@@ -6173,6 +7313,20 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             return replay_exact_sequence3_committed_execution(
                 repository=self.repository,
                 root_dir=self.root_dir,
+            )
+        if (
+            task_key == contract.DAILY_RECOVERY_TASK_KEY
+            and execution_id == contract.DAILY_RECOVERY_EXECUTION_ID
+            and self.failed_recovery_event_digest
+            == contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+            and self.failed_recovery_attestation_digest
+        ):
+            return replay_recovered_daily_summary_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                runtime_migration_attestation_digest=(
+                    self.failed_recovery_attestation_digest
+                ),
             )
         generic = super().replay(task_key=task_key, execution_id=execution_id)
         children = load_completed_task_artifacts(
@@ -6202,7 +7356,12 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
         by_status = Counter(item.status.value for item in snapshot.resolutions)
         ready = [item.task_key for item in snapshot.ready_queue]
         mail_verified = contract.MAIL_CONFIGURATION_FACT in facts
-        delivery_evidence = _external_delivery_evidence(facts)
+        incident_state = projected_incident_ledger_state(
+            repository=self.repository, root_dir=self.root_dir, manifest=manifest
+        )
+        delivery_evidence = _external_delivery_evidence(
+            facts, open_incident_ids=incident_state["open_incident_ids"]
+        )
         active = bool(mail_verified and delivery_evidence["real_mail_acceptance"])
         return {
             "schema_version": "dehps-m4-isolated-v11-status.v1",
@@ -6360,7 +7519,12 @@ def compact_status(*, repository: PostgresResearchOSRepository) -> dict[str, Any
     facts = set(manifest.facts.artifacts)
     by_status = Counter(item.status.value for item in snapshot.resolutions)
     mail_verified = contract.MAIL_CONFIGURATION_FACT in facts
-    delivery_evidence = _external_delivery_evidence(facts)
+    incident_state = projected_incident_ledger_state(
+        repository=repository, root_dir=ROOT_DIR, manifest=manifest
+    )
+    delivery_evidence = _external_delivery_evidence(
+        facts, open_incident_ids=incident_state["open_incident_ids"]
+    )
     active = bool(mail_verified and delivery_evidence["real_mail_acceptance"])
     return {
         "status": (

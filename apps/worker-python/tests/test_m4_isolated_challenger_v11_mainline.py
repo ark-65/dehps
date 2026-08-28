@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 from copy import deepcopy
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +19,10 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_mainline as mainline,
 )
-from dehps.research_os.models import MainlineExecutionEvent
+from dehps.research_os.models import (
+    MainlineArtifactRegistration,
+    MainlineExecutionEvent,
+)
 from dehps.research_os.repository import PostgresResearchOSRepository
 
 
@@ -103,7 +108,7 @@ def test_simulated_chain_covers_all_tasks_and_never_creates_sent() -> None:
         context=_context(), git_commit="a" * 40, source_digest="b" * 64
     )
     assert result["status"] == "SIMULATION_REPLAY_VERIFIED"
-    assert result["task_count"] == 42
+    assert result["task_count"] == 43
     assert result["external_sent_count"] == 0
     assert result["smtp_calls"] == 0
     assert result["all_parents_registered"] is True
@@ -134,6 +139,274 @@ def test_external_mail_acceptance_requires_issue_cycle_daily_and_no_incident() -
         facts | {"m4-isolated-24h-challenger-v11-incident-bad-open:OPEN"}
     )
     assert blocked["real_mail_acceptance"] is False
+    resolved = mainline._external_delivery_evidence(
+        facts | {"m4-isolated-24h-challenger-v11-incident-bad-open:OPEN"},
+        open_incident_ids=[],
+    )
+    assert resolved["real_mail_acceptance"] is True
+    assert resolved["open_incident_count"] == 0
+
+
+def test_runtime_migration_attestation_registered_input_identity_is_exact() -> None:
+    value = mainline.build_runtime_migration_attestation_input(
+        runtime_git_commit="a" * 40,
+        runtime_source_contract_digest="b" * 64,
+        operator_request_id=900,
+        operator_approval_decision_id=901,
+        operator_execution_id=902,
+        operator_payload_sha256="c" * 64,
+        operator_execution_started_at="2026-08-28T02:00:00+08:00",
+    )
+    assert mainline.validate_registered_input_payload(value) == value
+    assert set(value) == {
+        "schema_version",
+        "artifact_type",
+        "artifact_digest",
+        "body",
+        "parent_digests",
+    }
+    assert set(value["body"]) == (
+        mainline._RUNTIME_MIGRATION_COMMON_KEYS | mainline._RUNTIME_MIGRATION_TYPE_KEYS
+    )
+    assert value["parent_digests"] == [
+        contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        "b" * 64,
+    ]
+    assert value["body"]["created_at"] == "2026-08-27T18:00:00+00:00"
+    corrupted = deepcopy(value)
+    corrupted["body"]["task_key"] += "-alternate"
+    identity = {
+        key: item for key, item in corrupted.items() if key != "artifact_digest"
+    }
+    corrupted["artifact_digest"] = contract.domain_digest(
+        identity, domain=contract.REGISTERED_INPUT_DOMAIN
+    )
+    with pytest.raises(mainline.IsolatedMainlineError, match="identity_changed"):
+        mainline.validate_registered_input_payload(corrupted)
+
+
+def test_runtime_migration_parent_sources_are_content_attested_from_git(
+    monkeypatch,
+) -> None:
+    def source_payload(label: str) -> tuple[dict[str, object], bytes]:
+        value: dict[str, object] = {
+            "schema_version": contract.SOURCE_SCHEMA,
+            "artifact_type": contract.SOURCE_ARTIFACT_TYPE,
+            "source_set_digest": contract.domain_digest(
+                [label, "source-set"], domain="fixture"
+            ),
+            "contract_key": contract.CONTRACT_KEY,
+            "contract_digest": contract.CONTRACT_DIGEST,
+            "governance_bindings": {"fixture": label},
+            "runtime_versions": {"python": "fixture"},
+            "source_entries": [
+                {
+                    "path": f"fixture/{label}.py",
+                    "sha256": contract.domain_digest([label], domain="fixture"),
+                    "bytes": 1,
+                }
+            ],
+        }
+        value["artifact_digest"] = contract.domain_digest(
+            value, domain=contract.SOURCE_DOMAIN
+        )
+        content = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, indent=2
+        ).encode("utf-8")
+        return value, content
+
+    old_source, old_bytes = source_payload("old")
+    new_source, new_bytes = source_payload("new")
+    monkeypatch.setattr(
+        mainline.contract,
+        "DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST",
+        old_source["artifact_digest"],
+    )
+    commits = ("a" * 40, "b" * 40)
+    content_by_commit = {commits[0]: old_bytes, commits[1]: new_bytes}
+    rows = [
+        (
+            source["artifact_digest"],
+            contract.SOURCE_ARTIFACT_TYPE,
+            source,
+            [],
+            commit,
+            contract.SOURCE_CONTRACT_PATH,
+            hashlib.sha256(content).hexdigest(),
+        )
+        for source, commit, content in (
+            (old_source, commits[0], old_bytes),
+            (new_source, commits[1], new_bytes),
+        )
+    ]
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            return self
+
+        @staticmethod
+        def fetchall():
+            return rows
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    monkeypatch.setattr(
+        mainline.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(
+            returncode=0, stdout=content_by_commit[command[2].split(":", 1)[0]]
+        ),
+    )
+    attestation = {
+        "artifact_type": contract.RUNTIME_MIGRATION_INPUT_TYPE,
+        "parent_digests": [
+            old_source["artifact_digest"],
+            new_source["artifact_digest"],
+        ],
+        "body": {"runtime_source_contract_digest": new_source["artifact_digest"]},
+    }
+    mainline._validate_runtime_migration_source_parents(
+        repository=_Repository(), payload=attestation
+    )
+    rows[0] = (*rows[0][:-1], "0" * 64)
+    with pytest.raises(mainline.IsolatedMainlineError, match="parent_content_changed"):
+        mainline._validate_runtime_migration_source_parents(
+            repository=_Repository(), payload=attestation
+        )
+
+
+def test_registered_artifact_loader_reconstructs_digest_column(
+    tmp_path: Path,
+) -> None:
+    payload = artifacts.build_artifact(
+        artifact_type="M4IsolatedEmptyIncidentHeadV11",
+        task_key="m4-isolated-24h-challenger-v11-incident-head-genesis",
+        target_issue=None,
+        git_commit="a" * 40,
+        source_contract_digest="b" * 64,
+        config_digest="c" * 64,
+        parent_digests=("d" * 64,),
+        type_body={
+            "incident_seq": -1,
+            "open_count": 0,
+            "latest_incident_digest": None,
+        },
+        deterministic_seed=None,
+        replay_status="NOT_APPLICABLE",
+        created_at="2026-08-28T00:00:00+00:00",
+    )
+    relative = "runtime/isolated-24h-challenger-v11/artifacts/fixture/artifact.json"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    registration = MainlineArtifactRegistration(
+        execution_id="e" * 64,
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=payload["body"]["task_key"],
+        task_digest="f" * 64,
+        artifact_digest=payload["artifact_digest"],
+        artifact_type=payload["artifact_type"],
+        schema_version=payload["schema_version"],
+        artifact_path=relative,
+        parent_digests=tuple(payload["parent_digests"]),
+        git_commit="a" * 40,
+    )
+    rows = [
+        {
+            "registration_digest": registration.registration_digest,
+            "registration_json": json.loads(
+                json.dumps(asdict(registration), sort_keys=True)
+            ),
+        }
+    ]
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            return self
+
+        def fetchall(self):
+            return rows
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self, **_kwargs):
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    loaded = mainline.load_registered_isolated_artifact(
+        repository=_Repository(),
+        root_dir=tmp_path,
+        artifact_digest=payload["artifact_digest"],
+    )
+    assert loaded == payload
+    rows[0]["registration_digest"] = "0" * 64
+    with pytest.raises(mainline.MainlineSupervisorError):
+        mainline.load_registered_isolated_artifact(
+            repository=_Repository(),
+            root_dir=tmp_path,
+            artifact_digest=payload["artifact_digest"],
+        )
+    rows[0]["registration_digest"] = registration.registration_digest
+    rows.clear()
+    with pytest.raises(mainline.IsolatedMainlineError, match="identity_not_unique"):
+        mainline.load_registered_isolated_artifact(
+            repository=_Repository(),
+            root_dir=tmp_path,
+            artifact_digest=payload["artifact_digest"],
+        )
+    rows.append(
+        {
+            "registration_digest": registration.registration_digest,
+            "registration_json": json.loads(
+                json.dumps(asdict(registration), sort_keys=True)
+            ),
+        }
+    )
+    path.write_text(json.dumps({**payload, "artifact_digest": "0" * 64}))
+    with pytest.raises(artifacts.IsolatedArtifactError, match="digest_mismatch"):
+        mainline.load_registered_isolated_artifact(
+            repository=_Repository(),
+            root_dir=tmp_path,
+            artifact_digest=payload["artifact_digest"],
+        )
 
 
 def test_search_batch_emits_exact_atomic_cardinalities() -> None:
@@ -880,6 +1153,106 @@ def test_exact_failed_event_recovery_hook_binds_event_and_attestation_chain(
         supervisor._validated_additional_failed_recovery_event(task=task, events=events)
 
 
+def test_daily_recovery_hook_binds_exact_failed_prefix_and_registered_input(
+    monkeypatch,
+) -> None:
+    runtime_git = "a" * 40
+    runtime_source = "b" * 64
+    attestation_digest = "c" * 64
+    events = (
+        {
+            "event_digest": contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            "control_plane_key": contract.CONTROL_PLANE_KEY,
+            "manifest_digest": contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+            "task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+            "capability": "M4IsolatedDailySummaryCapabilityV11",
+            "event_type": "started",
+            "sequence": 0,
+            "recorded_at": "2026-08-28T01:00:43.798450+00:00",
+            "payload": [
+                [
+                    "input_artifact_digests",
+                    [contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST],
+                ],
+                ["git_commit", contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT],
+            ],
+        },
+        {
+            "event_digest": contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            "control_plane_key": contract.CONTROL_PLANE_KEY,
+            "manifest_digest": contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+            "task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+            "capability": "M4IsolatedDailySummaryCapabilityV11",
+            "event_type": "failed",
+            "sequence": 1,
+            "recorded_at": "2026-08-28T01:00:44.641800+00:00",
+            "payload": [
+                ["error", "mainline artifact registration shape changed"],
+                ["git_commit", contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT],
+            ],
+        },
+    )
+    task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+        input_artifact_digests=(contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,),
+    )
+
+    class _Repository:
+        @staticmethod
+        def list_mainline_execution_events(**kwargs):
+            assert kwargs == {
+                "control_plane_key": contract.CONTROL_PLANE_KEY,
+                "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+                "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            }
+            return events
+
+    monkeypatch.setattr(
+        mainline,
+        "load_registered_input",
+        lambda **kwargs: {
+            "artifact_digest": kwargs["artifact_digest"],
+            "body": {
+                "runtime_git_commit": runtime_git,
+                "runtime_source_contract_digest": runtime_source,
+            },
+        },
+    )
+    supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
+    supervisor.repository = _Repository()
+    supervisor.control_plane_key = contract.CONTROL_PLANE_KEY
+    supervisor.isolated_source_digest = contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+    supervisor.failed_recovery_event_digest = (
+        contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+    )
+    supervisor.failed_recovery_attestation_digest = attestation_digest
+    supervisor.runtime_git_commit = runtime_git
+    supervisor.runtime_source_contract_digest = runtime_source
+
+    assert (
+        supervisor._validated_additional_failed_recovery_event(task=task, events=events)
+        == events[1]
+    )
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+        terminal_sequence=2,
+    )
+    assert supervisor._is_valid_atomic_terminal_event_set(
+        task=task, events=events, terminal_sequence=2
+    )
+    supervisor.runtime_source_contract_digest = "d" * 64
+    with pytest.raises(
+        mainline.MainlineSupervisorError, match="runtime identity changed"
+    ):
+        supervisor._validated_additional_failed_recovery_event(task=task, events=events)
+
+
 def test_isolated_completion_hook_delegates_when_no_recovery_token(monkeypatch) -> None:
     supervisor = object.__new__(mainline.IsolatedChallengerSupervisor)
     supervisor.failed_recovery_event_digest = ""
@@ -1361,7 +1734,7 @@ def test_incident_open_advances_registered_head_chain(
 
     previous = {
         "artifact_digest": "f" * 64,
-        "body": {"incident_seq": 6, "open_count": 7},
+        "body": {"transition_seq": 6, "open_count": 1},
     }
     capability = mainline.IsolatedV11Capability(
         capability_name="M4IsolatedIncidentOpenCapabilityV11",
@@ -1372,7 +1745,17 @@ def test_incident_open_advances_registered_head_chain(
         root_dir=tmp_path,
     )
     capability._active_created_at = "2026-08-27T00:00:00+00:00"
-    monkeypatch.setattr(capability, "_latest_incident_head", lambda: previous)
+    monkeypatch.setattr(
+        capability,
+        "_latest_incident_state",
+        lambda: {
+            "head": previous,
+            "transition_seq": 6,
+            "open_incident_ids": ["1" * 64],
+            "open_count": 1,
+            "resolved_incident_ids": [],
+        },
+    )
     incident, head = capability._incident_open(
         task_key=contract.task_template_by_name("incident_open").key(context),
         git_commit="a" * 40,
@@ -1383,8 +1766,251 @@ def test_incident_open_advances_registered_head_chain(
         previous["artifact_digest"],
         incident["artifact_digest"],
     ]
-    assert head["body"]["incident_seq"] == 7
-    assert head["body"]["open_count"] == 8
+    assert head["body"]["transition_seq"] == 7
+    assert head["body"]["transition_kind"] == "OPEN"
+    assert head["body"]["open_count"] == 2
+    assert head["body"]["open_incident_ids"] == sorted(
+        ["1" * 64, context["incident_id"]]
+    )
+
+
+def test_incident_ledger_resolves_current_and_two_future_incidents(
+    monkeypatch, tmp_path: Path
+) -> None:
+    context = _context()
+    metric_contract = json.dumps(
+        {"render_context": context}, sort_keys=True, separators=(",", ":")
+    )
+    source_digest = "b" * 64
+    config_digest = "c" * 64
+    git_commit = "a" * 40
+    genesis_key = contract.task_template_by_name("incident_head_genesis").key(context)
+
+    def build(
+        artifact_type: str,
+        task_key: str,
+        parents: tuple[str, ...],
+        type_body: dict[str, object],
+        created_at: str,
+    ) -> dict[str, object]:
+        value = artifacts.build_artifact(
+            artifact_type=artifact_type,
+            task_key=task_key,
+            target_issue=None,
+            git_commit=git_commit,
+            source_contract_digest=source_digest,
+            config_digest=config_digest,
+            parent_digests=parents,
+            type_body=type_body,
+            created_at=created_at,
+        )
+        return mainline.validate_v5_lifecycle_artifact(value)
+
+    genesis = build(
+        "M4IsolatedEmptyIncidentHeadV11",
+        genesis_key,
+        ("0" * 64,),
+        {"incident_seq": -1, "open_count": 0, "latest_incident_digest": None},
+        "2026-08-28T00:00:00+00:00",
+    )
+    tasks: list[SimpleNamespace] = []
+    values_by_task: dict[str, tuple[dict[str, object], ...]] = {genesis_key: (genesis,)}
+    facts: set[str] = set()
+    previous = genesis
+    resolved_ids: list[str] = []
+
+    for ordinal, incident_id in enumerate(
+        (contract.DAILY_RECOVERY_INCIDENT_ID, "2" * 64, "3" * 64)
+    ):
+        open_seq = ordinal * 2
+        resolution_seq = open_seq + 1
+        opened_at = f"2026-08-28T0{ordinal + 1}:00:00+00:00"
+        resolved_at = f"2026-08-28T0{ordinal + 1}:30:00+00:00"
+        open_key = f"m4-isolated-24h-challenger-v11-incident-{incident_id}-open"
+        incident = build(
+            "M4IsolatedIncidentV11",
+            open_key,
+            (f"{ordinal + 4:x}" * 64,),
+            {
+                "status": "OPEN",
+                "incident_id": incident_id,
+                "reason_code": "DEADLINE_OR_ABSENCE",
+                "offending_artifact_digests": [f"{ordinal + 4:x}" * 64],
+                "opened_at": opened_at,
+            },
+            opened_at,
+        )
+        if ordinal == 0:
+            open_head = build(
+                "M4IsolatedIncidentHeadV11",
+                open_key,
+                (previous["artifact_digest"], incident["artifact_digest"]),
+                {
+                    "incident_seq": 0,
+                    "open_count": 1,
+                    "latest_incident_digest": incident["artifact_digest"],
+                    "opened_at": opened_at,
+                },
+                opened_at,
+            )
+        else:
+            open_head = build(
+                "M4IsolatedIncidentLedgerHeadV11",
+                open_key,
+                (previous["artifact_digest"], incident["artifact_digest"]),
+                {
+                    "transition_seq": open_seq,
+                    "transition_kind": "OPEN",
+                    "incident_id": incident_id,
+                    "open_incident_ids": [incident_id],
+                    "open_count": 1,
+                    "previous_head_digest": previous["artifact_digest"],
+                    "latest_incident_digest": incident["artifact_digest"],
+                    "latest_resolution_digest": None,
+                    "transition_at": opened_at,
+                },
+                opened_at,
+            )
+            facts.add(
+                "m4-isolated-24h-challenger-v11-incident-ledger-head-"
+                f"{open_seq}:ADVANCED"
+            )
+        values_by_task[open_key] = (incident, open_head)
+        facts.add(f"{open_key}:OPEN")
+        tasks.append(
+            SimpleNamespace(
+                task_key=open_key,
+                requested_capability="M4IsolatedIncidentOpenCapabilityV11",
+                metric_contract=metric_contract,
+            )
+        )
+        resolution_key = (
+            f"m4-isolated-24h-challenger-v11-incident-{incident_id}-resolution-v1"
+        )
+        incident_receipt = contract.domain_digest(
+            [incident_id, "incident-receipt"], domain="fixture"
+        )
+        daily_replay = contract.domain_digest(
+            [incident_id, "daily-replay"], domain="fixture"
+        )
+        daily_receipt = contract.domain_digest(
+            [incident_id, "daily-receipt"], domain="fixture"
+        )
+        attestation = contract.domain_digest(
+            [incident_id, "attestation"], domain="fixture"
+        )
+        completion = contract.domain_digest(
+            [incident_id, "completed"], domain="fixture"
+        )
+        execution_id = contract.domain_digest(
+            [incident_id, "execution"], domain="fixture"
+        )
+        resolution = build(
+            "M4IsolatedIncidentResolutionV11",
+            resolution_key,
+            (
+                incident["artifact_digest"],
+                open_head["artifact_digest"],
+                incident_receipt,
+                daily_replay,
+                daily_receipt,
+                attestation,
+            ),
+            {
+                "incident_id": incident_id,
+                "reason_code": "DEADLINE_OR_ABSENCE",
+                "resolution_kind": "RECOVERED_DAILY_MAIL_CHAIN_V1",
+                "status": "RESOLVED",
+                "open_fact": f"{open_key}:OPEN",
+                "incident_artifact_digest": incident["artifact_digest"],
+                "incident_receipt_digest": incident_receipt,
+                "repair_proof_digest": daily_replay,
+                "runtime_migration_attestation_digest": attestation,
+                "recovered_task_key": contract.DAILY_RECOVERY_TASK_KEY,
+                "recovered_execution_id": execution_id,
+                "recovered_completion_event_digest": completion,
+                "daily_summary_replay_digest": daily_replay,
+                "daily_delivery_task_key": (
+                    "m4-isolated-24h-challenger-v11-daily-20260828-delivery"
+                ),
+                "daily_receipt_digest": daily_receipt,
+                "resolved_at": resolved_at,
+            },
+            resolved_at,
+        )
+        resolution_head = build(
+            "M4IsolatedIncidentLedgerHeadV11",
+            resolution_key,
+            (open_head["artifact_digest"], resolution["artifact_digest"]),
+            {
+                "transition_seq": resolution_seq,
+                "transition_kind": "RESOLVED",
+                "incident_id": incident_id,
+                "open_incident_ids": [],
+                "open_count": 0,
+                "previous_head_digest": open_head["artifact_digest"],
+                "latest_incident_digest": incident["artifact_digest"],
+                "latest_resolution_digest": resolution["artifact_digest"],
+                "transition_at": resolved_at,
+            },
+            resolved_at,
+        )
+        values_by_task[resolution_key] = (resolution, resolution_head)
+        facts.update(
+            {
+                f"{resolution_key}:RESOLVED",
+                (
+                    "m4-isolated-24h-challenger-v11-incident-ledger-head-"
+                    f"{resolution_seq}:ADVANCED"
+                ),
+            }
+        )
+        tasks.append(
+            SimpleNamespace(
+                task_key=resolution_key,
+                requested_capability=("M4IsolatedIncidentResolutionCapabilityV11"),
+                metric_contract=metric_contract,
+            )
+        )
+        previous = resolution_head
+        resolved_ids.append(incident_id)
+
+    manifest = SimpleNamespace(
+        tasks=tuple(tasks), facts=SimpleNamespace(artifacts=frozenset(facts))
+    )
+
+    class _Repository:
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return manifest
+
+        @staticmethod
+        def list_mainline_execution_events(**_kwargs):
+            return ({"event_type": "completed"},)
+
+    monkeypatch.setattr(
+        mainline,
+        "load_completed_task_artifacts",
+        lambda **kwargs: values_by_task[kwargs["task_key"]],
+    )
+    state = mainline.latest_incident_ledger_state(
+        repository=_Repository(), root_dir=tmp_path
+    )
+    assert state["transition_seq"] == 5
+    assert state["open_count"] == 0
+    assert state["open_incident_ids"] == []
+    assert state["resolved_incident_ids"] == sorted(resolved_ids)
+
+    corrupted = deepcopy(values_by_task[tasks[-1].task_key][1])
+    corrupted["body"]["transition_seq"] = 6
+    values_by_task[tasks[-1].task_key] = (
+        values_by_task[tasks[-1].task_key][0],
+        corrupted,
+    )
+    with pytest.raises(mainline.IsolatedMainlineError, match="sequence_gap_or_branch"):
+        mainline.latest_incident_ledger_state(
+            repository=_Repository(), root_dir=tmp_path
+        )
 
 
 @pytest.mark.parametrize(

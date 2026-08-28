@@ -24,6 +24,19 @@ RESEARCH_APPROVAL_AUTHORITY = "agent-request:694:approved:decision-2925"
 OPERATOR_CONFIGURATION_AUTHORITY = (
     "m4-isolated-24h-challenger-v11:operator-mail-configuration-authorized"
 )
+LEGACY_42_TASK_SOURCE_DIGESTS = frozenset(
+    {
+        "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1",
+        "fc1aee7ccffdb6965ae0c3e181118773ff8514edc066977d8352a7573efa9cba",
+        "45cd0aff1964f603ffb698da019a9803681dbe480c7bee9a322a592a05b79ffc",
+        "fb37933e24cc32677b13909e9f4689605b20eaf635a06ed364a4401ee768124c",
+        "f067bc89f60826c15793e1ab6325a3dce088dd7c2af3e1c99e984d3aada50dd1",
+        "5452fc522812220b6654c2bb8e54b8844b0c2fdab251d392c2af8de501e659ec",
+        "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011",
+        "ecaf63edf57675398bb19b7331a5b97dcdf4b199b790ee68005c79aced864ce6",
+        contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+    }
+)
 
 
 class IsolatedManifestError(contract.IsolatedChallengerContractError):
@@ -175,6 +188,12 @@ def _dependency_names(name: str) -> tuple[tuple[str, str], ...]:
             ("task_fact", "incident_mail_replay:REGISTERED_REPLAY_VERIFIED"),
             ("artifact", contract.MAIL_CONFIGURATION_FACT),
         ),
+        "incident_resolution": (
+            ("task_fact", "incident_open:OPEN"),
+            ("task_fact", "incident_delivery:SENT"),
+            ("task_fact", "daily_summary_replay:REGISTERED_REPLAY_VERIFIED"),
+            ("task_fact", "daily_delivery:SENT"),
+        ),
     }.get(name, ())
 
 
@@ -266,13 +285,18 @@ def _task_payload(
     }
 
 
-def _goal(*, context: Mapping[str, str], source_digest: str) -> dict[str, Any]:
+def _goal(
+    *, context: Mapping[str, str], source_digest: str, task_count: int
+) -> dict[str, Any]:
     return {
         "goal_key": contract.GOAL_KEY,
         "semantic_version": "11.0.0",
         "objective_class": "prediction_quality",
         "success_evidence": [
-            "42 exact task templates traverse Resolver, Ready Queue and Supervisor",
+            (
+                f"{task_count} exact task templates traverse Resolver, "
+                "Ready Queue and Supervisor"
+            ),
             "single-worker and 18-worker result bytes match",
             (
                 "predraw, postdraw and daily external provider-ACK receipts replay; "
@@ -323,14 +347,21 @@ def build_manifest(
     simulation_events: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     source_digest = contract.require_digest(source_digest, field="source_digest")
-    keys = contract.rendered_task_keys(context)
+    templates = tuple(
+        template
+        for template in contract.TASK_TEMPLATES
+        if not (
+            source_digest in LEGACY_42_TASK_SOURCE_DIGESTS
+            and template.name == "incident_resolution"
+        )
+    )
+    keys = tuple(template.key(context) for template in templates)
     key_by_name = {
-        template.name: key
-        for template, key in zip(contract.TASK_TEMPLATES, keys, strict=True)
+        template.name: key for template, key in zip(templates, keys, strict=True)
     }
     tasks: list[dict[str, Any]] = []
     for priority, (template, task_key) in enumerate(
-        zip(contract.TASK_TEMPLATES, keys, strict=True), start=1
+        zip(templates, keys, strict=True), start=1
     ):
         tasks.append(
             _task_payload(
@@ -359,7 +390,13 @@ def build_manifest(
         authorities.append(OPERATOR_CONFIGURATION_AUTHORITY)
     raw = {
         "schema_version": "research-os-control-plane-v1",
-        "goals": [_goal(context=context, source_digest=source_digest)],
+        "goals": [
+            _goal(
+                context=context,
+                source_digest=source_digest,
+                task_count=len(templates),
+            )
+        ],
         "tasks": tasks,
         "facts": {
             "artifacts": [],
@@ -390,7 +427,7 @@ def build_manifest(
     dry_run["artifact_digest"] = contract.domain_digest(
         dry_run, domain="dehps.m4.isolated-24h-challenger.manifest-dry-run.v11"
     )
-    if dry_run["task_count"] != 42:
+    if dry_run["task_count"] != len(templates):
         raise IsolatedManifestError("manifest_task_count_changed")
     return payload, dry_run
 
@@ -420,7 +457,9 @@ DAILY_TEMPLATE_NAMES = frozenset(
     item.name for item in contract.TASK_TEMPLATES if item.group == "daily"
 )
 INCIDENT_TEMPLATE_NAMES = frozenset(
-    item.name for item in contract.TASK_TEMPLATES if item.group == "incident"
+    item.name
+    for item in contract.TASK_TEMPLATES
+    if item.group == "incident" and item.name != "incident_resolution"
 )
 SEARCH_TEMPLATE_NAMES = frozenset(
     {
