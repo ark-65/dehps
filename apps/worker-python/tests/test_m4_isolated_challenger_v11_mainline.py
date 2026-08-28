@@ -3,8 +3,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,6 +122,286 @@ def test_simulated_chain_covers_all_tasks_and_never_creates_sent() -> None:
         "IMMEDIATE_FAIL_CLOSED_INCIDENT",
     }
     assert result["formal_p3_mutated"] is False
+
+
+@pytest.mark.skipif(
+    os.getenv("DEHPS_TEST_POSTGRES") != "1",
+    reason="set DEHPS_TEST_POSTGRES=1 for live read-only health-cohort acceptance",
+)
+def test_live_runtime_health_complete_provenance_and_frozen_cohort_are_exact() -> None:
+    repository = PostgresResearchOSRepository()
+    root_dir = Path(__file__).resolve().parents[3]
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    preregistration_task = next(
+        item
+        for item in manifest.tasks
+        if item.requested_capability == "M4IsolatedPreregistrationCapabilityV11"
+    )
+    preregistration = mainline._unique_type(
+        mainline.load_completed_task_artifacts(
+            repository=repository,
+            root_dir=root_dir,
+            task_key=preregistration_task.task_key,
+        ),
+        "M4IsolatedPreregistrationV11",
+    )
+    history = mainline.validated_runtime_health_history(
+        repository=repository,
+        root_dir=root_dir,
+        preregistration=preregistration,
+        manifest=manifest,
+    )
+    assert len(history) >= mainline._RUNTIME_HEALTH_LEGACY_COUNT
+    legacy = history[: mainline._RUNTIME_HEALTH_LEGACY_COUNT]
+    assert {item["parent_digest"] for item in legacy} == {
+        mainline._RUNTIME_HEALTH_LEGACY_ROOT_DIGEST
+    }
+    preimage = {
+        "schema_version": mainline._RUNTIME_HEALTH_LEGACY_COHORT_SCHEMA,
+        "field_order": list(mainline._RUNTIME_HEALTH_LEGACY_FIELD_ORDER),
+        "records": [item["record"] for item in legacy],
+    }
+    assert (
+        contract.domain_digest(
+            preimage, domain=mainline._RUNTIME_HEALTH_LEGACY_COHORT_DOMAIN
+        )
+        == mainline._RUNTIME_HEALTH_LEGACY_COHORT_DIGEST
+    )
+    assert legacy[-1]["completed_at"].isoformat() == (
+        mainline._RUNTIME_HEALTH_LEGACY_ANCHOR_RECORDED_AT
+    )
+    assert legacy[-1]["task_key"] == mainline._RUNTIME_HEALTH_LEGACY_ANCHOR_TASK_KEY
+    assert legacy[-1]["artifact"]["artifact_digest"] == (
+        mainline._RUNTIME_HEALTH_LEGACY_ANCHOR_ARTIFACT_DIGEST
+    )
+    assert any(item["minute"] == "202608300000" for item in legacy)
+    assert legacy[-1]["minute"] != "202608300000"
+    assert not any(
+        fact.endswith(":HEALTH_RECORDED") for fact in manifest.facts.artifacts
+    )
+    assert all(item["record"][9] == f"{item['task_key']}:COMPLETE" for item in history)
+
+    exact_execution = legacy[-1]["execution"]
+    exact_summary = legacy[-1]["completed_summary"]
+    mainline._validate_runtime_health_zero_operation_metadata(
+        execution=exact_execution,
+        completed_summary=exact_summary,
+    )
+    for key, expected in mainline._RUNTIME_HEALTH_EXECUTION_STATIC.items():
+        corrupted_execution = deepcopy(exact_execution)
+        corrupted_execution[key] = (
+            not expected
+            if isinstance(expected, bool)
+            else ["changed"]
+            if isinstance(expected, list)
+            else expected + 1
+            if isinstance(expected, int)
+            else "changed"
+        )
+        with pytest.raises(
+            mainline.IsolatedMainlineError,
+            match="zero_operation_metadata_changed",
+        ):
+            mainline._validate_runtime_health_zero_operation_metadata(
+                execution=corrupted_execution,
+                completed_summary=exact_summary,
+            )
+    for key, expected in mainline._RUNTIME_HEALTH_COMPLETED_STATIC.items():
+        corrupted_summary = deepcopy(exact_summary)
+        corrupted_summary[key] = (
+            not expected
+            if isinstance(expected, bool)
+            else ["changed"]
+            if isinstance(expected, list)
+            else expected + 1
+            if isinstance(expected, int)
+            else "changed"
+        )
+        with pytest.raises(
+            mainline.IsolatedMainlineError,
+            match="zero_operation_metadata_changed",
+        ):
+            mainline._validate_runtime_health_zero_operation_metadata(
+                execution=exact_execution,
+                completed_summary=corrupted_summary,
+            )
+    for target, key in (
+        ("execution", "unexpected"),
+        ("summary", "unexpected"),
+        ("summary", "publication_batch_digest"),
+    ):
+        corrupted_execution = deepcopy(exact_execution)
+        corrupted_summary = deepcopy(exact_summary)
+        if target == "execution":
+            corrupted_execution[key] = "changed"
+        elif key == "publication_batch_digest":
+            corrupted_summary[key] = "not-a-digest"
+        else:
+            corrupted_summary[key] = "changed"
+        with pytest.raises(
+            mainline.IsolatedMainlineError,
+            match="zero_operation_metadata_changed",
+        ):
+            mainline._validate_runtime_health_zero_operation_metadata(
+                execution=corrupted_execution,
+                completed_summary=corrupted_summary,
+            )
+
+    with pytest.raises(
+        mainline.IsolatedMainlineError, match="legacy_cohort_count_changed"
+    ):
+        mainline._validate_runtime_health_sequence(
+            entries=legacy[:-1],
+            preregistration_digest=mainline._RUNTIME_HEALTH_LEGACY_ROOT_DIGEST,
+        )
+    for field_index in range(len(mainline._RUNTIME_HEALTH_LEGACY_FIELD_ORDER)):
+        changed = deepcopy(list(legacy))
+        changed[0]["record"][field_index] = f"changed-{field_index}"
+        with pytest.raises(
+            mainline.IsolatedMainlineError, match="legacy_cohort_digest_changed"
+        ):
+            mainline._validate_runtime_health_sequence(
+                entries=changed,
+                preregistration_digest=mainline._RUNTIME_HEALTH_LEGACY_ROOT_DIGEST,
+            )
+
+    successor = deepcopy(legacy[-1])
+    successor["completed_at"] = legacy[-1]["completed_at"] + timedelta(minutes=1)
+    successor["task_key"] = "m4-isolated-24h-challenger-v11-runtime-health-successor"
+    successor["minute"] = "202608280932"
+    successor["completed_event_digest"] = "d" * 64
+    successor["parent_digest"] = mainline._RUNTIME_HEALTH_LEGACY_ANCHOR_ARTIFACT_DIGEST
+    successor["artifact"]["artifact_digest"] = "e" * 64
+    accepted = mainline._validate_runtime_health_sequence(
+        entries=(*legacy, successor),
+        preregistration_digest=mainline._RUNTIME_HEALTH_LEGACY_ROOT_DIGEST,
+    )
+    assert accepted[-1]["artifact"]["artifact_digest"] == "e" * 64
+    for mutation in ("parent", "retroactive", "duplicate_minute"):
+        corrupted = deepcopy(successor)
+        if mutation == "parent":
+            corrupted["parent_digest"] = "0" * 64
+        elif mutation == "retroactive":
+            corrupted["completed_at"] = legacy[-1]["completed_at"]
+        else:
+            corrupted["minute"] = legacy[-1]["minute"]
+        with pytest.raises(
+            mainline.IsolatedMainlineError,
+            match="successor_chain_changed|minute_not_unique",
+        ):
+            mainline._validate_runtime_health_sequence(
+                entries=(*legacy, corrupted),
+                preregistration_digest=mainline._RUNTIME_HEALTH_LEGACY_ROOT_DIGEST,
+            )
+
+    corrupted_manifest = replace(
+        manifest,
+        facts=replace(
+            manifest.facts,
+            artifacts=manifest.facts.artifacts
+            | frozenset({f"{legacy[-1]['task_key']}:HEALTH_RECORDED"}),
+        ),
+    )
+    with pytest.raises(
+        mainline.IsolatedMainlineError,
+        match="noncanonical_activation_fact",
+    ):
+        mainline.validated_runtime_health_history(
+            repository=repository,
+            root_dir=root_dir,
+            preregistration=preregistration,
+            manifest=corrupted_manifest,
+        )
+
+    missing_complete_manifest = replace(
+        manifest,
+        facts=replace(
+            manifest.facts,
+            artifacts=manifest.facts.artifacts
+            - frozenset({f"{legacy[-1]['task_key']}:COMPLETE"}),
+        ),
+    )
+    with pytest.raises(
+        mainline.IsolatedMainlineError,
+        match="completion_fact_changed",
+    ):
+        mainline.validated_runtime_health_history(
+            repository=repository,
+            root_dir=root_dir,
+            preregistration=preregistration,
+            manifest=missing_complete_manifest,
+        )
+
+    target_task_key = legacy[-1]["task_key"]
+
+    class _CorruptingRepository:
+        def __init__(self, mode: str):
+            self.mode = mode
+
+        def __getattr__(self, name):
+            return getattr(repository, name)
+
+        def list_mainline_execution_events(self, **kwargs):
+            values = [
+                dict(item)
+                for item in repository.list_mainline_execution_events(**kwargs)
+            ]
+            if self.mode == "event" and kwargs.get("task_key") == target_task_key:
+                values[0]["payload"] = [["git_commit", "0" * 40]]
+            elif (
+                self.mode == "completed_event"
+                and kwargs.get("task_key") == target_task_key
+            ):
+                values[-1]["payload"] = [["simulation", True]]
+            return tuple(values)
+
+        def list_mainline_artifacts(self, **kwargs):
+            values = [
+                dict(item) for item in repository.list_mainline_artifacts(**kwargs)
+            ]
+            target_execution = legacy[-1]["record"][4]
+            if kwargs.get("execution_id") != target_execution:
+                return tuple(values)
+            if self.mode == "missing_registration":
+                values.pop()
+            elif self.mode == "registration_identity":
+                values[0]["task_digest"] = "0" * 64
+            elif self.mode == "registration_path":
+                values[0]["artifact_path"] = "runtime/wrong/artifact.json"
+            elif self.mode == "registration_git":
+                values[0]["git_commit"] = "0" * 40
+            elif self.mode == "registration_parent":
+                values[0]["parent_digests"] = ["0" * 64]
+            return tuple(values)
+
+    for mode in (
+        "event",
+        "completed_event",
+        "missing_registration",
+        "registration_identity",
+        "registration_path",
+        "registration_git",
+        "registration_parent",
+    ):
+        with pytest.raises(
+            (mainline.IsolatedMainlineError, mainline.MainlineSupervisorError)
+        ):
+            mainline.validated_runtime_health_history(
+                repository=_CorruptingRepository(mode),
+                root_dir=root_dir,
+                preregistration=preregistration,
+                manifest=manifest,
+            )
+
+    with pytest.raises(
+        mainline.IsolatedMainlineError,
+        match="source_registration_missing",
+    ):
+        mainline._validate_runtime_health_source_registrations(
+            repository=repository,
+            root_dir=root_dir,
+            source_digests=("0" * 64,),
+        )
 
 
 def test_external_mail_acceptance_requires_issue_cycle_daily_and_no_incident() -> None:
