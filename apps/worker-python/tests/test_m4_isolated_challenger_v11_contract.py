@@ -8,14 +8,25 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 )
 
 
-def test_frozen_surface_has_exact_38_tasks_and_artifacts() -> None:
-    assert len(contract.TASK_TEMPLATES) == 42
-    assert len(contract.ARTIFACT_TYPES) == 43
+def test_frozen_surface_has_exact_v5_tasks_and_artifacts() -> None:
+    assert len(contract.TASK_TEMPLATES) == 43
+    assert len(contract.ARTIFACT_TYPES) == 45
     context = contract.render_context(
         source_max_issue="2026100", source_max_draw_date="2026-08-30"
     )
-    assert len(contract.rendered_task_keys(context)) == 42
-    assert len(set(contract.rendered_task_keys(context))) == 42
+    assert len(contract.rendered_task_keys(context)) == 43
+    assert len(set(contract.rendered_task_keys(context))) == 43
+    resolution_templates = [
+        item for item in contract.TASK_TEMPLATES if item.name == "incident_resolution"
+    ]
+    assert len(resolution_templates) == 1
+    assert resolution_templates[0].capability == (
+        "M4IsolatedIncidentResolutionCapabilityV11"
+    )
+    assert resolution_templates[0].artifact_types == (
+        "M4IsolatedIncidentResolutionV11",
+        "M4IsolatedIncidentLedgerHeadV11",
+    )
     assert contract.WORKER_COUNT == 18
     assert contract.LEGAL_RED_COMBINATION_COUNT == 1_107_568
 
@@ -30,9 +41,7 @@ def test_schedule_is_tuesday_thursday_sunday_and_rolls_year() -> None:
         contract.next_official_issue("2026152", candidate_draw_date=next_date)
         == "2027001"
     )
-    schedule = contract.schedule_for_issue(
-        "2026100", target_draw_date="2026-08-30"
-    )
+    schedule = contract.schedule_for_issue("2026100", target_draw_date="2026-08-30")
     assert schedule["selection_cutoff"].hour == 16
     assert schedule["selection_cutoff"].minute == 40
     assert schedule["freeze_deadline"].minute == 45
