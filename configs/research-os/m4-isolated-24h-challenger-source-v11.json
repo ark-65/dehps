@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "f04aaf3c0e73725a9c54e32024fda62c296fa24fd02bf93372994c5c7ef0c830",
+  "artifact_digest": "710783396226aa6b643c302e4de61238ff75d905f611d6f215ba0eecb28f04b4",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -12,6 +12,11 @@
     "daily_mail_recovery_engineering_approval_decision_id": 3337,
     "daily_mail_recovery_engineering_execution_id": 633,
     "daily_mail_recovery_engineering_request_payload_sha256": "3dd8a26750c778e436546b01f91f7d81dfc34c8f20cfba6e1be585e7c11cc759",
+    "daily_recovery_historical_source_transition_fix_base_merged_commit": "a00a30fc703064853d52f11b8576667ac34af401",
+    "daily_recovery_historical_source_transition_fix_engineering_request_id": 791,
+    "daily_recovery_historical_source_transition_fix_engineering_approval_decision_id": 3371,
+    "daily_recovery_historical_source_transition_fix_engineering_execution_id": 638,
+    "daily_recovery_historical_source_transition_fix_engineering_request_payload_sha256": "aed8a3ed96ae39d276246a60c5ee926135793e438c0cee57cd936b04c72f9df3",
     "runtime_migration_input_schema_base_merged_commit": "64d55148d07bb181fd928ad325f9cd090de9dc1b",
     "runtime_migration_input_schema_engineering_request_id": 786,
     "runtime_migration_input_schema_engineering_approval_decision_id": 3350,
@@ -239,9 +244,9 @@
       "sha256": "28aa79fa5c45766643d44d0df62eb6a37d1f8992c7ae245dfa2020494f107cd1"
     },
     {
-      "bytes": 216300,
+      "bytes": 222912,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "ecbd6ce4bf6b4e3ba8f22b28725143b3d3fb743d3f362c134aea00803ec23cc3"
+      "sha256": "e7a0ff2381bd0499268fb7b0a55fd0aa0b722e4a04a50c3f9baf85ab67a71861"
     },
     {
       "bytes": 17768,
@@ -309,5 +314,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "95c97eeff2693cb4d9c2f906e1f1c6160b36043a101831476fb0491aca2198cc"
+  "source_set_digest": "ea18651f2a7ed65e66c27ff5a29c14840f5f0dc1c5de244da68f333607257954"
 }

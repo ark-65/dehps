@@ -110,6 +110,9 @@ LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS = frozenset(
         contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
     }
 )
+DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST = (
+    "eb2c70cbaec4e22993f4e0e17c498fe963890558bd774e04e0f28deb9e9a9b8e"
+)
 DAILY_RECOVERY_LEGACY_INCIDENT_OPEN_TASK_DIGEST = (
     "959b2b2809420fce64a4609a3bf60f83b4c632dbac3bea55745346a63cdaea50"
 )
@@ -262,6 +265,13 @@ MIRROR_COMPLETENESS_ENGINEERING_EXECUTION_ID = 622
 MIRROR_COMPLETENESS_ENGINEERING_PAYLOAD_SHA256 = (
     "0b77f38eece1d87745e2ab559a80a0958c0b1cfc585c79fed4e3687680366f81"
 )
+DAILY_RECOVERY_TRANSITION_FIX_BASE_COMMIT = "a00a30fc703064853d52f11b8576667ac34af401"
+DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_REQUEST_ID = 791
+DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_DECISION_ID = 3371
+DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_EXECUTION_ID = 638
+DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_PAYLOAD_SHA256 = (
+    "aed8a3ed96ae39d276246a60c5ee926135793e438c0cee57cd936b04c72f9df3"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -303,6 +313,36 @@ def _validate_mirror_completeness_repair_source_binding(
         or {key: bindings.get(key) for key in expected} != expected
     ):
         raise IsolatedRunnerError("mirror_completeness_repair_binding_changed")
+
+
+def _validate_daily_recovery_transition_fix_source_binding(
+    source_contract: Mapping[str, Any],
+) -> None:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "daily_recovery_historical_source_transition_fix_base_merged_commit": (
+            DAILY_RECOVERY_TRANSITION_FIX_BASE_COMMIT
+        ),
+        "daily_recovery_historical_source_transition_fix_engineering_request_id": (
+            DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_REQUEST_ID
+        ),
+        "daily_recovery_historical_source_transition_fix_engineering_approval_decision_id": (
+            DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_DECISION_ID
+        ),
+        "daily_recovery_historical_source_transition_fix_engineering_execution_id": (
+            DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_EXECUTION_ID
+        ),
+        "daily_recovery_historical_source_transition_fix_engineering_request_payload_sha256": (
+            DAILY_RECOVERY_TRANSITION_FIX_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+    ):
+        raise IsolatedRunnerError(
+            "daily_recovery_historical_source_transition_fix_binding_changed"
+        )
 
 
 def _validate_user_scope_resume_event_set(
@@ -1195,12 +1235,15 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         ):
             raise IsolatedRunnerError("daily_recovery_event_gate_reentrant")
         current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        if current.artifact_digest != DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST:
+            raise IsolatedRunnerError("daily_recovery_current_manifest_changed")
         self._daily_recovery_event_gate = True
         self._daily_recovery_transition_gate = {
             "current_manifest_digest": current.artifact_digest,
             "running_manifest_digest": None,
             "router_consumed": False,
             "completion_consumed": False,
+            "authoritative_completion_consumed": False,
         }
         try:
             yield
@@ -1325,6 +1368,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         state: Any,
         artifact_facts: frozenset[str],
         partial_live_rebind: bool,
+        daily_recovery_historical_only: bool = False,
     ) -> None:
         try:
             metric = json.loads(task.metric_contract)
@@ -1356,22 +1400,36 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             completion_prefix = (
                 f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
             )
+            has_completion_fact = any(
+                fact.startswith(completion_prefix) and fact.endswith(":completed")
+                for fact in artifact_facts
+            )
+            daily_recovery_transition = (
+                daily_recovery_historical_only
+                and task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+                and task.artifact_digest == contract.DAILY_RECOVERY_TASK_DIGEST
+                and bound_source_digest
+                == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                and state.declared_status in {TaskStatus.FAILED, TaskStatus.RUNNING}
+                and self._daily_recovery_transition_gate is not None
+                and not has_completion_fact
+            )
+            unchanged_rebind_candidate = (
+                daily_recovery_historical_only
+                and state.declared_status is TaskStatus.DRAFT
+                and self._daily_recovery_transition_gate is not None
+                and not has_completion_fact
+            )
             if (
                 bound_source_digest not in LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS
                 or (
                     state.declared_status is not TaskStatus.COMPLETED
-                    and not (
-                        task.task_key == contract.DAILY_RECOVERY_TASK_KEY
-                        and bound_source_digest
-                        == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
-                        and state.declared_status
-                        in {TaskStatus.FAILED, TaskStatus.RUNNING}
-                        and self._daily_recovery_transition_gate is not None
-                    )
+                    and not daily_recovery_transition
+                    and not unchanged_rebind_candidate
                 )
-                or not any(
-                    fact.startswith(completion_prefix) and fact.endswith(":completed")
-                    for fact in artifact_facts
+                or (
+                    state.declared_status is TaskStatus.COMPLETED
+                    and not has_completion_fact
                 )
             ):
                 raise ResearchOSValidationError(
@@ -1420,8 +1478,26 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         partial_live_rebind = historical_source_present and (
             self.source_digest in bound_sources
         )
+        daily_gate = getattr(self, "_daily_recovery_transition_gate", None)
+        daily_recovery_historical_only = (
+            historical_source_present
+            and self.source_digest not in bound_sources
+            and getattr(self, "_daily_recovery_event_gate", False) is True
+            and isinstance(daily_gate, dict)
+            and set(daily_gate)
+            == {
+                "current_manifest_digest",
+                "running_manifest_digest",
+                "router_consumed",
+                "completion_consumed",
+                "authoritative_completion_consumed",
+            }
+            and daily_gate.get("current_manifest_digest")
+            == DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST
+            and bound_sources.issubset(LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS)
+        )
         if historical_source_present and (
-            not partial_live_rebind
+            not (partial_live_rebind or daily_recovery_historical_only)
             or not bound_sources.issubset(
                 LIVE_PARTIAL_COMPLETED_SOURCE_DIGESTS | {self.source_digest}
             )
@@ -1434,7 +1510,10 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 task,
                 state=incoming.task_state_by_digest[task.artifact_digest],
                 artifact_facts=incoming.facts.artifacts,
-                partial_live_rebind=partial_live_rebind,
+                partial_live_rebind=(
+                    partial_live_rebind or daily_recovery_historical_only
+                ),
+                daily_recovery_historical_only=daily_recovery_historical_only,
             )
         operator_authorized = (
             builder.OPERATOR_CONFIGURATION_AUTHORITY in incoming.facts.authorities
@@ -1554,6 +1633,8 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                         daily_gate is None
                         or daily_gate.get("router_consumed") is not False
                         or daily_gate.get("completion_consumed") is not False
+                        or daily_gate.get("authoritative_completion_consumed")
+                        is not False
                         or daily_gate.get("current_manifest_digest")
                         != current.artifact_digest
                         or daily_gate.get("running_manifest_digest")
@@ -1584,6 +1665,32 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                             "isolated_v11_failed_recovery_transition_gate_changed"
                         )
                     gate["router_consumed"] = True
+            elif (
+                transition
+                == (
+                    TaskStatus.RUNNING.value,
+                    TaskStatus.COMPLETED.value,
+                )
+                and changed_task_key == contract.DAILY_RECOVERY_TASK_KEY
+            ):
+                if (
+                    not daily_recovery_historical_only
+                    or self._daily_recovery_event_gate is not True
+                    or daily_gate.get("router_consumed") is not True
+                    or daily_gate.get("completion_consumed") is not True
+                    or daily_gate.get("authoritative_completion_consumed") is not False
+                    or daily_gate.get("current_manifest_digest")
+                    != DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST
+                    or daily_gate.get("running_manifest_digest")
+                    != current.artifact_digest
+                    or current_tasks[changed_task_key].artifact_digest
+                    != contract.DAILY_RECOVERY_TASK_DIGEST
+                    or added_tasks
+                    or added_events
+                ):
+                    raise ResearchOSValidationError(
+                        "isolated_v11_daily_recovery_authoritative_transition_gate_changed"
+                    )
             elif transition not in {
                 (TaskStatus.DRAFT.value, TaskStatus.RUNNING.value),
                 (TaskStatus.RUNNING.value, TaskStatus.COMPLETED.value),
@@ -1712,8 +1819,11 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                         gate = getattr(self, "_daily_recovery_transition_gate", None)
                         if (
                             gate is None
+                            or self._daily_recovery_event_gate is not True
                             or gate.get("router_consumed") is not True
                             or gate.get("completion_consumed") is not False
+                            or gate.get("authoritative_completion_consumed")
+                            is not False
                             or gate.get("current_manifest_digest")
                             != current.artifact_digest
                             or gate.get("running_manifest_digest")
@@ -1754,6 +1864,26 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                         raise ResearchOSValidationError(
                             "isolated_v11_atomic_completion_transition_changed"
                         )
+                    if state_changes[0][0] == contract.DAILY_RECOVERY_TASK_KEY:
+                        gate = getattr(self, "_daily_recovery_transition_gate", None)
+                        if (
+                            gate is None
+                            or self._daily_recovery_event_gate is not True
+                            or gate.get("router_consumed") is not True
+                            or gate.get("completion_consumed") is not True
+                            or gate.get("authoritative_completion_consumed")
+                            is not False
+                            or gate.get("current_manifest_digest")
+                            != DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST
+                            or gate.get("running_manifest_digest")
+                            != current.artifact_digest
+                            or current_tasks[state_changes[0][0]].artifact_digest
+                            != contract.DAILY_RECOVERY_TASK_DIGEST
+                        ):
+                            raise ResearchOSValidationError(
+                                "isolated_v11_daily_recovery_authoritative_completion_gate_changed"
+                            )
+                        gate["authoritative_completion_consumed"] = True
                 else:
                     raise ResearchOSValidationError(
                         "isolated_v11_atomic_completion_transition_changed"
@@ -5059,6 +5189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     source = artifacts.load_source_contract(root_dir=ROOT_DIR)
     _validate_mirror_completeness_repair_source_binding(source)
+    _validate_daily_recovery_transition_fix_source_binding(source)
     source_digest = str(source["artifact_digest"])
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
