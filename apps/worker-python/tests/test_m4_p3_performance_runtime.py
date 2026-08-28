@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import subprocess
 from datetime import date, datetime
 from pathlib import Path
 
@@ -11,6 +13,31 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 )
 
 from scripts import run_m4_p3_performance_runtime as runtime
+
+
+def _git(root: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _compatibility_repository(tmp_path: Path) -> tuple[Path, str]:
+    root = tmp_path / "compatibility-repository"
+    root.mkdir(parents=True)
+    _git(root, "init", "--initial-branch=main")
+    _git(root, "config", "user.name", "DEHPS Test")
+    _git(root, "config", "user.email", "dehps-test@example.invalid")
+    for index, relative in enumerate(runtime.RUNTIME_COMPATIBILITY_PATHS):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"frozen compatibility source {index}\n", encoding="utf-8")
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", "frozen compatibility closure")
+    return root, _git(root, "rev-parse", "HEAD")
 
 
 def _history(count: int = 900) -> list[tuple[str, date, tuple[int, ...]]]:
@@ -80,12 +107,12 @@ def test_reference_run_is_exact_and_tamper_fails_closed() -> None:
 
 def test_benchmark_matrix_covers_frozen_outer_inner_hybrid_and_affinity() -> None:
     matrix = runtime.benchmark_matrix()
-    identities = {
-        (item["outer"], item["inner"], item["affinity"]) for item in matrix
-    }
+    identities = {(item["outer"], item["inner"], item["affinity"]) for item in matrix}
     assert all((value, 1, "all") in identities for value in runtime.OUTER_VALUES)
     assert all((1, value, "all") in identities for value in runtime.INNER_VALUES)
-    assert all((outer, inner, "all") in identities for outer, inner in runtime.HYBRID_VALUES)
+    assert all(
+        (outer, inner, "all") in identities for outer, inner in runtime.HYBRID_VALUES
+    )
     assert all((1, 1, name) in identities for name in runtime.AFFINITIES)
     assert len(identities) == len(matrix)
 
@@ -195,9 +222,7 @@ def test_near_tie_finalists_extend_to_nine_in_alternating_order(
 ) -> None:
     extension_order: list[int] = []
 
-    def measured(
-        _fixture, *, config, measured_runs, perform_warmup=True
-    ):
+    def measured(_fixture, *, config, measured_runs, perform_warmup=True):
         identity = (int(config["outer"]), int(config["inner"]), str(config["affinity"]))
         if identity == (1, 1, "all"):
             value = 1.0
@@ -471,7 +496,7 @@ def test_runtime_config_and_operator_authority_fail_closed(tmp_path: Path) -> No
     runtime._json_write(
         path,
         {
-            "schema_version": "dehps.p3.performance.v1",
+            "schema_version": "dehps.p3.performance.v2",
             "selected": {
                 "outer": 2,
                 "inner": 22,
@@ -487,12 +512,234 @@ def test_runtime_config_and_operator_authority_fail_closed(tmp_path: Path) -> No
             "active_interval_seconds": 2,
             "passive_interval_seconds": 60,
             "operator": {},
+            "runtime_compatibility_closure": {},
         },
     )
-    with pytest.raises(runtime.P3PerformanceRuntimeError, match="selection changed"):
+    with pytest.raises(runtime.P3PerformanceRuntimeError, match="closure shape"):
         runtime._load_runtime_config(path)
     with pytest.raises(runtime.P3PerformanceRuntimeError, match="authorization"):
         runtime.verify_operator_governance({})
+
+
+def test_frozen_base_runtime_compatibility_closure_is_exact() -> None:
+    closure = runtime.build_runtime_compatibility_closure(
+        "29bab44ac655d05ea710d7fd758adf96dec9f6c6"
+    )
+    assert closure["schema_version"] == runtime.RUNTIME_COMPATIBILITY_CLOSURE_SCHEMA
+    assert closure["closure_digest"] == (
+        "bda283c9081b77774364aa61b085641f1222e961aa4443e61dcea1ecce71b497"
+    )
+    assert [item["path"] for item in closure["records"]] == list(
+        runtime.RUNTIME_COMPATIBILITY_PATHS
+    )
+    assert all(
+        set(item) == {"path", "git_mode", "git_type", "git_blob", "bytes", "sha256"}
+        and item["git_mode"] == "100644"
+        and item["git_type"] == "blob"
+        for item in closure["records"]
+    )
+
+
+def test_runtime_compatibility_allows_only_unprotected_descendant_change(
+    tmp_path: Path,
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    unrelated = root / "docs/unprotected-descendant.txt"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text("allowed unrelated change\n", encoding="utf-8")
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", "unprotected descendant")
+
+    runtime.verify_runtime_compatibility_closure(
+        operator_commit=operator_commit,
+        closure=closure,
+        root_dir=root,
+    )
+
+
+@pytest.mark.parametrize("relative", runtime.RUNTIME_COMPATIBILITY_PATHS)
+@pytest.mark.parametrize(
+    "mutation", ("dirty", "bytes", "delete", "rename", "symlink", "mode", "nonregular")
+)
+def test_runtime_compatibility_rejects_every_protected_path_mutation(
+    tmp_path: Path, relative: str, mutation: str
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    path = root / relative
+    should_commit = mutation not in {"dirty", "nonregular"}
+    if mutation in {"dirty", "bytes"}:
+        path.write_text(
+            path.read_text(encoding="utf-8") + f"{mutation} drift\n",
+            encoding="utf-8",
+        )
+    elif mutation == "delete":
+        path.unlink()
+    elif mutation == "rename":
+        path.rename(path.with_name(path.name + ".renamed"))
+    elif mutation == "symlink":
+        path.unlink()
+        target_relative = (
+            runtime.RUNTIME_COMPATIBILITY_PATHS[1]
+            if relative == runtime.RUNTIME_COMPATIBILITY_PATHS[0]
+            else runtime.RUNTIME_COMPATIBILITY_PATHS[0]
+        )
+        path.symlink_to(root / target_relative)
+    elif mutation == "mode":
+        path.chmod(0o755)
+    else:
+        path.unlink()
+        path.mkdir()
+    if should_commit:
+        _git(root, "add", "--all")
+        _git(root, "commit", "-m", f"protected {mutation} drift")
+
+    with pytest.raises(runtime.P3PerformanceRuntimeError):
+        runtime.verify_runtime_compatibility_closure(
+            operator_commit=operator_commit,
+            closure=closure,
+            root_dir=root,
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["path", "git_mode", "git_type", "git_blob", "bytes", "sha256"]
+)
+def test_runtime_compatibility_rejects_each_record_field_drift(
+    tmp_path: Path, field: str
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    tampered = copy.deepcopy(closure)
+    record = tampered["records"][0]
+    replacements = {
+        "path": "unexpected/path.py",
+        "git_mode": "100755",
+        "git_type": "tree",
+        "git_blob": "f" * 40,
+        "bytes": int(record["bytes"]) + 1,
+        "sha256": "f" * 64,
+    }
+    record[field] = replacements[field]
+    preimage = {
+        "schema_version": tampered["schema_version"],
+        "records": tampered["records"],
+    }
+    tampered["closure_digest"] = runtime._closure_digest(preimage)
+
+    with pytest.raises(runtime.P3PerformanceRuntimeError):
+        runtime.verify_runtime_compatibility_closure(
+            operator_commit=operator_commit,
+            closure=tampered,
+            root_dir=root,
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing", "extra", "reordered"))
+def test_runtime_compatibility_rejects_record_set_and_order_drift(
+    tmp_path: Path, mutation: str
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    tampered = copy.deepcopy(closure)
+    if mutation == "missing":
+        tampered["records"].pop()
+    elif mutation == "extra":
+        tampered["records"].append(copy.deepcopy(tampered["records"][-1]))
+    else:
+        tampered["records"][0], tampered["records"][1] = (
+            tampered["records"][1],
+            tampered["records"][0],
+        )
+    preimage = {
+        "schema_version": tampered["schema_version"],
+        "records": tampered["records"],
+    }
+    tampered["closure_digest"] = runtime._closure_digest(preimage)
+    with pytest.raises(runtime.P3PerformanceRuntimeError):
+        runtime.verify_runtime_compatibility_closure(
+            operator_commit=operator_commit,
+            closure=tampered,
+            root_dir=root,
+        )
+
+
+def test_runtime_compatibility_rejects_non_ancestor_head(
+    tmp_path: Path,
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    _git(root, "checkout", "--orphan", "unrelated-history")
+    _git(root, "rm", "-rf", ".")
+    marker = root / "unrelated.txt"
+    marker.write_text("unrelated history\n", encoding="utf-8")
+    _git(root, "add", "--all")
+    _git(root, "commit", "-m", "unrelated history")
+
+    with pytest.raises(
+        runtime.P3PerformanceRuntimeError,
+        match="operator merged commit is not an ancestor",
+    ):
+        runtime.verify_runtime_compatibility_closure(
+            operator_commit=operator_commit,
+            closure=closure,
+            root_dir=root,
+        )
+
+
+def test_runtime_config_round_trip_binds_exact_compatibility_closure(
+    tmp_path: Path,
+) -> None:
+    root, operator_commit = _compatibility_repository(tmp_path)
+    closure = runtime.build_runtime_compatibility_closure(
+        operator_commit, root_dir=root
+    )
+    path = tmp_path / "config.json"
+    config = {
+        "schema_version": "dehps.p3.performance.v2",
+        "selected": {
+            "outer": 1,
+            "inner": 22,
+            "affinity": "all",
+            "thread_profile": "native_default_explicit",
+        },
+        "power_profile": {
+            "msr_watts": 40,
+            "mmio_watts": 20,
+            "msr_pl2_watts": 55,
+            "mmio_pl2_watts": 43,
+        },
+        "active_interval_seconds": 2,
+        "passive_interval_seconds": 60,
+        "operator": {
+            "request_key": "operator",
+            "request_id": 1,
+            "approval_decision_id": 2,
+            "execution_id": 3,
+            "payload_sha256": "a" * 64,
+            "merged_commit": operator_commit,
+        },
+        "runtime_compatibility_closure": closure,
+    }
+    runtime._json_write(path, config)
+    assert runtime._load_runtime_config(path) == config
+
+    tampered = json.loads(path.read_text(encoding="utf-8"))
+    tampered["runtime_compatibility_closure"]["closure_digest"] = "0" * 64
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(runtime.P3PerformanceRuntimeError, match="digest changed"):
+        runtime._load_runtime_config(path)
 
 
 def test_systemd_templates_wrap_existing_p3_service_without_competing_exec() -> None:
@@ -513,6 +760,7 @@ def test_systemd_templates_wrap_existing_p3_service_without_competing_exec() -> 
 
 def test_install_dry_run_is_non_mutating_and_replaces_old_guard(tmp_path: Path) -> None:
     config_path = tmp_path / "does-not-exist.json"
+    merged_commit = _git(ROOT_DIR, "rev-parse", "HEAD")
     output = runtime.install_runtime(
         apply=False,
         config_path=config_path,
@@ -522,7 +770,7 @@ def test_install_dry_run_is_non_mutating_and_replaces_old_guard(tmp_path: Path) 
             "approval_decision_id": 2,
             "execution_id": 3,
             "payload_sha256": "a" * 64,
-            "merged_commit": "b" * 40,
+            "merged_commit": merged_commit,
         },
         selected_inner=22,
         selected_affinity="all",

@@ -46,33 +46,36 @@ class P3Top100DeliveryStateError(P3Top100NotificationError):
     """The idempotent delivery ledger requires manual review."""
 
 
-CONTROL_PLANE_KEY = "m4-p3-top100-notification-v2"
+CONTROL_PLANE_KEY = "m4-p3-top100-notification-v3"
 P3_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
-GOAL_KEY = "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V2"
-SOURCE_CONTRACT_PATH = "configs/research-os/m4-p3-top100-notification-source-v2.json"
-SOURCE_SCHEMA = "dehps-m4-p3-top100-notification-source-contract.v2"
-SOURCE_ARTIFACT_TYPE = "m4_p3_top100_notification_source_contract_v2"
-SOURCE_DOMAIN = "dehps.m4.p3.top100-notification.source-contract.v2"
-SOURCE_SET_DOMAIN = "dehps.m4.p3.top100-notification.source-set.v2"
+GOAL_KEY = "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V3"
+SOURCE_CONTRACT_PATH = "configs/research-os/m4-p3-top100-notification-source-v3.json"
+SOURCE_SCHEMA = "dehps-m4-p3-top100-notification-source-contract.v3"
+SOURCE_ARTIFACT_TYPE = "m4_p3_top100_notification_source_contract_v3"
+SOURCE_DOMAIN = "dehps.m4.p3.top100-notification.source-contract.v3"
+SOURCE_SET_DOMAIN = "dehps.m4.p3.top100-notification.source-set.v3"
+MINIMUM_ISSUE = "2026100"
 
 RESEARCH_REQUEST_KEY = "research-m4-p3-top100-mail-and-return-contract-v1"
 RESEARCH_REQUEST_ID = 675
 RESEARCH_APPROVAL_DECISION_ID = 2852
-ENGINEERING_REQUEST_KEY = "engineering-m4-p3-top100-additive-v2-atomic-recovery-v1"
-ENGINEERING_REQUEST_ID = 681
-ENGINEERING_APPROVAL_DECISION_ID = 2880
-ENGINEERING_EXECUTION_ID = 555
+ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-p3-mainline-availability-and-top100-notification-v3-v2"
+)
+ENGINEERING_REQUEST_ID = 800
+ENGINEERING_APPROVAL_DECISION_ID = 3404
+ENGINEERING_EXECUTION_ID = 642
 RESEARCH_PAYLOAD_SHA256 = (
     "31776e8dcf25177dd66505a2a9a4b1c7c092c37d50e3f8623644eb650b54f0c3"
 )
 ENGINEERING_PAYLOAD_SHA256 = (
-    "bdba771e05237398e63704686ba21f7dc03e0f9671dd9a70d86df048405649cd"
+    "7989380318cda6afb9b44950ae79a295a15e790a99b6731e43cd38ca6071660a"
 )
 
-PRE_ENVELOPE_CAPABILITY = "p3_top100_pre_mail_envelope_v2"
-PRE_REPLAY_CAPABILITY = "p3_top100_pre_mail_replay_v2"
-POST_REPORT_CAPABILITY = "p3_top100_post_return_report_v2"
-POST_REPLAY_CAPABILITY = "p3_top100_post_return_replay_v2"
+PRE_ENVELOPE_CAPABILITY = "p3_top100_pre_mail_envelope_v3"
+PRE_REPLAY_CAPABILITY = "p3_top100_pre_mail_replay_v3"
+POST_REPORT_CAPABILITY = "p3_top100_post_return_report_v3"
+POST_REPLAY_CAPABILITY = "p3_top100_post_return_replay_v3"
 CAPABILITIES = (
     PRE_ENVELOPE_CAPABILITY,
     PRE_REPLAY_CAPABILITY,
@@ -112,8 +115,8 @@ DEFAULT_LEDGER_PATH = ROOT_DIR / "runtime/notifications/p3_top100_mail.json"
 
 
 def issue_task_keys(issue: str) -> dict[str, str]:
-    normalized = _issue(issue)
-    prefix = f"m4-p3-top100-notification-v2-{normalized}"
+    normalized = _v3_issue(issue)
+    prefix = f"m4-p3-top100-notification-v3-{normalized}"
     return {
         "pre": f"{prefix}-pre-envelope",
         "pre_replay": f"{prefix}-pre-envelope-replay",
@@ -136,6 +139,13 @@ def _issue(value: Any) -> str:
     issue = str(value or "").strip()
     if not issue or not issue.isdigit():
         raise P3Top100NotificationError("notification_issue_changed")
+    return issue
+
+
+def _v3_issue(value: Any) -> str:
+    issue = _issue(value)
+    if int(issue) < int(MINIMUM_ISSUE):
+        raise P3Top100NotificationError("notification_issue_precedes_v3_activation")
     return issue
 
 
@@ -913,7 +923,7 @@ class P3Top100NotificationCapability:
         source = load_source_contract(root_dir=self.root_dir)
         verify_governance(AgentRequestRepository())
         contract = self._contract(task)
-        issue = _issue(contract.get("issue"))
+        issue = _v3_issue(contract.get("issue"))
         recipient_digest = str(contract.get("recipient_digest") or "")
         keys = issue_task_keys(issue)
         capability = str(task.requested_capability)
@@ -1086,7 +1096,7 @@ class P3Top100NotificationSupervisor(ResearchEvidenceSupervisor):
         del completed_summary, m4_v2_global_replay_summary
         ready_queue = [item.task_key for item in snapshot.ready_queue]
         return {
-            "schema_version": "dehps-p3-top100-notification-status.v2",
+            "schema_version": "dehps-p3-top100-notification-status.v3",
             "status": "ARMED",
             "control_plane_key": CONTROL_PLANE_KEY,
             "manifest_digest": manifest.artifact_digest,
@@ -1332,6 +1342,7 @@ def registered_delivery_email(
     recipient: str,
     root_dir: Path = ROOT_DIR,
 ) -> NotificationEmail:
+    issue = _v3_issue(issue)
     keys = issue_task_keys(issue)
     if kind == "pre":
         artifact_type, replay_type = (
@@ -1386,7 +1397,7 @@ def registered_delivery_email(
         raise P3Top100NotificationError("notification delivery replay gate changed")
     return NotificationEmail(
         kind=kind,
-        issue=_issue(issue),
+        issue=issue,
         artifact_digest=artifact["artifact_digest"],
         replay_digest=replay["artifact_digest"],
         recipient_digest=recipient_digest,

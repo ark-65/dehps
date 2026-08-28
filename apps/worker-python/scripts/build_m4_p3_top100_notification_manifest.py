@@ -92,13 +92,15 @@ def _task(
 def build_initial_manifest(
     *, minimum_issue: str, recipient_digest: str, source_digest: str
 ) -> dict[str, Any]:
-    minimum_issue = notification._issue(minimum_issue)
+    minimum_issue = notification._v3_issue(minimum_issue)
+    if minimum_issue != notification.MINIMUM_ISSUE:
+        raise P3Top100ManifestError("notification_minimum_issue_changed")
     payload = {
         "schema_version": "research-os-control-plane-v1",
         "goals": [
             {
                 "goal_key": notification.GOAL_KEY,
-                "semantic_version": "2.0.0",
+                "semantic_version": "3.0.0",
                 "objective_class": "runtime_capability",
                 "success_evidence": [
                     "pre and post envelopes compile from exact registered P3 parents",
@@ -150,10 +152,21 @@ def _assert_goal_identity(
         raise P3Top100ManifestError("notification_goal_changed")
     target = json.loads(manifest.goals[0].target_metric_manifest)
     if (
-        target.get("recipient_digest") != recipient_digest
+        set(target)
+        != {
+            "minimum_issue",
+            "recipient_digest",
+            "source_contract_digest",
+            "hypothetical_cost_cny",
+            "tax_free_boundary_cny",
+            "typed_and_generic_replay_required",
+        }
+        or target.get("minimum_issue") != notification.MINIMUM_ISSUE
+        or target.get("recipient_digest") != recipient_digest
         or target.get("source_contract_digest") != source_digest
         or target.get("hypothetical_cost_cny") != "200.00"
         or target.get("tax_free_boundary_cny") != "10000.00"
+        or target.get("typed_and_generic_replay_required") is not True
     ):
         raise P3Top100ManifestError("notification_goal_binding_changed")
     return manifest
@@ -174,7 +187,7 @@ def add_pre_tasks(
     minimum_issue = json.loads(manifest.goals[0].target_metric_manifest)[
         "minimum_issue"
     ]
-    issue = notification._issue(issue)
+    issue = notification._v3_issue(issue)
     if issue < minimum_issue:
         raise P3Top100ManifestError("notification_issue_precedes_activation")
     keys = notification.issue_task_keys(issue)
@@ -186,7 +199,7 @@ def add_pre_tasks(
     tasks = (
         _task(
             key=keys["pre"],
-            task_type="p3_top100_pre_mail_envelope_v2",
+            task_type="p3_top100_pre_mail_envelope_v3",
             capability=notification.PRE_ENVELOPE_CAPABILITY,
             priority=100,
             input_digests=(*predraw_input_digests, source_digest),
@@ -197,7 +210,7 @@ def add_pre_tasks(
         ),
         _task(
             key=keys["pre_replay"],
-            task_type="p3_top100_pre_mail_replay_v2",
+            task_type="p3_top100_pre_mail_replay_v3",
             capability=notification.PRE_REPLAY_CAPABILITY,
             priority=99,
             input_digests=(envelope_digest, source_digest),
@@ -237,7 +250,7 @@ def add_post_tasks(
     minimum_issue = json.loads(manifest.goals[0].target_metric_manifest)[
         "minimum_issue"
     ]
-    issue = notification._issue(issue)
+    issue = notification._v3_issue(issue)
     if issue < minimum_issue:
         raise P3Top100ManifestError("notification_issue_precedes_activation")
     payout = notification.validate_notification_artifact(payout_source)
@@ -252,7 +265,7 @@ def add_post_tasks(
     tasks = (
         _task(
             key=keys["post"],
-            task_type="p3_top100_post_return_report_v2",
+            task_type="p3_top100_post_return_report_v3",
             capability=notification.POST_REPORT_CAPABILITY,
             priority=98,
             input_digests=(
@@ -268,7 +281,7 @@ def add_post_tasks(
         ),
         _task(
             key=keys["post_replay"],
-            task_type="p3_top100_post_return_replay_v2",
+            task_type="p3_top100_post_return_replay_v3",
             capability=notification.POST_REPLAY_CAPABILITY,
             priority=97,
             input_digests=(report_digest, payout["artifact_digest"], source_digest),
