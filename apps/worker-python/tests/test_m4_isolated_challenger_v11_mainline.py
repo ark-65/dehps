@@ -4,13 +4,16 @@ import ast
 import hashlib
 import json
 import os
+import uuid
 from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import psycopg
 import pytest
+from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_artifacts as artifacts,
 )
@@ -21,10 +24,13 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_mainline as mainline,
 )
 from dehps.research_os.models import (
+    CompletionClassification,
     MainlineArtifactRegistration,
     MainlineExecutionEvent,
+    TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+from psycopg import sql
 
 
 def _context():
@@ -2701,3 +2707,386 @@ def test_exact_committed_replay_route_requires_both_frozen_identities(
     )
     assert result["status"] == "DELEGATED"
     assert result["same_artifact_content"] is True
+
+
+def _daily_recovery_postcommit_fixture(tmp_path: Path):
+    source_root = Path(mainline.__file__).resolve().parents[6]
+    base = (
+        "runtime/isolated-24h-challenger-v11/artifacts/"
+        f"{contract.DAILY_RECOVERY_TASK_KEY}/"
+        f"{contract.DAILY_RECOVERY_EXECUTION_ID}"
+    )
+    summary_relative = (
+        f"{base}/isolated-v11-000-m4isolateddailysummaryv11/"
+        f"{mainline._DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST}/artifact.json"
+    )
+    execution_relative = f"{base}/execution.json"
+    source_paths = [source_root / summary_relative, source_root / execution_relative]
+    if any(not item.is_file() for item in source_paths):
+        pytest.skip("frozen Execution 647 artifact snapshot is not materialized")
+    summary_bytes, execution_bytes = (item.read_bytes() for item in source_paths)
+    summary = json.loads(summary_bytes)
+    execution = json.loads(execution_bytes)
+    for relative, content in (
+        (summary_relative, summary_bytes),
+        (execution_relative, execution_bytes),
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+    task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+        input_artifact_digests=(contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,),
+        requested_capability="M4IsolatedDailySummaryCapabilityV11",
+        goal_key=contract.GOAL_KEY,
+    )
+    completion_fact = supervisor_module.mainline_completion_fact(
+        task=task, execution_id=contract.DAILY_RECOVERY_EXECUTION_ID
+    )
+    manifest = SimpleNamespace(
+        artifact_digest=mainline._DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
+        tasks=(task,),
+        task_state_by_digest={
+            task.artifact_digest: SimpleNamespace(
+                declared_status=TaskStatus.COMPLETED,
+                completion_classification=CompletionClassification.COMPLETE,
+            )
+        },
+        facts=SimpleNamespace(artifacts=(completion_fact,)),
+    )
+    event_specs = (
+        (
+            "started",
+            0,
+            "2026-08-28T01:00:43.798450+00:00",
+            contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            {
+                "input_artifact_digests": [
+                    contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                ],
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            },
+            contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+        ),
+        (
+            "failed",
+            1,
+            "2026-08-28T01:00:44.641800+00:00",
+            contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            {
+                "error": "mainline artifact registration shape changed",
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            },
+            contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+        ),
+        (
+            "completed",
+            2,
+            mainline._DAILY_RECOVERY_COMPLETED_EVENT_RECORDED_AT,
+            mainline._DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+            {
+                "actual_fold_count": 0,
+                "additional_completed_task_keys": [],
+                "completion_facts": [],
+                "execution_artifact_digest": (
+                    mainline._DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST
+                ),
+                "execution_artifact_path": execution_relative,
+                "formal_p3_mutated": False,
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                "isolated_lineage": contract.LINEAGE_ID,
+                "promotion_triggered": False,
+                "publication_batch_digest": (
+                    mainline._DAILY_RECOVERY_PUBLICATION_BATCH_DIGEST
+                ),
+                "recovered_from_failed_event_digest": (
+                    contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+                ),
+                "registered_artifact_count": 2,
+                "runtime_git_commit": mainline._DAILY_RECOVERY_RUNTIME_GIT_COMMIT,
+                "runtime_migration_attestation_digest": (
+                    mainline._DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST
+                ),
+                "runtime_source_contract_digest": (
+                    mainline._DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST
+                ),
+                "simulation": False,
+                "task_template": "daily_summary",
+                "workload_rerun": False,
+            },
+            mainline._DAILY_RECOVERY_COMPLETED_EVENT_DIGEST,
+        ),
+    )
+    events: list[dict[str, object]] = []
+    for event_type, sequence, recorded_at, digest, payload, event_digest in (
+        (item[0], item[1], item[2], item[3], item[4], item[5]) for item in event_specs
+    ):
+        event = MainlineExecutionEvent(
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            manifest_digest=digest,
+            task_key=task.task_key,
+            task_digest=task.artifact_digest,
+            capability=task.requested_capability,
+            event_type=event_type,
+            sequence=sequence,
+            recorded_at=recorded_at,
+            payload=tuple(payload.items()),
+        )
+        assert event.artifact_digest == event_digest
+        event_row = asdict(event)
+        event_row["payload"] = [list(item) for item in event.payload]
+        events.append({"event_digest": event_digest, **event_row})
+    registration_specs = (
+        (
+            summary,
+            "M4IsolatedDailySummaryV11",
+            contract.ARTIFACT_SCHEMA,
+            summary_relative,
+            contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            mainline._DAILY_RECOVERY_SUMMARY_REGISTRATION_DIGEST,
+        ),
+        (
+            execution,
+            "research_os_mainline_execution",
+            supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+            execution_relative,
+            mainline._DAILY_RECOVERY_RUNTIME_GIT_COMMIT,
+            mainline._DAILY_RECOVERY_EXECUTION_REGISTRATION_DIGEST,
+        ),
+    )
+    registrations: list[dict[str, object]] = []
+    for payload, artifact_type, schema, path, git_commit, digest in registration_specs:
+        registration = MainlineArtifactRegistration(
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=task.task_key,
+            task_digest=task.artifact_digest,
+            artifact_digest=payload["artifact_digest"],
+            artifact_type=artifact_type,
+            schema_version=schema,
+            artifact_path=path,
+            parent_digests=tuple(payload["parent_digests"]),
+            git_commit=git_commit,
+        )
+        assert registration.registration_digest == digest
+        registrations.append({"registration_digest": digest, **asdict(registration)})
+
+    class SnapshotRepository:
+        def load_manifest(self, **_kwargs):
+            return manifest
+
+        def list_mainline_execution_events(self, **_kwargs):
+            return tuple(events)
+
+        def list_mainline_artifacts(self, **_kwargs):
+            return tuple(registrations)
+
+    attestation = {
+        "artifact_digest": mainline._DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST,
+        "artifact_type": contract.RUNTIME_MIGRATION_INPUT_TYPE,
+        "parent_digests": [
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            mainline._DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST,
+        ],
+        "body": {
+            "runtime_git_commit": mainline._DAILY_RECOVERY_RUNTIME_GIT_COMMIT,
+            "runtime_source_contract_digest": (
+                mainline._DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST
+            ),
+            "operator_request_id": 806,
+            "operator_approval_decision_id": 3432,
+            "operator_execution_id": 647,
+            "workload_rerun": False,
+            "formal_p3_accessed_or_mutated": False,
+            "mail_contract_changed": False,
+            "scientific_contract_changed": False,
+        },
+    }
+    return SnapshotRepository(), attestation, manifest, events, registrations
+
+
+def test_execution_647_exact_postcommit_lineage_reproduces_then_closes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repository, attestation, _, events, registrations = (
+        _daily_recovery_postcommit_fixture(tmp_path)
+    )
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="mainline parent event provenance changed",
+    ):
+        supervisor_module._load_single_completed_execution(
+            repository=repository,
+            root_dir=tmp_path,
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        )
+    monkeypatch.setattr(
+        mainline, "load_registered_input", lambda **_kwargs: attestation
+    )
+    completed, execution, loaded_registrations = (
+        mainline.load_recovered_daily_summary_completed_execution(
+            repository=repository,
+            root_dir=tmp_path,
+            runtime_migration_attestation_digest=(
+                mainline._DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST
+            ),
+            required_head_manifest_digest=(
+                mainline._DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST
+            ),
+        )
+    )
+    assert completed == events[2]
+    assert execution["artifact_digest"] == (
+        mainline._DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST
+    )
+    assert loaded_registrations == registrations
+
+
+@pytest.mark.skipif(
+    os.getenv("DEHPS_TEST_POSTGRES") != "1" or not os.getenv("DEHPS_TEST_DATABASE_URL"),
+    reason="requires an explicit isolated PostgreSQL URL",
+)
+def test_execution_647_read_only_snapshot_materializes_exact_pre_and_post_fixtures(
+    tmp_path: Path,
+) -> None:
+    _, _, _, events, registrations = _daily_recovery_postcommit_fixture(tmp_path)
+    database_url = os.environ["DEHPS_TEST_DATABASE_URL"]
+    schema = f"m4_v11_snapshot_{uuid.uuid4().hex}"
+    snapshot_identity = hashlib.sha256(
+        b"dehps.m4.isolated-v11.execution-647.repeatable-read-read-only-snapshot.v1\0"
+        + json.dumps(
+            {
+                "event_digests": [item["event_digest"] for item in events],
+                "registration_digests": [
+                    item["registration_digest"] for item in registrations
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+    ).hexdigest()
+    pre = {
+        "snapshot_identity": snapshot_identity,
+        "fixture_digest": (
+            "bcb0f311f2841e009a14a9b22ea8e1bc3787a70f413d24abae6f7bf7a720365d"
+        ),
+        "manifest_digest": mainline._DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        "event_digests": [item["event_digest"] for item in events[:2]],
+        "registration_digests": [],
+        "completion_fact_count": 0,
+    }
+    post = {
+        "snapshot_identity": snapshot_identity,
+        "fixture_digest": (
+            "cb2707fa51bb37209fea9c5aa54ef3b12d50a8f19cf7db1be934d1799626d76a"
+        ),
+        "manifest_digest": mainline._DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
+        "event_digests": [item["event_digest"] for item in events],
+        "registration_digests": [item["registration_digest"] for item in registrations],
+        "completion_fact_count": 1,
+    }
+    artifact_rows = [
+        (
+            registration["artifact_digest"],
+            registration["artifact_path"],
+            (tmp_path / str(registration["artifact_path"])).read_bytes(),
+        )
+        for registration in registrations
+    ]
+    with psycopg.connect(database_url, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            connection.execute(
+                sql.SQL(
+                    "CREATE TABLE {}.fixtures(name text PRIMARY KEY,payload jsonb NOT NULL)"
+                ).format(sql.Identifier(schema))
+            )
+            connection.execute(
+                sql.SQL(
+                    "CREATE TABLE {}.artifacts(artifact_digest text PRIMARY KEY,"
+                    "artifact_path text NOT NULL,content bytea NOT NULL)"
+                ).format(sql.Identifier(schema))
+            )
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    sql.SQL("INSERT INTO {}.fixtures VALUES (%s,%s::jsonb)").format(
+                        sql.Identifier(schema)
+                    ),
+                    (
+                        ("PRE_COMMIT", json.dumps(pre)),
+                        ("POST_COMMIT", json.dumps(post)),
+                    ),
+                )
+                cursor.executemany(
+                    sql.SQL("INSERT INTO {}.artifacts VALUES (%s,%s,%s)").format(
+                        sql.Identifier(schema)
+                    ),
+                    artifact_rows,
+                )
+            loaded = {
+                name: dict(payload)
+                for name, payload in connection.execute(
+                    sql.SQL("SELECT name,payload FROM {}.fixtures").format(
+                        sql.Identifier(schema)
+                    )
+                ).fetchall()
+            }
+            loaded_artifacts = connection.execute(
+                sql.SQL(
+                    "SELECT artifact_digest,artifact_path,content FROM {}.artifacts "
+                    "ORDER BY artifact_path"
+                ).format(sql.Identifier(schema))
+            ).fetchall()
+        finally:
+            connection.execute(
+                sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
+            )
+
+    assert loaded == {"PRE_COMMIT": pre, "POST_COMMIT": post}
+    assert pre["snapshot_identity"] == post["snapshot_identity"]
+    assert post["event_digests"][:2] == pre["event_digests"]
+    assert post["event_digests"][2] == mainline._DAILY_RECOVERY_COMPLETED_EVENT_DIGEST
+    assert len(post["registration_digests"]) == 2
+    for artifact_digest, artifact_path, content in loaded_artifacts:
+        registration = next(
+            item for item in registrations if item["artifact_digest"] == artifact_digest
+        )
+        assert artifact_path == registration["artifact_path"]
+        assert content == (tmp_path / artifact_path).read_bytes()
+        assert json.loads(content)["artifact_digest"] == registration["artifact_digest"]
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["completed_manifest", "completion_fact", "registration", "artifact_bytes"],
+)
+def test_execution_647_postcommit_lineage_corruption_fails_closed(
+    tmp_path: Path, monkeypatch, corruption: str
+) -> None:
+    repository, attestation, manifest, events, registrations = (
+        _daily_recovery_postcommit_fixture(tmp_path)
+    )
+    if corruption == "completed_manifest":
+        events[2]["manifest_digest"] = "0" * 64
+    elif corruption == "completion_fact":
+        manifest.facts = SimpleNamespace(artifacts=())
+    elif corruption == "registration":
+        registrations.pop()
+    else:
+        path = tmp_path / str(registrations[0]["artifact_path"])
+        path.write_bytes(path.read_bytes() + b"\n")
+    monkeypatch.setattr(
+        mainline, "load_registered_input", lambda **_kwargs: attestation
+    )
+    with pytest.raises(supervisor_module.MainlineSupervisorError):
+        mainline.load_recovered_daily_summary_completed_execution(
+            repository=repository,
+            root_dir=tmp_path,
+            runtime_migration_attestation_digest=(
+                mainline._DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST
+            ),
+        )

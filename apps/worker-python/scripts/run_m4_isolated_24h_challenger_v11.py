@@ -116,6 +116,31 @@ DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST = (
 DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST = (
     "d2cce00e714fa041789d2114addd109d32f31f9d283dac7beb311a1b0e54b1cf"
 )
+DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST = (
+    "2394fc17b1017109a2f8f43b5672051398b3b34419b05cd44c4735a7d8be2d0a"
+)
+DAILY_RECOVERY_COMMITTED_EVENT_DIGEST = (
+    "3533d738b178793e83b97e92a6129468f44762cf5ff1383386ca5bca5aac819b"
+)
+DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST = (
+    "43982d737eadc050327a08b74e692e70f9f6d265a37408cc38abbe274bb7cc63"
+)
+DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST = (
+    "d2e4d2638d04db6fdb2d58cddb08f2ca0e4ad71d3207cd5ec26f2379e0df9ec1"
+)
+DAILY_RECOVERY_COMMITTED_RUNTIME_SOURCE_DIGEST = (
+    "5d8dacee8a6ec1059a25148e0bb41bfccbc4226c00cc9ae3703164b8d538219e"
+)
+DAILY_RECOVERY_COMMITTED_RUNTIME_ATTESTATION_DIGEST = (
+    "83bcfe7e1ec63cfb8adf81924ab95fe695f25f5647611d98673eb32e3155b3bb"
+)
+DAILY_RECOVERY_COMMITTED_RUNTIME_GIT_COMMIT = "a8230e54372c9c47da297f952a89a3a2b94be133"
+DAILY_RECOVERY_PRE_COMMIT_FIXTURE_DIGEST = (
+    "bcb0f311f2841e009a14a9b22ea8e1bc3787a70f413d24abae6f7bf7a720365d"
+)
+DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST = (
+    "cb2707fa51bb37209fea9c5aa54ef3b12d50a8f19cf7db1be934d1799626d76a"
+)
 DAILY_RECOVERY_FAILED_OPERATOR_SOURCE_DIGEST = (
     "710783396226aa6b643c302e4de61238ff75d905f611d6f215ba0eecb28f04b4"
 )
@@ -307,6 +332,18 @@ COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PARENT_REQUEST_ID = 796
 COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256 = (
     "360e7221b935f72ece18f1dff9c4790c01d7264e0086fa9dcc36574175d7cfb4"
 )
+COMMITTED_STATE_RECOVERY_CLOSURE_BASE_COMMIT = (
+    "a8230e54372c9c47da297f952a89a3a2b94be133"
+)
+COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-committed-state-deterministic-recovery-closure-v1"
+)
+COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_REQUEST_ID = 807
+COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_DECISION_ID = 3437
+COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_EXECUTION_ID = 648
+COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_PAYLOAD_SHA256 = (
+    "155e56df70729cc958ba0b436e79b5beda8803878485bfbfcd16f676e71a3491"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -440,6 +477,37 @@ def _validate_compatibility_binding_scope_fix_source_binding(
         or {key: bindings.get(key) for key in expected} != expected
     ):
         raise IsolatedRunnerError("compatibility_binding_scope_fix_binding_changed")
+
+
+def _validate_committed_state_recovery_closure_source_binding(
+    source_contract: Mapping[str, Any],
+) -> None:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "committed_state_recovery_closure_base_merged_commit": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_BASE_COMMIT
+        ),
+        "committed_state_recovery_closure_engineering_request_key": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_REQUEST_KEY
+        ),
+        "committed_state_recovery_closure_engineering_request_id": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_REQUEST_ID
+        ),
+        "committed_state_recovery_closure_engineering_approval_decision_id": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_DECISION_ID
+        ),
+        "committed_state_recovery_closure_engineering_execution_id": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_EXECUTION_ID
+        ),
+        "committed_state_recovery_closure_engineering_request_payload_sha256": (
+            COMMITTED_STATE_RECOVERY_CLOSURE_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+    ):
+        raise IsolatedRunnerError("committed_state_recovery_closure_binding_changed")
 
 
 def _validate_compatibility_binding_scope_fix_engineering_governance(
@@ -4778,6 +4846,164 @@ def _daily_recovery_live_preflight(
     return manifest, _task_context(daily_task), incident_state
 
 
+def _daily_recovery_committed_state_preflight(
+    *, repository: IsolatedChallengerRepository
+) -> tuple[str, ControlPlaneManifest, dict[str, str], dict[str, Any]]:
+    """Classify only the frozen PRE/POST committed recovery states."""
+
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    if manifest.artifact_digest == DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST:
+        pre_manifest, context, incident = _daily_recovery_live_preflight(
+            repository=repository
+        )
+        return "PRE_COMMIT", pre_manifest, context, incident
+
+    mainline.load_recovered_daily_summary_completed_execution(
+        repository=repository,
+        root_dir=ROOT_DIR,
+        runtime_migration_attestation_digest=(
+            DAILY_RECOVERY_COMMITTED_RUNTIME_ATTESTATION_DIGEST
+        ),
+    )
+    daily_tasks = [
+        task
+        for task in manifest.tasks
+        if task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+    ]
+    if len(daily_tasks) != 1:
+        raise IsolatedRunnerError("daily_recovery_committed_task_not_unique")
+    daily_task = daily_tasks[0]
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        delivery_rows = cursor.execute(
+            "SELECT state,count(*) FROM m4_isolated_v11.delivery_ledger "
+            "WHERE mail_kind='DAILY_24H_RESEARCH_SUMMARY' "
+            "AND target_identity='20260828' GROUP BY state ORDER BY state"
+        ).fetchall()
+    delivery_state = {str(state): int(count) for state, count in delivery_rows}
+    if (
+        delivery_state.get("UNCERTAIN", 0) > 0
+        or any(state not in {"SENT"} for state in delivery_state)
+        or delivery_state.get("SENT", 0) > 1
+    ):
+        raise IsolatedRunnerError("daily_recovery_smtp_state_uncertain_or_changed")
+    incident_state = mainline.latest_incident_ledger_state(
+        repository=repository, root_dir=ROOT_DIR
+    )
+    allowed_incident_states = (
+        incident_state["open_incident_ids"] == [contract.DAILY_RECOVERY_INCIDENT_ID]
+        and incident_state["resolved_incident_ids"] == []
+        and incident_state["transition_seq"] == 0
+    ) or (
+        incident_state["open_incident_ids"] == []
+        and incident_state["resolved_incident_ids"]
+        == [contract.DAILY_RECOVERY_INCIDENT_ID]
+        and incident_state["transition_seq"] == 1
+    )
+    if not allowed_incident_states:
+        raise IsolatedRunnerError("daily_recovery_incident_progress_changed")
+    p3 = _p3_source_identity()
+    if (
+        p3["artifact_digest"] != contract.FORMAL_P3_SOURCE_DIGEST
+        or p3["source_set_digest"] != FORMAL_P3_FROZEN_SOURCE_SET_DIGEST
+    ):
+        raise IsolatedRunnerError("daily_recovery_formal_p3_identity_changed")
+    _daily_recovery_failed_operator_input_prestate(repository=repository)
+    _isolated_units_quiescent()
+    state = (
+        "POST_COMMIT"
+        if manifest.artifact_digest == DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST
+        else "POST_COMMIT_RESUME"
+    )
+    return state, manifest, _task_context(daily_task), incident_state
+
+
+def _resume_committed_daily_summary(
+    *,
+    repository: IsolatedChallengerRepository,
+    context: Mapping[str, str],
+) -> dict[str, Any]:
+    completed, execution, _ = mainline.load_recovered_daily_summary_completed_execution(
+        repository=repository,
+        root_dir=ROOT_DIR,
+        runtime_migration_attestation_digest=(
+            DAILY_RECOVERY_COMMITTED_RUNTIME_ATTESTATION_DIGEST
+        ),
+    )
+    children = mainline.load_completed_task_artifacts(
+        repository=repository,
+        root_dir=ROOT_DIR,
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+    )
+    summaries = [
+        item
+        for item in children
+        if item.get("artifact_type") == "M4IsolatedDailySummaryV11"
+    ]
+    if len(summaries) != 1:
+        raise IsolatedRunnerError("daily_recovery_committed_summary_not_unique")
+    typed = artifacts.replay_artifact(
+        summaries[0], expected_parent_digests=summaries[0]["parent_digests"]
+    )
+    if (
+        typed.get("status") != "REPLAY_VERIFIED"
+        or typed.get("artifact_digest") != DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST
+        or typed.get("dispatch_performed") is not False
+    ):
+        raise IsolatedRunnerError("daily_recovery_typed_replay_failed")
+    supervisor = mainline.IsolatedChallengerSupervisor(
+        repository=repository,
+        context=context,
+        source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+        git_commit=contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+        simulation=False,
+        failed_recovery_event_digest=contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+        failed_recovery_attestation_digest=(
+            DAILY_RECOVERY_COMMITTED_RUNTIME_ATTESTATION_DIGEST
+        ),
+        runtime_git_commit=DAILY_RECOVERY_COMMITTED_RUNTIME_GIT_COMMIT,
+        runtime_source_contract_digest=(DAILY_RECOVERY_COMMITTED_RUNTIME_SOURCE_DIGEST),
+    )
+    generic = supervisor.replay(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+    )
+    _verify_generic_replay(generic)
+    task = next(
+        task
+        for task in repository.load_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY
+        ).tasks
+        if task.task_key == contract.DAILY_RECOVERY_TASK_KEY
+    )
+    template = mainline.template_for_task_key(task.task_key, context=context)
+    activated = _activation_facts(
+        task_key=task.task_key,
+        template=template,
+        context=context,
+        repository=repository,
+    )
+    live_facts = set(
+        repository.load_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY
+        ).facts.artifacts
+    )
+    additions = tuple(item for item in activated if item not in live_facts)
+    if additions:
+        repository.import_verified_facts(additions)
+    return {
+        "task_key": task.task_key,
+        "task_digest": task.artifact_digest,
+        "execution_id": execution["execution_id"],
+        "completed_event_digest": completed["event_digest"],
+        "execution_artifact_digest": execution["artifact_digest"],
+        "typed_replay": "REPLAY_VERIFIED",
+        "generic_replay": "REPLAY_VERIFIED",
+        "activated_facts": list(activated),
+        "dispatch_performed": False,
+        "workload_rerun": False,
+    }
+
+
 def _dispatch_recovery_task(
     *,
     repository: IsolatedChallengerRepository,
@@ -4800,12 +5026,51 @@ def _dispatch_recovery_task(
         runtime_git_commit=runtime_git_commit,
         runtime_source_contract_digest=runtime_source_digest,
     )
-    result = supervisor.run_once(task_key=task_key)
-    if result.get("status") != "COMPLETE" or result.get("task_key") != task_key:
-        raise IsolatedRunnerError("daily_recovery_dispatch_not_complete")
-    generic = supervisor.replay(
-        task_key=task_key, execution_id=str(result["execution_id"])
-    )
+    before = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    matches = [item for item in before.tasks if item.task_key == task_key]
+    if len(matches) != 1:
+        raise IsolatedRunnerError("daily_recovery_dispatch_task_not_unique")
+    task = matches[0]
+    state = before.task_state_by_digest[task.artifact_digest]
+    dispatch_performed = state.declared_status is not TaskStatus.COMPLETED
+    if dispatch_performed:
+        result = supervisor.run_once(task_key=task_key)
+        if result.get("status") != "COMPLETE" or result.get("task_key") != task_key:
+            raise IsolatedRunnerError("daily_recovery_dispatch_not_complete")
+        execution_id = str(result["execution_id"])
+    else:
+        completed = [
+            item
+            for item in repository.list_mainline_execution_events(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                task_key=task_key,
+            )
+            if item.get("event_type") == "completed"
+        ]
+        if len(completed) != 1:
+            raise IsolatedRunnerError("daily_recovery_completed_event_not_unique")
+        execution_id = str(completed[0].get("execution_id") or "")
+    typed_replay = None
+    if task_key == contract.DAILY_RECOVERY_TASK_KEY:
+        children = mainline.load_completed_task_artifacts(
+            repository=repository,
+            root_dir=ROOT_DIR,
+            task_key=task_key,
+        )
+        summaries = [
+            item
+            for item in children
+            if item.get("artifact_type") == "M4IsolatedDailySummaryV11"
+        ]
+        if len(summaries) != 1:
+            raise IsolatedRunnerError("daily_recovery_committed_summary_not_unique")
+        typed = artifacts.replay_artifact(
+            summaries[0], expected_parent_digests=summaries[0]["parent_digests"]
+        )
+        if typed.get("status") != "REPLAY_VERIFIED":
+            raise IsolatedRunnerError("daily_recovery_typed_replay_failed")
+        typed_replay = "REPLAY_VERIFIED"
+    generic = supervisor.replay(task_key=task_key, execution_id=execution_id)
     _verify_generic_replay(generic)
     task = next(
         item
@@ -4832,8 +5097,10 @@ def _dispatch_recovery_task(
     return {
         "task_key": task_key,
         "task_digest": task.artifact_digest,
-        "execution_id": result["execution_id"],
+        "execution_id": execution_id,
         "activated_facts": list(activated),
+        "dispatch_performed": dispatch_performed,
+        "typed_replay": typed_replay,
         "generic_replay": "REPLAY_VERIFIED",
     }
 
@@ -4850,13 +5117,14 @@ def recover_daily_mail_chain(
     repository = IsolatedChallengerRepository(
         context=context, source_digest=source_digest
     )
-    manifest, daily_context, incident_before = _daily_recovery_live_preflight(
-        repository=repository
+    start_state, manifest, daily_context, incident_before = (
+        _daily_recovery_committed_state_preflight(repository=repository)
     )
     preflight = {
         "status": "DAILY_MAIL_RECOVERY_PREFLIGHT_VALID",
         "apply": False,
         "manifest_digest": manifest.artifact_digest,
+        "recovery_start_state": start_state,
         "failed_task_key": contract.DAILY_RECOVERY_TASK_KEY,
         "failed_execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
         "open_incident_ids": incident_before["open_incident_ids"],
@@ -4890,16 +5158,22 @@ def recover_daily_mail_chain(
         payload=attestation,
         git_commit=git_commit,
     )
-    with repository.daily_recovery_event_view():
-        recovered_summary = _dispatch_recovery_task(
+    if start_state == "PRE_COMMIT":
+        with repository.daily_recovery_event_view():
+            recovered_summary = _dispatch_recovery_task(
+                repository=repository,
+                task_key=contract.DAILY_RECOVERY_TASK_KEY,
+                context=daily_context,
+                source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+                git_commit=contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                runtime_source_digest=source_digest,
+                runtime_git_commit=git_commit,
+                attestation_digest=attestation["artifact_digest"],
+            )
+    else:
+        recovered_summary = _resume_committed_daily_summary(
             repository=repository,
-            task_key=contract.DAILY_RECOVERY_TASK_KEY,
             context=daily_context,
-            source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
-            git_commit=contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
-            runtime_source_digest=source_digest,
-            runtime_git_commit=git_commit,
-            attestation_digest=attestation["artifact_digest"],
         )
     rebind = repository.rebind_unexecuted_daily_recovery_source()
     downstream: list[dict[str, Any]] = []
@@ -5005,6 +5279,7 @@ def recover_daily_mail_chain(
         "quiescent_units": units,
         "registered_source_contract_digest": registered_source["artifact_digest"],
         "runtime_migration_attestation_digest": attestation["artifact_digest"],
+        "recovery_start_state": start_state,
         "recovered_summary": recovered_summary,
         "source_rebind": rebind,
         "downstream": downstream,
@@ -5013,6 +5288,8 @@ def recover_daily_mail_chain(
         "daily_sent_receipt_digest": after_duplicate[1],
         "duplicate_cycle_smtp_calls": 0,
         "smtp_calls": 1,
+        "activation_ready": True,
+        "systemd_activation_performed": False,
         "scientific_workloads": 0,
         "formal_p3_mutated": False,
         "p4_p5_p6_or_promotion_triggered": False,
@@ -5513,6 +5790,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_daily_recovery_transition_fix_source_binding(source)
     _validate_health_provenance_running_recovery_source_binding(source)
     _validate_compatibility_binding_scope_fix_source_binding(source)
+    _validate_committed_state_recovery_closure_source_binding(source)
     source_digest = str(source["artifact_digest"])
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
