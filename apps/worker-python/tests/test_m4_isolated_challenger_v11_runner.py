@@ -170,6 +170,351 @@ def test_daily_recovery_command_is_an_explicit_operator_surface() -> None:
     ):
         runner._validate_health_provenance_running_recovery_source_binding(corrupted)
 
+    compatibility_expected = {
+        "compatibility_binding_scope_fix_base_merged_commit": (
+            "6968ed917e4f8bc7e7b9bf415531c93d4012aa9d"
+        ),
+        "compatibility_binding_scope_fix_engineering_request_key": (
+            "engineering-m4-isolated-v11-actual-binding-scope-decoupling-v1"
+        ),
+        "compatibility_binding_scope_fix_engineering_request_id": 803,
+        "compatibility_binding_scope_fix_engineering_approval_decision_id": 3417,
+        "compatibility_binding_scope_fix_engineering_execution_id": 644,
+        "compatibility_binding_scope_fix_engineering_request_payload_sha256": (
+            "360e7221b935f72ece18f1dff9c4790c01d7264e0086fa9dcc36574175d7cfb4"
+        ),
+    }
+    assert {
+        key: source["governance_bindings"].get(key) for key in compatibility_expected
+    } == compatibility_expected
+    runner._validate_compatibility_binding_scope_fix_source_binding(source)
+    for key in compatibility_expected:
+        corrupted = json.loads(json.dumps(source))
+        corrupted["governance_bindings"].pop(key)
+        with pytest.raises(
+            runner.IsolatedRunnerError,
+            match="compatibility_binding_scope_fix_binding_changed",
+        ):
+            runner._validate_compatibility_binding_scope_fix_source_binding(corrupted)
+
+
+def test_isolated_source_closure_excludes_unrelated_p3_top100(
+    tmp_path: Path,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    source = json.loads(
+        (ROOT / contract.SOURCE_CONTRACT_PATH).read_text(encoding="utf-8")
+    )
+    paths = [str(item["path"]) for item in source["source_entries"]]
+    excluded = "apps/worker-python/dehps/notifications/p3_top100.py"
+    assert len(paths) == 20
+    assert excluded not in paths
+
+    config_path = tmp_path / contract.SOURCE_CONTRACT_PATH
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(contract.canonical_json(source) + "\n", encoding="utf-8")
+    for item in source["source_entries"]:
+        relative = Path(str(item["path"]))
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / relative).read_bytes())
+    excluded_path = tmp_path / excluded
+    excluded_path.parent.mkdir(parents=True, exist_ok=True)
+    excluded_path.write_bytes(b"unrelated-mainline-p3-top100-change")
+
+    loaded = runner.artifacts.load_source_contract(root_dir=tmp_path)
+    assert loaded["artifact_digest"] == source["artifact_digest"]
+    assert loaded["source_set_digest"] == source["source_set_digest"]
+
+    retained = tmp_path / paths[0]
+    retained.write_bytes(retained.read_bytes() + b"drift")
+    with pytest.raises(
+        runner.artifacts.IsolatedArtifactError,
+        match="source_entry_bytes_changed",
+    ):
+        runner.artifacts.load_source_contract(root_dir=tmp_path)
+
+
+def test_compatibility_binding_scope_fix_engineering_governance_is_exact() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+
+    def validate(*, corruption: str | None = None) -> None:
+        request = SimpleNamespace(
+            id=runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID,
+            request_type=runner.AgentRequestType.ENGINEERING_IMPLEMENTATION,
+            status=runner.AgentRequestStatus.COMPLETED,
+            parent_request_id=(
+                runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PARENT_REQUEST_ID
+            ),
+            metadata={
+                "payload_sha256": (
+                    runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+                )
+            },
+        )
+        approval = SimpleNamespace(
+            id=runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID,
+            decision_code="request_approved",
+            new_status="approved",
+            decided_by_role=runner.AgentRole.REVIEWER,
+        )
+        execution = SimpleNamespace(
+            id=runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID,
+            status=runner.AgentExecutionStatus.COMPLETED,
+            environment="development",
+            executor_role=runner.AgentRole.ENGINEERING,
+        )
+        if corruption == "request_status":
+            request.status = runner.AgentRequestStatus.EXECUTING
+        elif corruption == "parent":
+            request.parent_request_id += 1
+        elif corruption == "payload":
+            request.metadata = {"payload_sha256": "0" * 64}
+        elif corruption == "approval":
+            approval.id += 1
+        elif corruption == "execution":
+            execution.status = runner.AgentExecutionStatus.RUNNING
+
+        class _Repository:
+            @staticmethod
+            def get_request(_key):
+                return request
+
+            @staticmethod
+            def list_decisions(_key):
+                return [approval]
+
+            @staticmethod
+            def list_execution_metadata(_key):
+                return [execution]
+
+        runner._validate_compatibility_binding_scope_fix_engineering_governance(
+            _Repository()
+        )
+
+    validate()
+    for corruption in (
+        "request_status",
+        "parent",
+        "payload",
+        "approval",
+        "execution",
+    ):
+        with pytest.raises(
+            runner.IsolatedRunnerError,
+            match="compatibility_binding_scope_fix_engineering_governance_changed",
+        ):
+            validate(corruption=corruption)
+
+
+def test_daily_recovery_operator_requires_completed_binding_scope_fix(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    source_digest = "a" * 64
+    git_commit = "b" * 40
+    scope_request = SimpleNamespace(
+        id=runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID,
+        request_type=runner.AgentRequestType.ENGINEERING_IMPLEMENTATION,
+        status=runner.AgentRequestStatus.COMPLETED,
+        parent_request_id=(
+            runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PARENT_REQUEST_ID
+        ),
+        metadata={
+            "payload_sha256": (
+                runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+            )
+        },
+    )
+    research = SimpleNamespace(
+        id=contract.DAILY_RECOVERY_RESEARCH_REQUEST_ID,
+        status=runner.AgentRequestStatus.APPROVED,
+        metadata={"payload_sha256": contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256},
+    )
+    engineering = SimpleNamespace(
+        id=contract.DAILY_RECOVERY_ENGINEERING_REQUEST_ID,
+        status=runner.AgentRequestStatus.COMPLETED,
+        parent_request_id=research.id,
+        metadata={"payload_sha256": contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256},
+    )
+    binding_scope_fix = {
+        "engineering_request_id": (
+            runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID
+        ),
+        "engineering_approval_decision_id": (
+            runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID
+        ),
+        "engineering_execution_id": (
+            runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID
+        ),
+        "engineering_request_payload_sha256": (
+            runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    operator_payload = {
+        "version": "m4-isolated-v11-daily-mail-recovery-operator-v1",
+        "commit": git_commit,
+        "source_contract_digest": source_digest,
+        "binding_scope_fix": binding_scope_fix,
+        "failed_execution": {
+            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+            "task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            "started_event_digest": contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+            "failed_event_digest": contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+            "original_source_contract_digest": (
+                contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            ),
+            "original_git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            "workload_rerun": False,
+        },
+        "ordered_operations": list(runner.DAILY_RECOVERY_OPERATIONS),
+        "smtp_budget": 1,
+        "scientific_workload_budget": 0,
+        "formal_p3_access_or_mutation": False,
+        "p4_p5_p6_or_promotion": False,
+        "checks": {},
+        "rollback": {},
+    }
+    operator = SimpleNamespace(
+        id=900,
+        request_type=runner.AgentRequestType.OPERATOR_RELEASE,
+        status=runner.AgentRequestStatus.EXECUTING,
+        parent_request_id=engineering.id,
+        payload=operator_payload,
+        metadata={
+            "payload_sha256": hashlib.sha256(
+                contract.canonical_json(operator_payload).encode("utf-8")
+            ).hexdigest()
+        },
+    )
+
+    def approval(decision_id):
+        return SimpleNamespace(
+            id=decision_id,
+            decision_code="request_approved",
+            new_status="approved",
+            decided_by_role=runner.AgentRole.REVIEWER,
+        )
+
+    executions = {
+        runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY: [
+            SimpleNamespace(
+                id=runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID,
+                status=runner.AgentExecutionStatus.COMPLETED,
+                environment="development",
+                executor_role=runner.AgentRole.ENGINEERING,
+            )
+        ],
+        runner.DAILY_RECOVERY_ENGINEERING_REQUEST_KEY: [
+            SimpleNamespace(
+                id=contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID,
+                status=runner.AgentExecutionStatus.COMPLETED,
+                environment="development",
+                executor_role=runner.AgentRole.ENGINEERING,
+            )
+        ],
+        "operator": [
+            SimpleNamespace(
+                id=901,
+                status=runner.AgentExecutionStatus.RUNNING,
+                environment="production",
+                executor_role=runner.AgentRole.OPERATOR,
+                started_at=datetime(2026, 8, 31, tzinfo=UTC),
+            )
+        ],
+    }
+    requests = {
+        runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY: (scope_request),
+        runner.DAILY_RECOVERY_RESEARCH_REQUEST_KEY: research,
+        runner.DAILY_RECOVERY_ENGINEERING_REQUEST_KEY: engineering,
+        "operator": operator,
+    }
+    decisions = {
+        runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY: [
+            approval(runner.COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID)
+        ],
+        runner.DAILY_RECOVERY_RESEARCH_REQUEST_KEY: [
+            approval(contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID)
+        ],
+        runner.DAILY_RECOVERY_ENGINEERING_REQUEST_KEY: [
+            approval(contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID)
+        ],
+        "operator": [approval(902)],
+    }
+
+    class _Repository:
+        @staticmethod
+        def get_request(key):
+            return requests[key]
+
+        @staticmethod
+        def list_decisions(key):
+            return decisions[key]
+
+        @staticmethod
+        def list_execution_metadata(key):
+            return executions[key]
+
+    source_contract = {
+        "artifact_digest": source_digest,
+        "governance_bindings": {
+            "daily_mail_recovery_base_merged_commit": (
+                contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+            ),
+            "daily_mail_recovery_research_request_id": research.id,
+            "daily_mail_recovery_research_approval_decision_id": (
+                contract.DAILY_RECOVERY_RESEARCH_APPROVAL_DECISION_ID
+            ),
+            "daily_mail_recovery_research_request_payload_sha256": (
+                contract.DAILY_RECOVERY_RESEARCH_PAYLOAD_SHA256
+            ),
+            "daily_mail_recovery_engineering_request_id": engineering.id,
+            "daily_mail_recovery_engineering_approval_decision_id": (
+                contract.DAILY_RECOVERY_ENGINEERING_APPROVAL_DECISION_ID
+            ),
+            "daily_mail_recovery_engineering_execution_id": (
+                contract.DAILY_RECOVERY_ENGINEERING_EXECUTION_ID
+            ),
+            "daily_mail_recovery_engineering_request_payload_sha256": (
+                contract.DAILY_RECOVERY_ENGINEERING_PAYLOAD_SHA256
+            ),
+        },
+    }
+    monkeypatch.setenv(runner.DAILY_RECOVERY_OPERATOR_ENV_KEY, "operator")
+    monkeypatch.setenv(runner.DAILY_RECOVERY_OPERATOR_DECISION_ENV, "902")
+    monkeypatch.setenv(runner.DAILY_RECOVERY_OPERATOR_EXECUTION_ENV, "901")
+    result = runner.validate_daily_mail_recovery_governance(
+        repository=_Repository(),
+        source_contract=source_contract,
+        runtime_source_digest=source_digest,
+        git_commit=git_commit,
+    )
+    assert result["operator_request_id"] == operator.id
+
+    operator.payload = {
+        **operator_payload,
+        "binding_scope_fix": {
+            **binding_scope_fix,
+            "engineering_execution_id": 0,
+        },
+    }
+    operator.metadata = {
+        "payload_sha256": hashlib.sha256(
+            contract.canonical_json(operator.payload).encode("utf-8")
+        ).hexdigest()
+    }
+    with pytest.raises(
+        runner.IsolatedRunnerError,
+        match="daily_recovery_operator_scope_changed",
+    ):
+        runner.validate_daily_mail_recovery_governance(
+            repository=_Repository(),
+            source_contract=source_contract,
+            runtime_source_digest=source_digest,
+            git_commit=git_commit,
+        )
+
 
 def test_runtime_health_activation_is_canonical_complete_and_never_backfilled() -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")

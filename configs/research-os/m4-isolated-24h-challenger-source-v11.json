@@ -1,9 +1,15 @@
 {
-  "artifact_digest": "3f943a2fa67fca2521cab2661220f981a9133e310db08fe883bb3b4066edb805",
+  "artifact_digest": "cb89b8e3b22ba9a48b410bc09bbd362c38e62e5618874b2e199cb959bc2c1622",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
   "governance_bindings": {
+    "compatibility_binding_scope_fix_base_merged_commit": "6968ed917e4f8bc7e7b9bf415531c93d4012aa9d",
+    "compatibility_binding_scope_fix_engineering_request_key": "engineering-m4-isolated-v11-actual-binding-scope-decoupling-v1",
+    "compatibility_binding_scope_fix_engineering_request_id": 803,
+    "compatibility_binding_scope_fix_engineering_approval_decision_id": 3417,
+    "compatibility_binding_scope_fix_engineering_execution_id": 644,
+    "compatibility_binding_scope_fix_engineering_request_payload_sha256": "360e7221b935f72ece18f1dff9c4790c01d7264e0086fa9dcc36574175d7cfb4",
     "daily_mail_recovery_base_merged_commit": "10a2069bdd2d351b76fdf4ade697fe6a60fd6f2d",
     "daily_mail_recovery_research_request_id": 782,
     "daily_mail_recovery_research_approval_decision_id": 3334,
@@ -250,9 +256,9 @@
       "sha256": "28aa79fa5c45766643d44d0df62eb6a37d1f8992c7ae245dfa2020494f107cd1"
     },
     {
-      "bytes": 233011,
+      "bytes": 237383,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "e1a25b425f352acdcd66e276143cecd35114c9f67e3cbedfa9b86b419f5587c7"
+      "sha256": "454df39b5d7d4cb6783ade2561f76a5c6be95449e4d3c738b39a16981f343407"
     },
     {
       "bytes": 17768,
@@ -305,11 +311,6 @@
       "sha256": "28694b92534d9878dee73eebfb3e2341282eeee1bb8729ecee9a0988fea9fecd"
     },
     {
-      "bytes": 56661,
-      "path": "apps/worker-python/dehps/notifications/p3_top100.py",
-      "sha256": "49d455163684ef4f8babe02bc45a2f9828f21326cae7255cc2ce045b37759d90"
-    },
-    {
       "bytes": 40111,
       "path": "infra/postgres/init/001_init.sql",
       "sha256": "257e0540f51c0c7a3e036971961aa63b652858eb1d1fefaf24eab5b2263fe899"
@@ -320,5 +321,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "03936f6eeacac142030f442d30617e3b3c3c9be93bfd7e6fdd1a2cee03a3e706"
+  "source_set_digest": "5d0f0bf2d3663fdfdcce83e4896bf97f473a43e974370b8633d2ae05b994ee09"
 }
