@@ -1,9 +1,15 @@
 {
-  "artifact_digest": "cb89b8e3b22ba9a48b410bc09bbd362c38e62e5618874b2e199cb959bc2c1622",
+  "artifact_digest": "5d8dacee8a6ec1059a25148e0bb41bfccbc4226c00cc9ae3703164b8d538219e",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
   "governance_bindings": {
+    "execution645_dict_row_head_fix_base_merged_commit": "f58095f96619321243b00cfea1c707b23fc0a684",
+    "execution645_dict_row_head_fix_engineering_request_key": "engineering-m4-isolated-v11-execution645-dict-row-head-fix-v1",
+    "execution645_dict_row_head_fix_engineering_request_id": 805,
+    "execution645_dict_row_head_fix_engineering_approval_decision_id": 3427,
+    "execution645_dict_row_head_fix_engineering_execution_id": 646,
+    "execution645_dict_row_head_fix_engineering_request_payload_sha256": "3be12c85ef5ae0b66510068e6941548e009b968ddf986400de2d686c85c17188",
     "compatibility_binding_scope_fix_base_merged_commit": "6968ed917e4f8bc7e7b9bf415531c93d4012aa9d",
     "compatibility_binding_scope_fix_engineering_request_key": "engineering-m4-isolated-v11-actual-binding-scope-decoupling-v1",
     "compatibility_binding_scope_fix_engineering_request_id": 803,
@@ -236,9 +242,9 @@
       "sha256": "d6826cec462702f5ac22401e9f93cef0e412833eb3597de2a369fdd21504399e"
     },
     {
-      "bytes": 347747,
+      "bytes": 348903,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/isolated_challenger_v11_mainline.py",
-      "sha256": "8a0cda79606f8edd0012df9e09fdd9302983d42b89abc21a63b6aa945eaf9422"
+      "sha256": "a05436a6e5d083b14d52ffa3fabc8bcf93cd1764f9716073fb8bbab924739908"
     },
     {
       "bytes": 9947,
@@ -321,5 +327,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "5d0f0bf2d3663fdfdcce83e4896bf97f473a43e974370b8633d2ae05b994ee09"
+  "source_set_digest": "3142b4ecfe83189acaff2b3c39d27d0486bbf3b21c174e58cbec421d9d1ea2e3"
 }

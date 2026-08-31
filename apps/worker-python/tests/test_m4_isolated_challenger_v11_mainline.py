@@ -33,6 +33,124 @@ def _context():
     )
 
 
+EXECUTION_645_MULTIPLICITY_HEAD_ROW = {
+    "registration_seq": 4,
+    "m_total": 90,
+    "head_artifact_digest": (
+        "20dcbb018b569590bb823f9faab3aadfaf673b79db51b2a3ffe646797b98bce0"
+    ),
+}
+
+
+def test_execution_645_daily_multiplicity_head_dict_row_is_named_and_exact() -> None:
+    frozen_row = dict(EXECUTION_645_MULTIPLICITY_HEAD_ROW)
+    assert type(frozen_row) is dict
+    assert list(frozen_row) == [
+        "registration_seq",
+        "m_total",
+        "head_artifact_digest",
+    ]
+    with pytest.raises(KeyError) as caught:
+        frozen_row[1]
+    assert caught.value.args == (1,)
+
+    validated = mainline._validated_daily_multiplicity_head(frozen_row)
+    assert validated == EXECUTION_645_MULTIPLICITY_HEAD_ROW
+    assert validated["m_total"] == 90
+    assert frozen_row == EXECUTION_645_MULTIPLICITY_HEAD_ROW
+
+
+@pytest.mark.parametrize(
+    ("row", "reason"),
+    [
+        (
+            {
+                "m_total": 90,
+                "head_artifact_digest": "2" * 64,
+            },
+            "shape_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "unexpected": 1},
+            "shape_changed",
+        ),
+        (
+            {
+                "registration_seq": 4,
+                1: 90,
+                "head_artifact_digest": "2" * 64,
+            },
+            "shape_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "registration_seq": "4"},
+            "content_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "m_total": "90"},
+            "content_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "registration_seq": -1},
+            "content_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "m_total": -1},
+            "content_changed",
+        ),
+        (
+            {**EXECUTION_645_MULTIPLICITY_HEAD_ROW, "head_artifact_digest": "bad"},
+            "content_changed",
+        ),
+    ],
+)
+def test_execution_645_daily_multiplicity_head_drift_fails_closed(
+    row: dict[object, object], reason: str
+) -> None:
+    with pytest.raises(
+        mainline.IsolatedMainlineError,
+        match=f"daily_multiplicity_head_{reason}",
+    ):
+        mainline._validated_daily_multiplicity_head(row)
+
+
+def test_daily_summary_has_no_execution_645_positional_or_fallback_access() -> None:
+    source = Path(mainline.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    capability = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "IsolatedV11Capability"
+    )
+    daily_summary = next(
+        node
+        for node in capability.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_daily_summary"
+    )
+    assert not any(
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "head"
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value == 1
+        for node in ast.walk(daily_summary)
+    )
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in {"head", "multiplicity_head"}
+        and node.func.attr == "get"
+        for node in ast.walk(daily_summary)
+    )
+    assert not any(
+        isinstance(node, ast.ExceptHandler)
+        and isinstance(node.type, ast.Name)
+        and node.type.id == "KeyError"
+        for node in ast.walk(daily_summary)
+    )
+
+
 def test_inner_resource_probe_reads_exact_user_manager_formal_p3_unit(
     monkeypatch,
 ) -> None:
