@@ -3266,6 +3266,35 @@ def template_for_task_key(
     return matches[0]
 
 
+_DAILY_MULTIPLICITY_HEAD_KEYS = frozenset(
+    {"registration_seq", "m_total", "head_artifact_digest"}
+)
+
+
+def _validated_daily_multiplicity_head(row: object) -> dict[str, int | str]:
+    if not isinstance(row, Mapping) or set(row) != _DAILY_MULTIPLICITY_HEAD_KEYS:
+        raise IsolatedMainlineError("daily_multiplicity_head_shape_changed")
+    registration_seq = row["registration_seq"]
+    m_total = row["m_total"]
+    head_artifact_digest = row["head_artifact_digest"]
+    if (
+        isinstance(registration_seq, bool)
+        or not isinstance(registration_seq, int)
+        or registration_seq < 0
+        or isinstance(m_total, bool)
+        or not isinstance(m_total, int)
+        or m_total < 0
+        or not isinstance(head_artifact_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", head_artifact_digest) is None
+    ):
+        raise IsolatedMainlineError("daily_multiplicity_head_content_changed")
+    return {
+        "registration_seq": registration_seq,
+        "m_total": m_total,
+        "head_artifact_digest": head_artifact_digest,
+    }
+
+
 class IsolatedV11Capability:
     def __init__(
         self,
@@ -6534,6 +6563,7 @@ class IsolatedV11Capability:
             )
         if head is None:
             raise IsolatedMainlineError("MULTIPLICITY_LEDGER_INCOMPLETE")
+        multiplicity_head = _validated_daily_multiplicity_head(head)
         opening_checkpoint = load_registered_isolated_artifact(
             repository=self.repository,
             root_dir=self.root_dir,
@@ -6591,7 +6621,7 @@ class IsolatedV11Capability:
         health_statuses = [str(item["body"].get("status")) for item in health_artifacts]
         incident_state = self._latest_incident_state()
         incident_head = incident_state["head"]
-        m_total = int(head[1])
+        m_total = int(multiplicity_head["m_total"])
         cohort_records = [
             self._cohort_selection_record(item, m_total=m_total)
             for item in closing_checkpoint["body"].get("cohorts", [])
