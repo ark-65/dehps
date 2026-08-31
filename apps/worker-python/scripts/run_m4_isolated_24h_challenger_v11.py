@@ -296,6 +296,17 @@ HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_EXECUTION_ID = 640
 HEALTH_PROVENANCE_RUNNING_RECOVERY_ENGINEERING_PAYLOAD_SHA256 = (
     "20047c995e9ecaf64ac2732118c649488341dc65dd936b9d4a2b6b523d7fc21e"
 )
+COMPATIBILITY_BINDING_SCOPE_FIX_BASE_COMMIT = "6968ed917e4f8bc7e7b9bf415531c93d4012aa9d"
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-actual-binding-scope-decoupling-v1"
+)
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID = 803
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID = 3417
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID = 644
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PARENT_REQUEST_ID = 796
+COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256 = (
+    "360e7221b935f72ece18f1dff9c4790c01d7264e0086fa9dcc36574175d7cfb4"
+)
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
     "POSTDRAW_SETTLEMENT",
@@ -398,6 +409,76 @@ def _validate_health_provenance_running_recovery_source_binding(
         or {key: bindings.get(key) for key in expected} != expected
     ):
         raise IsolatedRunnerError("health_provenance_running_recovery_binding_changed")
+
+
+def _validate_compatibility_binding_scope_fix_source_binding(
+    source_contract: Mapping[str, Any],
+) -> None:
+    bindings = source_contract.get("governance_bindings")
+    expected = {
+        "compatibility_binding_scope_fix_base_merged_commit": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_BASE_COMMIT
+        ),
+        "compatibility_binding_scope_fix_engineering_request_key": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY
+        ),
+        "compatibility_binding_scope_fix_engineering_request_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID
+        ),
+        "compatibility_binding_scope_fix_engineering_approval_decision_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID
+        ),
+        "compatibility_binding_scope_fix_engineering_execution_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID
+        ),
+        "compatibility_binding_scope_fix_engineering_request_payload_sha256": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
+    if (
+        not isinstance(bindings, dict)
+        or {key: bindings.get(key) for key in expected} != expected
+    ):
+        raise IsolatedRunnerError("compatibility_binding_scope_fix_binding_changed")
+
+
+def _validate_compatibility_binding_scope_fix_engineering_governance(
+    repository: AgentRequestRepository,
+) -> None:
+    request = repository.get_request(
+        COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY
+    )
+    approvals = [
+        item
+        for item in repository.list_decisions(
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY
+        )
+        if item.decision_code == "request_approved"
+    ]
+    executions = repository.list_execution_metadata(
+        COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_KEY
+    )
+    if (
+        request.id != COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID
+        or request.request_type is not AgentRequestType.ENGINEERING_IMPLEMENTATION
+        or request.status is not AgentRequestStatus.COMPLETED
+        or request.parent_request_id
+        != COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PARENT_REQUEST_ID
+        or request.metadata.get("payload_sha256")
+        != COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+        or len(approvals) != 1
+        or approvals[0].id != COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID
+        or approvals[0].new_status != "approved"
+        or approvals[0].decided_by_role is not AgentRole.REVIEWER
+        or len(executions) != 1
+        or executions[0].id != COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID
+        or executions[0].status is not AgentExecutionStatus.COMPLETED
+        or executions[0].environment != "development"
+        or executions[0].executor_role is not AgentRole.ENGINEERING
+    ):
+        raise IsolatedRunnerError(
+            "compatibility_binding_scope_fix_engineering_governance_changed"
+        )
 
 
 def _validate_user_scope_resume_event_set(
@@ -1113,6 +1194,7 @@ def validate_daily_mail_recovery_governance(
     runtime_source_digest: str,
     git_commit: str,
 ) -> dict[str, Any]:
+    _validate_compatibility_binding_scope_fix_engineering_governance(repository)
     bindings = source_contract.get("governance_bindings")
     expected = {
         "daily_mail_recovery_base_merged_commit": (
@@ -1231,6 +1313,20 @@ def validate_daily_mail_recovery_governance(
         "original_git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
         "workload_rerun": False,
     }
+    expected_binding_scope_fix = {
+        "engineering_request_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_REQUEST_ID
+        ),
+        "engineering_approval_decision_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_DECISION_ID
+        ),
+        "engineering_execution_id": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_EXECUTION_ID
+        ),
+        "engineering_request_payload_sha256": (
+            COMPATIBILITY_BINDING_SCOPE_FIX_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }
     if (
         operator.request_type is not AgentRequestType.OPERATOR_RELEASE
         or operator.status is not AgentRequestStatus.EXECUTING
@@ -1244,6 +1340,7 @@ def validate_daily_mail_recovery_governance(
         != "m4-isolated-v11-daily-mail-recovery-operator-v1"
         or operator.payload.get("commit") != git_commit
         or operator.payload.get("source_contract_digest") != runtime_source_digest
+        or operator.payload.get("binding_scope_fix") != expected_binding_scope_fix
         or operator.payload.get("failed_execution") != expected_failed
         or tuple(operator.payload.get("ordered_operations") or ())
         != DAILY_RECOVERY_OPERATIONS
@@ -5415,6 +5512,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _validate_mirror_completeness_repair_source_binding(source)
     _validate_daily_recovery_transition_fix_source_binding(source)
     _validate_health_provenance_running_recovery_source_binding(source)
+    _validate_compatibility_binding_scope_fix_source_binding(source)
     source_digest = str(source["artifact_digest"])
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
