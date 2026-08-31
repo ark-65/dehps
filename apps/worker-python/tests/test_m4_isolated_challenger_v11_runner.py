@@ -5,12 +5,15 @@ import hashlib
 import importlib.util
 import inspect
 import json
+import os
+import uuid
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_contract as contract,
@@ -21,6 +24,7 @@ from dehps.research_os.models import (
     MainlineExecutionEvent,
     TaskStatus,
 )
+from psycopg import sql
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -2182,8 +2186,9 @@ def test_daily_mail_recovery_reuses_failed_attempt_inputs_and_sends_exactly_once
     monkeypatch.setattr(runner, "_p3_source_identity", lambda: p3_identity)
     monkeypatch.setattr(
         runner,
-        "_daily_recovery_live_preflight",
+        "_daily_recovery_committed_state_preflight",
         lambda **_kwargs: (
+            "PRE_COMMIT",
             manifest,
             daily_context,
             {
@@ -2277,7 +2282,13 @@ def test_recovery_completion_is_committed_then_replayed_before_activation(
         artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
     )
     manifest = SimpleNamespace(
-        tasks=(task,), facts=SimpleNamespace(artifacts=frozenset())
+        tasks=(task,),
+        facts=SimpleNamespace(artifacts=frozenset()),
+        task_state_by_digest={
+            task.artifact_digest: SimpleNamespace(
+                declared_status=TaskStatus.RUNNING,
+            )
+        },
     )
     order: list[str] = []
 
@@ -2322,6 +2333,21 @@ def test_recovery_completion_is_committed_then_replayed_before_activation(
             self.imported.append(tuple(facts))
 
     monkeypatch.setattr(runner.mainline, "IsolatedChallengerSupervisor", _Supervisor)
+    monkeypatch.setattr(
+        runner.mainline,
+        "load_completed_task_artifacts",
+        lambda **_kwargs: (
+            {
+                "artifact_type": "M4IsolatedDailySummaryV11",
+                "parent_digests": ["d" * 64],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        runner.artifacts,
+        "replay_artifact",
+        lambda *_args, **_kwargs: {"status": "REPLAY_VERIFIED"},
+    )
     original_activation = runner._activation_facts
 
     def _activation(**activation_kwargs):
@@ -2365,6 +2391,700 @@ def test_recovery_completion_is_committed_then_replayed_before_activation(
         runner._dispatch_recovery_task(**kwargs)
     assert order == ["atomic_commit"]
     assert repository.imported == []
+
+
+def test_committed_daily_preflight_accepts_exact_postcommit_and_rejects_uncertain(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        metric_contract=json.dumps(
+            {"render_context": context}, sort_keys=True, separators=(",", ":")
+        ),
+    )
+    manifest = SimpleNamespace(
+        artifact_digest=runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
+        tasks=(task,),
+    )
+
+    class _Cursor:
+        rows = ()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params=None):
+            assert "delivery_ledger" in statement
+            return self
+
+        def fetchall(self):
+            return list(self.rows)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return manifest
+
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    monkeypatch.setattr(
+        runner.mainline,
+        "load_recovered_daily_summary_completed_execution",
+        lambda **_kwargs: ({}, {}, []),
+    )
+    monkeypatch.setattr(
+        runner.mainline,
+        "latest_incident_ledger_state",
+        lambda **_kwargs: {
+            "open_incident_ids": [contract.DAILY_RECOVERY_INCIDENT_ID],
+            "resolved_incident_ids": [],
+            "transition_seq": 0,
+        },
+    )
+    monkeypatch.setattr(
+        runner,
+        "_p3_source_identity",
+        lambda: {
+            "artifact_digest": contract.FORMAL_P3_SOURCE_DIGEST,
+            "source_set_digest": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
+        },
+    )
+    monkeypatch.setattr(
+        runner, "_daily_recovery_failed_operator_input_prestate", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(
+        runner, "_isolated_units_quiescent", lambda: {"status": "QUIESCENT"}
+    )
+    start, loaded, loaded_context, incident = (
+        runner._daily_recovery_committed_state_preflight(repository=_Repository())
+    )
+    assert start == "POST_COMMIT"
+    assert loaded is manifest
+    assert loaded_context == context
+    assert incident["transition_seq"] == 0
+
+    _Cursor.rows = [("UNCERTAIN", 1)]
+    with pytest.raises(
+        runner.IsolatedRunnerError,
+        match="daily_recovery_smtp_state_uncertain_or_changed",
+    ):
+        runner._daily_recovery_committed_state_preflight(repository=_Repository())
+
+
+def test_postcommit_resume_skips_dispatch_and_orders_typed_generic_activation(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    task = SimpleNamespace(
+        task_key=contract.DAILY_RECOVERY_TASK_KEY,
+        artifact_digest=contract.DAILY_RECOVERY_TASK_DIGEST,
+    )
+    manifest = SimpleNamespace(
+        tasks=(task,), facts=SimpleNamespace(artifacts=frozenset())
+    )
+    order: list[str] = []
+
+    class _Repository:
+        def __init__(self):
+            self.imported = []
+
+        @staticmethod
+        def load_manifest(**_kwargs):
+            return manifest
+
+        def import_verified_facts(self, facts):
+            order.append("activation")
+            self.imported.append(tuple(facts))
+
+    class _Supervisor:
+        def __init__(self, **_kwargs):
+            pass
+
+        @staticmethod
+        def run_once(**_kwargs):
+            raise AssertionError("POST_COMMIT must not dispatch")
+
+        @staticmethod
+        def replay(**_kwargs):
+            order.append("generic")
+            return {
+                "status": "REPLAY_VERIFIED",
+                "same_execution_identity": True,
+                "same_artifact_identity": True,
+                "same_artifact_content": True,
+                "all_registrations_and_parent_chains_exact": True,
+                "manual_input_assembly": False,
+                "dispatch_performed": False,
+            }
+
+    monkeypatch.setattr(
+        runner.mainline,
+        "load_recovered_daily_summary_completed_execution",
+        lambda **_kwargs: (
+            {"event_digest": runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST},
+            {
+                "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+                "artifact_digest": runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST,
+            },
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        runner.mainline,
+        "load_completed_task_artifacts",
+        lambda **_kwargs: (
+            {
+                "artifact_type": "M4IsolatedDailySummaryV11",
+                "artifact_digest": runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST,
+                "parent_digests": ["a" * 64],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        runner.artifacts,
+        "replay_artifact",
+        lambda *_args, **_kwargs: (
+            order.append("typed")
+            or {
+                "status": "REPLAY_VERIFIED",
+                "artifact_digest": runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST,
+                "dispatch_performed": False,
+            }
+        ),
+    )
+    monkeypatch.setattr(runner.mainline, "IsolatedChallengerSupervisor", _Supervisor)
+    monkeypatch.setattr(
+        runner.mainline,
+        "template_for_task_key",
+        lambda *_args, **_kwargs: SimpleNamespace(name="daily_summary"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_activation_facts",
+        lambda **_kwargs: order.append("activation_build") or ("daily:COMPLETE",),
+    )
+    result = runner._resume_committed_daily_summary(
+        repository=_Repository(), context=context
+    )
+    assert result["dispatch_performed"] is False
+    assert result["workload_rerun"] is False
+    assert result["typed_replay"] == result["generic_replay"] == "REPLAY_VERIFIED"
+    assert order == ["typed", "generic", "activation_build", "activation"]
+
+
+def test_committed_recovery_fixture_identities_are_frozen() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    assert runner.DAILY_RECOVERY_PRE_COMMIT_FIXTURE_DIGEST == (
+        "bcb0f311f2841e009a14a9b22ea8e1bc3787a70f413d24abae6f7bf7a720365d"
+    )
+    assert runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST == (
+        "cb2707fa51bb37209fea9c5aa54ef3b12d50a8f19cf7db1be934d1799626d76a"
+    )
+
+
+@pytest.mark.skipif(
+    os.getenv("DEHPS_TEST_POSTGRES") != "1" or not os.getenv("DEHPS_TEST_DATABASE_URL"),
+    reason="requires an explicit isolated PostgreSQL URL",
+)
+@pytest.mark.parametrize(
+    "interruption",
+    [
+        "before_sequence2_commit",
+        "commit_acknowledged_unknown",
+        "post_commit_readback_failure",
+        "committed_validation_before_replay",
+        "between_typed_and_generic_replay",
+        "after_replays_before_source_rebind",
+        "downstream_daily_summary_replay",
+        "downstream_daily_mail_envelope",
+        "downstream_daily_mail_replay",
+        "downstream_daily_delivery",
+        "smtp_before_provider",
+        "smtp_provider_accepted_uncertain",
+        "smtp_ledger_committed_before_return",
+        "incident_resolution_commit",
+        "duplicate_proof_before_activation_ready",
+        "postcommit_start_committed_validation_before_replay",
+    ],
+)
+def test_offline_committed_recovery_interruption_matrix_is_strict_noop(
+    monkeypatch, interruption: str
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    database_url = os.environ["DEHPS_TEST_DATABASE_URL"]
+    schema = f"m4_v11_recovery_{uuid.uuid4().hex}"
+    source_digest = "f" * 64
+    attestation_digest = "e" * 64
+    receipt_digest = "9" * 64
+    start_postcommit = interruption.startswith("postcommit_start_")
+    interruption_point = interruption.removeprefix("postcommit_start_")
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        epoch_date="20260828",
+        minute="202608280900",
+        cut_checkpoint_ref="000000000000",
+        projection_time="2026-08-28T09:00:21.441271+08:00",
+    )
+    downstream_keys = {
+        name: contract.task_template_by_name(name).key(context)
+        for name in (
+            "daily_summary_replay",
+            "daily_mail_envelope",
+            "daily_mail_replay",
+            "daily_delivery",
+        )
+    }
+    incident_task_key = (
+        "m4-isolated-24h-challenger-v11-incident-"
+        f"{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
+    )
+    incident_context = context
+    incident_task = SimpleNamespace(
+        task_key=incident_task_key,
+        metric_contract=json.dumps(
+            {"render_context": incident_context},
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    resolution_key = contract.task_template_by_name("incident_resolution").key(
+        incident_context
+    )
+    initial_state = {
+        "fixture_digest": runner.DAILY_RECOVERY_PRE_COMMIT_FIXTURE_DIGEST,
+        "manifest_digest": runner.DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        "events": 2,
+        "sequence2_digest": None,
+        "registrations": 0,
+        "completion_facts": 0,
+        "summary_artifact_digest": None,
+        "execution_artifact_digest": None,
+        "artifact_bytes_unchanged": True,
+        "typed_replay_count": 0,
+        "generic_replay_count": 0,
+        "summary_activation": False,
+        "source_rebound": False,
+        "downstream": [],
+        "delivery_state": "NONE",
+        "smtp_calls": 0,
+        "incident_transitions": 0,
+        "activation_ready": False,
+        "workload_rerun": False,
+        "scientific_workloads": 0,
+        "formal_p3_artifact": contract.FORMAL_P3_SOURCE_DIGEST,
+        "formal_p3_source_set": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
+        "formal_p3_timer": "active/waiting",
+        "systemd_activation_calls": 0,
+        "interruption_consumed": False,
+    }
+    if start_postcommit:
+        initial_state.update(
+            {
+                "fixture_digest": runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST,
+                "manifest_digest": runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
+                "events": 3,
+                "sequence2_digest": runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST,
+                "registrations": 2,
+                "completion_facts": 1,
+                "summary_artifact_digest": runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST,
+                "execution_artifact_digest": runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST,
+            }
+        )
+
+    def load_state() -> dict[str, object]:
+        with psycopg.connect(database_url) as connection:
+            row = connection.execute(
+                sql.SQL("SELECT payload FROM {}.recovery_state WHERE id=1").format(
+                    sql.Identifier(schema)
+                )
+            ).fetchone()
+        assert row is not None
+        return dict(row[0])
+
+    def save_state(state: dict[str, object]) -> None:
+        with psycopg.connect(database_url) as connection:
+            connection.execute(
+                sql.SQL(
+                    "UPDATE {}.recovery_state SET payload=%s::jsonb WHERE id=1"
+                ).format(sql.Identifier(schema)),
+                (json.dumps(state, sort_keys=True, separators=(",", ":")),),
+            )
+
+    def state_digest() -> str:
+        return hashlib.sha256(
+            json.dumps(load_state(), sort_keys=True, separators=(",", ":")).encode(
+                "ascii"
+            )
+        ).hexdigest()
+
+    class InjectedInterruption(RuntimeError):
+        pass
+
+    def interrupt_once(point: str, state: dict[str, object]) -> None:
+        if interruption_point == point and not bool(state["interruption_consumed"]):
+            state["interruption_consumed"] = True
+            save_state(state)
+            raise InjectedInterruption(point)
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params=None):
+            assert "delivery_ledger" in statement
+            return self
+
+        @staticmethod
+        def fetchone():
+            state = load_state()
+            count = 1 if state["delivery_state"] == "SENT" else 0
+            digest = receipt_digest if count else None
+            return count, digest, digest
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+    class _Repository:
+        def __init__(self, *, context, source_digest):
+            self.context = dict(context)
+            self.source_digest = source_digest
+
+        @staticmethod
+        def daily_recovery_event_view():
+            return nullcontext()
+
+        @staticmethod
+        def rebind_unexecuted_daily_recovery_source():
+            state = load_state()
+            interrupt_once("after_replays_before_source_rebind", state)
+            state["source_rebound"] = True
+            save_state(state)
+            return {"status": "OLD_SOURCE_UNEXECUTED_TASKS_REBOUND", "task_count": 6}
+
+        @staticmethod
+        def load_manifest(**_kwargs):
+            state = load_state()
+            return SimpleNamespace(
+                artifact_digest=state["manifest_digest"], tasks=(incident_task,)
+            )
+
+        @staticmethod
+        def export_manifest(**_kwargs):
+            return {"artifact_digest": load_state()["manifest_digest"]}
+
+        @staticmethod
+        def import_extension(_payload):
+            return None
+
+        @staticmethod
+        def connection_factory():
+            return _Connection()
+
+    def committed_preflight(*, repository):
+        del repository
+        state = load_state()
+        if state["delivery_state"] == "UNCERTAIN":
+            raise runner.IsolatedRunnerError(
+                "daily_recovery_smtp_state_uncertain_or_changed"
+            )
+        mode = "PRE_COMMIT" if state["events"] == 2 else "POST_COMMIT_RESUME"
+        incident = {
+            "open_incident_ids": (
+                [contract.DAILY_RECOVERY_INCIDENT_ID]
+                if state["incident_transitions"] == 0
+                else []
+            ),
+            "transition_seq": state["incident_transitions"],
+        }
+        manifest = SimpleNamespace(
+            artifact_digest=state["manifest_digest"], tasks=(incident_task,)
+        )
+        return mode, manifest, context, incident
+
+    def perform_replay(state: dict[str, object]) -> None:
+        interrupt_once("committed_validation_before_replay", state)
+        if state["typed_replay_count"] == 0:
+            state["typed_replay_count"] = 1
+            save_state(state)
+        interrupt_once("between_typed_and_generic_replay", state)
+        if state["generic_replay_count"] == 0:
+            state["generic_replay_count"] = 1
+        state["summary_activation"] = True
+        save_state(state)
+
+    def commit_summary_and_replay(**_kwargs):
+        state = load_state()
+        interrupt_once("before_sequence2_commit", state)
+        state.update(
+            {
+                "fixture_digest": runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST,
+                "manifest_digest": runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
+                "events": 3,
+                "sequence2_digest": runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST,
+                "registrations": 2,
+                "completion_facts": 1,
+                "summary_artifact_digest": (
+                    runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST
+                ),
+                "execution_artifact_digest": (
+                    runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST
+                ),
+            }
+        )
+        save_state(state)
+        interrupt_once("commit_acknowledged_unknown", state)
+        interrupt_once("post_commit_readback_failure", state)
+        perform_replay(state)
+        return {
+            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            "typed_replay": "REPLAY_VERIFIED",
+            "generic_replay": "REPLAY_VERIFIED",
+            "workload_rerun": False,
+        }
+
+    def resume_summary(**_kwargs):
+        state = load_state()
+        perform_replay(state)
+        return {
+            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+            "typed_replay": "REPLAY_VERIFIED",
+            "generic_replay": "REPLAY_VERIFIED",
+            "workload_rerun": False,
+            "dispatch_performed": False,
+        }
+
+    def dispatch(*, task_key, **_kwargs):
+        if task_key == contract.DAILY_RECOVERY_TASK_KEY:
+            return commit_summary_and_replay()
+        state = load_state()
+        if task_key == resolution_key:
+            if state["incident_transitions"] == 0:
+                state["incident_transitions"] = 1
+                save_state(state)
+                interrupt_once("incident_resolution_commit", state)
+            return {"task_key": task_key, "execution_id": "8" * 64}
+        name = next(name for name, key in downstream_keys.items() if key == task_key)
+        completed = set(state["downstream"])
+        if name == "daily_delivery" and name not in completed:
+            if state["delivery_state"] == "NONE":
+                interrupt_once("smtp_before_provider", state)
+                state["smtp_calls"] = 1
+                if (
+                    interruption_point == "smtp_provider_accepted_uncertain"
+                    and not bool(state["interruption_consumed"])
+                ):
+                    state["delivery_state"] = "UNCERTAIN"
+                    interrupt_once("smtp_provider_accepted_uncertain", state)
+                state["delivery_state"] = "SENT"
+                save_state(state)
+                interrupt_once("smtp_ledger_committed_before_return", state)
+            completed.add(name)
+            state["downstream"] = sorted(completed)
+            save_state(state)
+            interrupt_once("downstream_daily_delivery", state)
+        elif name not in completed:
+            completed.add(name)
+            state["downstream"] = sorted(completed)
+            save_state(state)
+            interrupt_once(f"downstream_{name}", state)
+        elif name == "daily_delivery":
+            interrupt_once("duplicate_proof_before_activation_ready", state)
+        return {
+            "task_key": task_key,
+            "execution_id": hashlib.sha256(task_key.encode("ascii")).hexdigest(),
+            "generic_replay": "REPLAY_VERIFIED",
+            "dispatch_performed": name not in set(load_state()["downstream"]),
+        }
+
+    def incident_state(**_kwargs):
+        state = load_state()
+        resolved = state["incident_transitions"] == 1
+        return {
+            "open_count": 0 if resolved else 1,
+            "open_incident_ids": []
+            if resolved
+            else [contract.DAILY_RECOVERY_INCIDENT_ID],
+            "resolved_incident_ids": (
+                [contract.DAILY_RECOVERY_INCIDENT_ID] if resolved else []
+            ),
+            "transition_seq": state["incident_transitions"],
+        }
+
+    with psycopg.connect(database_url, autocommit=True) as setup:
+        setup.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        setup.execute(
+            sql.SQL(
+                "CREATE TABLE {}.recovery_state (id integer PRIMARY KEY,payload jsonb)"
+            ).format(sql.Identifier(schema))
+        )
+        setup.execute(
+            sql.SQL("INSERT INTO {}.recovery_state VALUES (1,%s::jsonb)").format(
+                sql.Identifier(schema)
+            ),
+            (json.dumps(initial_state, sort_keys=True, separators=(",", ":")),),
+        )
+    try:
+        monkeypatch.setattr(runner, "IsolatedChallengerRepository", _Repository)
+        monkeypatch.setattr(
+            runner, "_daily_recovery_committed_state_preflight", committed_preflight
+        )
+        monkeypatch.setattr(runner, "AgentRequestRepository", lambda: object())
+        monkeypatch.setattr(
+            runner, "validate_daily_mail_recovery_governance", lambda **_kwargs: {}
+        )
+        monkeypatch.setattr(
+            runner.mainline,
+            "register_input_artifact",
+            lambda **kwargs: {"artifact_digest": kwargs["payload"]["artifact_digest"]},
+        )
+        monkeypatch.setattr(
+            runner.mainline,
+            "build_runtime_migration_attestation_input",
+            lambda **_kwargs: {"artifact_digest": attestation_digest},
+        )
+        monkeypatch.setattr(runner, "_dispatch_recovery_task", dispatch)
+        monkeypatch.setattr(runner, "_resume_committed_daily_summary", resume_summary)
+        monkeypatch.setattr(
+            runner.builder,
+            "extend_manifest",
+            lambda *_args, **_kwargs: {"extension": "incident-resolution"},
+        )
+        monkeypatch.setattr(
+            runner.mainline, "latest_incident_ledger_state", incident_state
+        )
+        monkeypatch.setattr(
+            runner,
+            "_p3_source_identity",
+            lambda: {
+                "artifact_digest": contract.FORMAL_P3_SOURCE_DIGEST,
+                "source_set_digest": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
+                "timer": "active/waiting",
+            },
+        )
+        monkeypatch.setattr(
+            runner, "_isolated_units_quiescent", lambda: {"status": "QUIESCENT"}
+        )
+
+        def resume():
+            return runner.recover_daily_mail_chain(
+                apply=True,
+                context=context,
+                source_contract={"artifact_digest": source_digest},
+                source_digest=source_digest,
+                git_commit="c" * 40,
+            )
+
+        with pytest.raises((InjectedInterruption, runner.IsolatedRunnerError)):
+            resume()
+        first_digest = state_digest()
+        if interruption_point == "smtp_provider_accepted_uncertain":
+            with pytest.raises(runner.IsolatedRunnerError):
+                resume()
+            second_digest = state_digest()
+            with pytest.raises(runner.IsolatedRunnerError):
+                resume()
+            assert first_digest == second_digest == state_digest()
+            state = load_state()
+            assert state["smtp_calls"] == 1
+            assert state["delivery_state"] == "UNCERTAIN"
+            return
+
+        second = resume()
+        second_digest = state_digest()
+        third = resume()
+        third_digest = state_digest()
+        assert second["activation_ready"] is True
+        assert third["activation_ready"] is True
+        assert second_digest == third_digest
+        state = load_state()
+        assert state["events"] == 3
+        assert state["sequence2_digest"] == runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST
+        assert state["registrations"] == 2
+        assert state["completion_facts"] == 1
+        assert state["summary_artifact_digest"] == (
+            runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST
+        )
+        assert state["execution_artifact_digest"] == (
+            runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST
+        )
+        assert state["artifact_bytes_unchanged"] is True
+        assert state["typed_replay_count"] == 1
+        assert state["generic_replay_count"] == 1
+        assert state["smtp_calls"] == 1
+        assert state["delivery_state"] == "SENT"
+        assert state["incident_transitions"] == 1
+        assert state["workload_rerun"] is False
+        assert state["scientific_workloads"] == 0
+        assert state["formal_p3_artifact"] == contract.FORMAL_P3_SOURCE_DIGEST
+        assert state["formal_p3_source_set"] == (
+            runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST
+        )
+        assert state["formal_p3_timer"] == "active/waiting"
+        assert state["systemd_activation_calls"] == 0
+        assert first_digest != third_digest or interruption_point in {
+            "incident_resolution_commit",
+            "duplicate_proof_before_activation_ready",
+        }
+    finally:
+        with psycopg.connect(database_url, autocommit=True) as cleanup:
+            cleanup.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                    sql.Identifier(schema)
+                )
+            )
 
 
 def test_roll_forward_before_preregistration_never_loads_completed_health(

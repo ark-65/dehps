@@ -93,6 +93,52 @@ _EXACT_COMMITTED_MANIFEST_DIGEST = (
 _EXACT_COMMITTED_EVENT_DIGEST = (
     "c1749690a190688ae23eb270060c0d76ec8db309614833820929917b2083c7ed"
 )
+_DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST = (
+    "2394fc17b1017109a2f8f43b5672051398b3b34419b05cd44c4735a7d8be2d0a"
+)
+_DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST = (
+    "d2cce00e714fa041789d2114addd109d32f31f9d283dac7beb311a1b0e54b1cf"
+)
+_DAILY_RECOVERY_COMPLETED_EVENT_DIGEST = (
+    "3533d738b178793e83b97e92a6129468f44762cf5ff1383386ca5bca5aac819b"
+)
+_DAILY_RECOVERY_COMPLETED_EVENT_RECORDED_AT = "2026-08-31T05:55:44.585450+00:00"
+_DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST = (
+    "43982d737eadc050327a08b74e692e70f9f6d265a37408cc38abbe274bb7cc63"
+)
+_DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST = (
+    "d2e4d2638d04db6fdb2d58cddb08f2ca0e4ad71d3207cd5ec26f2379e0df9ec1"
+)
+_DAILY_RECOVERY_SUMMARY_REGISTRATION_DIGEST = (
+    "9df28b705b0e6d5a5b6ef4745d5e1827bc9c08fc20b6afc084c5c925e7c38d3d"
+)
+_DAILY_RECOVERY_EXECUTION_REGISTRATION_DIGEST = (
+    "f9a445db37592fa9b316aa5ecbf237b975f6aaf4acbfe544e78dc347dcd3068c"
+)
+_DAILY_RECOVERY_PUBLICATION_BATCH_DIGEST = (
+    "0bf1c25736440a9c39c0b45cad9e0e31aacdb1b02443740fcd08c7bd55bf8f5a"
+)
+_DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST = (
+    "5d8dacee8a6ec1059a25148e0bb41bfccbc4226c00cc9ae3703164b8d538219e"
+)
+_DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST = (
+    "83bcfe7e1ec63cfb8adf81924ab95fe695f25f5647611d98673eb32e3155b3bb"
+)
+_DAILY_RECOVERY_RUNTIME_GIT_COMMIT = "a8230e54372c9c47da297f952a89a3a2b94be133"
+_DAILY_RECOVERY_SUMMARY_PARENT_SET_DIGEST = (
+    "fb6d67b165a641e7c4e903b2c116cdf6b8eb91aae50d038c2e5566a24e7d434e"
+)
+_DAILY_RECOVERY_EXECUTION_PARENT_SET_DIGEST = (
+    "f515d3b962da9f51e5aa71f6ee40331387b3f48242a73f19483aac9d327476f2"
+)
+_DAILY_RECOVERY_SUMMARY_FILE_BYTES = 9348
+_DAILY_RECOVERY_SUMMARY_FILE_SHA256 = (
+    "22790cd073b8bd070cbb51ed749d5fffc10c81019397c1dcfab59fb86e10d2ea"
+)
+_DAILY_RECOVERY_EXECUTION_FILE_BYTES = 2025
+_DAILY_RECOVERY_EXECUTION_FILE_SHA256 = (
+    "692d36d69ad66c8e7b36232068e89b21464310b6240f31d9153911d57ffef61a"
+)
 _EXACT_COMMITTED_EVENT_RECORDED_AT = "2026-08-27T22:43:51.392312+00:00"
 _EXACT_COMMITTED_EXECUTION_ARTIFACT_DIGEST = (
     "7b44ecf4260b6108b09673bd91c55503c54b1c08751cc9975f57c449ea3564aa"
@@ -1605,7 +1651,68 @@ def replay_recovered_daily_summary_execution(
     root_dir: Path,
     runtime_migration_attestation_digest: str,
 ) -> dict[str, Any]:
+    completed, execution, registrations = (
+        load_recovered_daily_summary_completed_execution(
+            repository=repository,
+            root_dir=root_dir,
+            runtime_migration_attestation_digest=(runtime_migration_attestation_digest),
+        )
+    )
     manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    return {
+        "schema_version": "dehps-m4-isolated-v11-daily-recovery-replay.v1",
+        "status": "REPLAY_VERIFIED",
+        "task_key": contract.DAILY_RECOVERY_TASK_KEY,
+        "task_digest": contract.DAILY_RECOVERY_TASK_DIGEST,
+        "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
+        "execution_artifact_digest": execution["artifact_digest"],
+        "manifest_digest": manifest.artifact_digest,
+        "registered_artifact_count": 2,
+        "completed_event_digest": completed["event_digest"],
+        "registration_digests": sorted(
+            str(item["registration_digest"]) for item in registrations
+        ),
+        "runtime_migration_attestation_digest": (runtime_migration_attestation_digest),
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "same_artifact_content": True,
+        "all_registrations_and_parent_chains_exact": True,
+        "manual_input_assembly": False,
+        "dispatch_performed": False,
+        "workload_rerun": False,
+        "smtp_calls": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
+def load_recovered_daily_summary_completed_execution(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    runtime_migration_attestation_digest: str,
+    required_head_manifest_digest: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Load the immutable sequence-2 recovery without reinterpreting its start.
+
+    The generic supervisor compares a completed event to the manifest that was
+    current when execution started.  This one reviewed recovery instead binds
+    the immutable started/failed prefix to its original manifest and binds the
+    sequence-2 completion to the exact RUNNING manifest that authorized the
+    atomic recovery bridge.
+    """
+
+    if (
+        runtime_migration_attestation_digest
+        != _DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST
+    ):
+        raise MainlineSupervisorError("daily recovery attestation identity changed")
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    if (
+        required_head_manifest_digest is not None
+        and manifest.artifact_digest != required_head_manifest_digest
+    ):
+        raise MainlineSupervisorError("daily recovery post-commit manifest changed")
     matches = [
         task
         for task in manifest.tasks
@@ -1623,118 +1730,291 @@ def replay_recovered_daily_summary_execution(
         or state.completion_classification is not CompletionClassification.COMPLETE
     ):
         raise MainlineSupervisorError("daily recovery replay task identity changed")
-    events = repository.list_mainline_execution_events(
-        control_plane_key=contract.CONTROL_PLANE_KEY,
-        task_key=task.task_key,
-        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
-    )
+
+    events = [
+        dict(item)
+        for item in repository.list_mainline_execution_events(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            task_key=task.task_key,
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+        )
+    ]
     records = [supervisor_module._event_record(item) for item in events]
-    if (
-        len(records) != 3
-        or [(item.event_type, item.sequence) for item in records]
-        != [("started", 0), ("failed", 1), ("completed", 2)]
-        or records[0].artifact_digest != contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST
-        or records[1].artifact_digest != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
-    ):
-        raise MainlineSupervisorError("daily recovery replay event chain changed")
-    completed = records[2]
-    summary = dict(completed.payload)
-    if (
-        summary.get("git_commit") != contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
-        or summary.get("runtime_migration_attestation_digest")
-        != runtime_migration_attestation_digest
-        or summary.get("recovered_from_failed_event_digest")
-        != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
-        or summary.get("workload_rerun") is not False
-        or summary.get("registered_artifact_count") != 2
-    ):
-        raise MainlineSupervisorError(
-            "daily recovery replay completion metadata changed"
-        )
-    children = load_completed_task_artifacts(
-        repository=repository, root_dir=root_dir, task_key=task.task_key
+    expected_event_identities = (
+        (
+            "started",
+            0,
+            contract.DAILY_RECOVERY_STARTED_EVENT_DIGEST,
+            contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            {
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                "input_artifact_digests": [
+                    contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+                ],
+            },
+        ),
+        (
+            "failed",
+            1,
+            contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST,
+            contract.DAILY_RECOVERY_FAILED_MANIFEST_DIGEST,
+            {
+                "error": "mainline artifact registration shape changed",
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            },
+        ),
+        (
+            "completed",
+            2,
+            _DAILY_RECOVERY_COMPLETED_EVENT_DIGEST,
+            _DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
+            {
+                "actual_fold_count": 0,
+                "additional_completed_task_keys": [],
+                "completion_facts": [],
+                "execution_artifact_digest": (
+                    _DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST
+                ),
+                "execution_artifact_path": (
+                    "runtime/isolated-24h-challenger-v11/artifacts/"
+                    f"{contract.DAILY_RECOVERY_TASK_KEY}/"
+                    f"{contract.DAILY_RECOVERY_EXECUTION_ID}/execution.json"
+                ),
+                "formal_p3_mutated": False,
+                "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+                "isolated_lineage": contract.LINEAGE_ID,
+                "promotion_triggered": False,
+                "publication_batch_digest": (_DAILY_RECOVERY_PUBLICATION_BATCH_DIGEST),
+                "recovered_from_failed_event_digest": (
+                    contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
+                ),
+                "registered_artifact_count": 2,
+                "runtime_git_commit": _DAILY_RECOVERY_RUNTIME_GIT_COMMIT,
+                "runtime_migration_attestation_digest": (
+                    _DAILY_RECOVERY_RUNTIME_ATTESTATION_DIGEST
+                ),
+                "runtime_source_contract_digest": (
+                    _DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST
+                ),
+                "simulation": False,
+                "task_template": "daily_summary",
+                "workload_rerun": False,
+            },
+        ),
     )
-    daily = _unique_type(children, "M4IsolatedDailySummaryV11")
-    if daily["parent_digests"].count(runtime_migration_attestation_digest) != 1:
-        raise MainlineSupervisorError(
-            "daily recovery replay attestation parent changed"
-        )
+    if len(events) != 3:
+        raise MainlineSupervisorError("daily recovery replay event chain changed")
+    for event, record, expected in zip(
+        events, records, expected_event_identities, strict=True
+    ):
+        event_type, sequence, event_digest, manifest_digest, payload = expected
+        if (
+            record.event_type != event_type
+            or record.sequence != sequence
+            or record.artifact_digest != event_digest
+            or record.execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+            or record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or record.manifest_digest != manifest_digest
+            or record.task_key != task.task_key
+            or record.task_digest != task.artifact_digest
+            or record.capability != task.requested_capability
+            or supervisor_module._event_payload(event) != payload
+            or (
+                event_type == "completed"
+                and str(record.recorded_at)
+                != _DAILY_RECOVERY_COMPLETED_EVENT_RECORDED_AT
+            )
+        ):
+            raise MainlineSupervisorError("daily recovery replay event chain changed")
+
+    completion_fact = supervisor_module.mainline_completion_fact(
+        task=task, execution_id=contract.DAILY_RECOVERY_EXECUTION_ID
+    )
+    if tuple(manifest.facts.artifacts).count(completion_fact) != 1:
+        raise MainlineSupervisorError("daily recovery replay completion fact changed")
+
     attestation = load_registered_input(
         repository=repository,
         artifact_digest=runtime_migration_attestation_digest,
         expected_artifact_type=contract.RUNTIME_MIGRATION_INPUT_TYPE,
     )
-    registrations = repository.list_mainline_artifacts(
-        control_plane_key=contract.CONTROL_PLANE_KEY,
-        execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
-    )
-    execution_rows = [
-        item
-        for item in registrations
-        if item.get("artifact_type") == "research_os_mainline_execution"
-    ]
-    if len(registrations) != 2 or len(execution_rows) != 1:
-        raise MainlineSupervisorError("daily recovery replay registration set changed")
-    execution_registration = supervisor_module._registration_record(execution_rows[0])
-    execution_path = (root_dir / execution_registration.artifact_path).resolve()
+    attestation_body = attestation["body"]
     if (
-        not execution_path.is_relative_to(root_dir.resolve())
-        or not execution_path.is_file()
+        attestation["parent_digests"]
+        != [
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            _DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST,
+        ]
+        or attestation_body.get("runtime_git_commit")
+        != _DAILY_RECOVERY_RUNTIME_GIT_COMMIT
+        or attestation_body.get("runtime_source_contract_digest")
+        != _DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST
+        or attestation_body.get("operator_request_id") != 806
+        or attestation_body.get("operator_approval_decision_id") != 3432
+        or attestation_body.get("operator_execution_id") != 647
+        or attestation_body.get("workload_rerun") is not False
+        or attestation_body.get("formal_p3_accessed_or_mutated") is not False
+        or attestation_body.get("mail_contract_changed") is not False
+        or attestation_body.get("scientific_contract_changed") is not False
     ):
-        raise MainlineSupervisorError("daily recovery replay execution path changed")
-    execution = json.loads(execution_path.read_text(encoding="utf-8"))
+        raise MainlineSupervisorError("daily recovery attestation content changed")
+
+    registrations = [
+        dict(item)
+        for item in repository.list_mainline_artifacts(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            execution_id=contract.DAILY_RECOVERY_EXECUTION_ID,
+        )
+    ]
+    if len(registrations) != 2:
+        raise MainlineSupervisorError("daily recovery replay registration set changed")
+    by_digest = {str(item.get("artifact_digest") or ""): item for item in registrations}
+    if set(by_digest) != {
+        _DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST,
+        _DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST,
+    }:
+        raise MainlineSupervisorError("daily recovery replay registration set changed")
+
+    expected_registrations = {
+        _DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST: {
+            "artifact_type": "M4IsolatedDailySummaryV11",
+            "schema_version": contract.ARTIFACT_SCHEMA,
+            "registration_digest": _DAILY_RECOVERY_SUMMARY_REGISTRATION_DIGEST,
+            "git_commit": contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT,
+            "artifact_path": (
+                "runtime/isolated-24h-challenger-v11/artifacts/"
+                f"{contract.DAILY_RECOVERY_TASK_KEY}/"
+                f"{contract.DAILY_RECOVERY_EXECUTION_ID}/"
+                "isolated-v11-000-m4isolateddailysummaryv11/"
+                f"{_DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST}/artifact.json"
+            ),
+            "parent_set_digest": _DAILY_RECOVERY_SUMMARY_PARENT_SET_DIGEST,
+            "file_bytes": _DAILY_RECOVERY_SUMMARY_FILE_BYTES,
+            "file_sha256": _DAILY_RECOVERY_SUMMARY_FILE_SHA256,
+        },
+        _DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST: {
+            "artifact_type": "research_os_mainline_execution",
+            "schema_version": supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+            "registration_digest": _DAILY_RECOVERY_EXECUTION_REGISTRATION_DIGEST,
+            "git_commit": _DAILY_RECOVERY_RUNTIME_GIT_COMMIT,
+            "artifact_path": (
+                "runtime/isolated-24h-challenger-v11/artifacts/"
+                f"{contract.DAILY_RECOVERY_TASK_KEY}/"
+                f"{contract.DAILY_RECOVERY_EXECUTION_ID}/execution.json"
+            ),
+            "parent_set_digest": _DAILY_RECOVERY_EXECUTION_PARENT_SET_DIGEST,
+            "file_bytes": _DAILY_RECOVERY_EXECUTION_FILE_BYTES,
+            "file_sha256": _DAILY_RECOVERY_EXECUTION_FILE_SHA256,
+        },
+    }
+    parsed_by_digest: dict[str, dict[str, Any]] = {}
+    root = root_dir.resolve()
+    for digest, expected in expected_registrations.items():
+        row = by_digest[digest]
+        record = supervisor_module._registration_record(row)
+        parent_digests = list(record.parent_digests)
+        parent_set_digest = supervisor_module.canonical_digest(
+            {"parent_digests": parent_digests},
+            domain="dehps.m4.isolated-v11.daily-recovery-parent-set.v1",
+        )
+        relative_path = expected["artifact_path"]
+        unresolved = root_dir / relative_path
+        resolved = unresolved.resolve()
+        if (
+            record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or record.execution_id != contract.DAILY_RECOVERY_EXECUTION_ID
+            or record.task_key != task.task_key
+            or record.task_digest != task.artifact_digest
+            or record.artifact_digest != digest
+            or record.artifact_type != expected["artifact_type"]
+            or record.schema_version != expected["schema_version"]
+            or record.registration_digest != expected["registration_digest"]
+            or record.git_commit != expected["git_commit"]
+            or record.artifact_path != relative_path
+            or parent_set_digest != expected["parent_set_digest"]
+            or unresolved.is_symlink()
+            or not resolved.is_relative_to(root)
+            or not resolved.is_file()
+        ):
+            raise MainlineSupervisorError(
+                "daily recovery replay registration provenance changed"
+            )
+        content = resolved.read_bytes()
+        if (
+            len(content) != expected["file_bytes"]
+            or hashlib.sha256(content).hexdigest() != expected["file_sha256"]
+        ):
+            raise MainlineSupervisorError(
+                "daily recovery replay artifact bytes changed"
+            )
+        parsed = json.loads(content)
+        if parsed.get("artifact_digest") != digest:
+            raise MainlineSupervisorError(
+                "daily recovery replay artifact digest changed"
+            )
+        parsed_by_digest[digest] = parsed
+
+    daily = artifacts.validate_artifact(
+        parsed_by_digest[_DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST]
+    )
+    if (
+        daily["artifact_type"] != "M4IsolatedDailySummaryV11"
+        or daily["parent_digests"].count(runtime_migration_attestation_digest) != 1
+        or len(daily["parent_digests"]) != 57
+        or daily["body"].get("task_key") != task.task_key
+        or daily["body"].get("git_commit")
+        != contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
+        or daily["body"].get("source_contract_digest")
+        != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+    ):
+        raise MainlineSupervisorError("daily recovery summary lineage changed")
+
+    execution = parsed_by_digest[_DAILY_RECOVERY_EXECUTION_ARTIFACT_DIGEST]
     expected_execution_digest = supervisor_module.canonical_digest(
         {key: value for key, value in execution.items() if key != "artifact_digest"},
         domain="dehps.research-os.mainline-execution.v1",
     )
     if (
         execution.get("artifact_digest") != expected_execution_digest
-        or execution.get("artifact_digest") != execution_registration.artifact_digest
         or execution.get("execution_id") != contract.DAILY_RECOVERY_EXECUTION_ID
-        or execution.get("task_key") != contract.DAILY_RECOVERY_TASK_KEY
-        or execution.get("task_digest") != contract.DAILY_RECOVERY_TASK_DIGEST
+        or execution.get("control_plane_key") != contract.CONTROL_PLANE_KEY
+        or execution.get("goal_key") != task.goal_key
+        or execution.get("task_key") != task.task_key
+        or execution.get("task_digest") != task.artifact_digest
+        or execution.get("capability") != task.requested_capability
+        or execution.get("status") != "COMPLETE"
+        or execution.get("completion_classification") != "VALIDATED_IN_MAINLINE"
+        or execution.get("input_artifact_digests")
+        != [contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST]
+        or execution.get("actual_fold_count") != 0
+        or execution.get("registered_artifact_count") != 2
+        or execution.get("completion_facts") != []
         or execution.get("git_commit") != contract.DAILY_RECOVERY_ORIGINAL_GIT_COMMIT
-        or execution.get("runtime_git_commit")
-        != attestation["body"]["runtime_git_commit"]
+        or execution.get("parent_digests")
+        != [
+            contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
+            _DAILY_RECOVERY_SUMMARY_ARTIFACT_DIGEST,
+        ]
+        or execution.get("runtime_git_commit") != _DAILY_RECOVERY_RUNTIME_GIT_COMMIT
         or execution.get("runtime_source_contract_digest")
-        != attestation["body"]["runtime_source_contract_digest"]
+        != _DAILY_RECOVERY_RUNTIME_SOURCE_DIGEST
         or execution.get("runtime_migration_attestation_digest")
-        != attestation["artifact_digest"]
-        or execution_registration.git_commit
-        != attestation["body"]["runtime_git_commit"]
+        != runtime_migration_attestation_digest
+        or execution.get("recovered_from_failed_event_digest")
+        != contract.DAILY_RECOVERY_FAILED_EVENT_DIGEST
         or execution.get("workload_rerun") is not False
         or execution.get("formal_p3_mutated") is not False
         or execution.get("promotion_triggered") is not False
+        or execution.get("promotion_gate_opened") is not False
+        or execution.get("simulation") is not False
+        or execution.get("historical_database_reads") != 0
+        or execution.get("numerical_result_payload_reads") != 0
+        or execution.get("production_action") != "none"
     ):
         raise MainlineSupervisorError(
             "daily recovery replay execution identity changed"
         )
-    completion_fact = supervisor_module.mainline_completion_fact(
-        task=task, execution_id=contract.DAILY_RECOVERY_EXECUTION_ID
-    )
-    if completion_fact not in manifest.facts.artifacts:
-        raise MainlineSupervisorError("daily recovery replay completion fact missing")
-    return {
-        "schema_version": "dehps-m4-isolated-v11-daily-recovery-replay.v1",
-        "status": "REPLAY_VERIFIED",
-        "task_key": task.task_key,
-        "task_digest": task.artifact_digest,
-        "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
-        "execution_artifact_digest": execution["artifact_digest"],
-        "manifest_digest": manifest.artifact_digest,
-        "registered_artifact_count": 2,
-        "runtime_migration_attestation_digest": attestation["artifact_digest"],
-        "same_execution_identity": True,
-        "same_artifact_identity": True,
-        "same_artifact_content": True,
-        "all_registrations_and_parent_chains_exact": True,
-        "manual_input_assembly": False,
-        "dispatch_performed": False,
-        "workload_rerun": False,
-        "smtp_calls": 0,
-        "formal_p3_mutated": False,
-        "p4_p5_p6_or_promotion_triggered": False,
-    }
+    return events[2], execution, registrations
 
 
 def load_registered_isolated_artifact(
@@ -7835,6 +8115,9 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             original_execution = supervisor_module._atomic_execution_relative_path
             original_canonical = supervisor_module._canonical_task_artifact_path
             original_registration = supervisor_module._atomic_registration
+            original_completed_loader = (
+                supervisor_module._load_single_completed_execution
+            )
             supervisor_module._atomic_artifact_relative_path = (
                 _isolated_atomic_artifact_relative_path
             )
@@ -7860,6 +8143,30 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
                     return original_registration(**registration_kwargs)
 
                 supervisor_module._atomic_registration = daily_recovery_registration
+
+                def daily_recovery_completed_loader(**loader_kwargs: Any):
+                    if (
+                        loader_kwargs.get("control_plane_key")
+                        == contract.CONTROL_PLANE_KEY
+                        and loader_kwargs.get("task_key")
+                        == contract.DAILY_RECOVERY_TASK_KEY
+                        and loader_kwargs.get("repository") is self.repository
+                    ):
+                        return load_recovered_daily_summary_completed_execution(
+                            repository=self.repository,
+                            root_dir=self.root_dir,
+                            runtime_migration_attestation_digest=(
+                                self.failed_recovery_attestation_digest
+                            ),
+                            required_head_manifest_digest=(
+                                _DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST
+                            ),
+                        )
+                    return original_completed_loader(**loader_kwargs)
+
+                supervisor_module._load_single_completed_execution = (
+                    daily_recovery_completed_loader
+                )
             try:
                 return super()._complete_atomic_capability(**kwargs)
             finally:
@@ -7867,6 +8174,9 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
                 supervisor_module._atomic_execution_relative_path = original_execution
                 supervisor_module._canonical_task_artifact_path = original_canonical
                 supervisor_module._atomic_registration = original_registration
+                supervisor_module._load_single_completed_execution = (
+                    original_completed_loader
+                )
 
     def replay(
         self, *, task_key: str, execution_id: str | None = None
