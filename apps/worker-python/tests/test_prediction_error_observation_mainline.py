@@ -62,6 +62,8 @@ def test_registered_record_report_and_replay_use_unified_supervisor(tmp_path, mo
         ids.append(result["execution_id"])
     assert len(set(ids)) == 2
     report = supervisor.observer.stored("2026102", "report")["body"]
+    assert report["integration"] == "INTEGRATED"
+    assert report["execution_path"] == "ResearchEvidenceSupervisor"
     assert len(report["sample"]["body"]["red_labels_1_to_33"]) == 33
     assert len(report["sample"]["body"]["blue_labels_1_to_16"]) == 16
     assert inputs == frozen_before

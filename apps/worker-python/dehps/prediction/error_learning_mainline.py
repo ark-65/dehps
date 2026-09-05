@@ -122,8 +122,11 @@ class ObservationCapability:
         frozen = learning.restore_decision(record, code_root=self.code_root)
         learning._require(frozen == self.frozen(issue), "registered_decision_parents_changed")
         bundle, payout, available_at, _ = self.opened(issue)
-        return learning.build_preview(record, bundle, payout, code_root=self.code_root,
-                                      available_at=available_at)
+        result = learning.build_preview(record, bundle, payout, code_root=self.code_root,
+                                        available_at=available_at)
+        result["integration"] = "INTEGRATED"
+        result["execution_path"] = "ResearchEvidenceSupervisor"
+        return result
 
     def execute(self, *, control_plane_key, task, execution_id, git_commit):
         learning._require(control_plane_key == CONTROL_PLANE_KEY, "observation_control_plane_changed")

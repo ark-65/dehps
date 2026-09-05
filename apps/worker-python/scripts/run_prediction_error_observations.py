@@ -108,10 +108,13 @@ def cycle(*, apply: bool, minimum: str, operator: str | None, repository=None) -
         deadline = record["body"]["frozen_inputs"]["predraw"]["checkpoint"]["body"]["official_draw_time"]
         timely = (record["body"]["record_mode"] == "PREDRAW_OBSERVATION" and len(completion) == 1
                   and _time(completion[0]["recorded_at"]) < _time(deadline))
+        report = supervisor.observer.stored(issue, "report")["body"] if done else None
+        diagnosis_ok = bool(report and report["status"] == "OFFLINE_VERIFIED" and "diagnosis" in report)
         acceptance.append({"issue": issue, "record_mode": record["body"]["record_mode"],
                            "registered_before_draw": timely,
-                           "report_complete": done,
-                           "real_cycle_acceptance": ("VALIDATED" if done else "WAITING_FOR_OPENED_DRAW")
+                           "report_complete": done, "diagnosis_complete": diagnosis_ok,
+                           "real_cycle_acceptance": ("VALIDATED" if diagnosis_ok else
+                                                     "WAITING_FOR_DIAGNOSTIC_REPAIR" if done else "WAITING_FOR_OPENED_DRAW")
                            if timely else "RETROSPECTIVE_ONLY"})
     result = {"status": "ARMED", "source_digest": source, "tasks": output, "acceptance": acceptance,
               "formal_prediction_changed": False, "scientific_credit": False, "external_delivery": False}
