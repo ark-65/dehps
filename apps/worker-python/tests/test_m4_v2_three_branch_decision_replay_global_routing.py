@@ -4821,6 +4821,7 @@ def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
     )
 
 
+@pytest.mark.usefixtures("archived_replay_sources")
 def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     monkeypatch,
 ) -> None:

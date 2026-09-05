@@ -858,6 +858,8 @@ def test_global_recovery_v2_builder_loader_works_from_repository_root_subprocess
             ),
         ],
         cwd=ROOT,
+        # Reproduce a repository-root import without a caller-provided worker path.
+        env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
         capture_output=True,
         text=True,
         check=False,
@@ -932,6 +934,8 @@ def test_global_recovery_v1_builder_loader_works_from_repository_root_subprocess
             ),
         ],
         cwd=ROOT,
+        # Reproduce a repository-root import without a caller-provided worker path.
+        env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
         capture_output=True,
         text=True,
         check=False,

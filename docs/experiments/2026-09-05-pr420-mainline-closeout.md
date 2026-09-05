@@ -92,3 +92,12 @@ The seven exact historical routing compatibility unit cases likewise use the
 original `bb39ee504ba22a497393e1f5e65ce3a25761650b` release sources and actual Git
 objects in a temporary test repository. Current production's retired routing
 failure disposition is unchanged; no live historical replay or recovery runs.
+
+The zero-write replay test shares the same archived-source fixture; its no-write,
+identity, manifest and Ready Queue assertions all remain. Two repository-root
+loader regressions now explicitly remove ambient PYTHONPATH only from their
+negative reproducer subprocess. This preserves the intended missing-import
+scenario while allowing clean worktrees to export their own module path.
+These three focused regressions passed. The complete CI selection has 3,199
+eligible tests, partitioned 770 / 821 / 775 / 833 with collection SHA256
+`ec4ad64c54a47899be7ffde04eae36f2a33e79fe24b0b1f938dc38789dfdeb04`.
