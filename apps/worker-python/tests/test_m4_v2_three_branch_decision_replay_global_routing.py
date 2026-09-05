@@ -1712,11 +1712,16 @@ def test_recovery_input_fixture_matches_live_database_when_available() -> None:
     )
     assert input_snapshot.ready_queue == ()
 
-    current = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
-    assert (
-        current.artifact_digest
-        == "bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb"
-    )
+    # Validate the historical completion snapshot, not an evolving live head.
+    expected_completion = "bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb"
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        stored_completion = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (expected_completion,),
+        ).fetchone()
+    assert stored_completion is not None
+    current = ControlPlaneManifest.from_dict(dict(stored_completion[0]))
+    assert current.artifact_digest == expected_completion
     current_snapshot = ResearchOSControlPlane().resolve(current)
     assert (
         current_snapshot.snapshot_digest

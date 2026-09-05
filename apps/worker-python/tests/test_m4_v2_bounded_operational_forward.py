@@ -175,9 +175,8 @@ def test_manifest_keeps_formal_p4_waiting_and_registers_one_ready_preregistratio
     assert spec is not None and spec.loader is not None
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
-    baseline = PostgresResearchOSRepository().load_manifest(
-        control_plane_key=builder.CONTROL_PLANE_KEY
-    )
+    from archival_manifest import archived_manifest
+    baseline = archived_manifest(builder.BASELINE_MANIFEST_DIGEST)
     assert baseline.artifact_digest == builder.BASELINE_MANIFEST_DIGEST
     payload, dry_run = builder.build_manifest(
         baseline.to_dict(include_digest=True),

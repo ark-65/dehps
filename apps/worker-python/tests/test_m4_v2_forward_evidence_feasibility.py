@@ -12,12 +12,20 @@ from dehps.research_os.models import ControlPlaneManifest
 from dehps.research_os.repository import PostgresResearchOSRepository
 
 
+@pytest.fixture
+def frozen_source(tmp_path):
+    from archival_source import original_source
+    archive = original_source(tmp_path, contract_path=forward.SOURCE_CONTRACT_PATH,
+                              commit="422a7acac32790829297becc737a66d1e057cc29")
+    return forward.load_source_contract(root_dir=archive)
+
+
 def _inputs() -> tuple[dict[str, str], ...]:
     return tuple({"artifact_digest": digest} for digest in forward.FROZEN_INPUT_DIGESTS)
 
 
-def test_source_freezes_all_four_programs_and_one_reviewer_decision() -> None:
-    source = forward.load_source_contract(root_dir=ROOT_DIR)
+def test_source_freezes_all_four_programs_and_one_reviewer_decision(frozen_source) -> None:
+    source = frozen_source
     matrix = source["feasibility_analysis"]["decision_matrix"]
     assert matrix["program_weighted_totals"] == {
         "LONG_HORIZON_CONFIRMATORY_FORWARD": 57,
@@ -33,8 +41,8 @@ def test_source_freezes_all_four_programs_and_one_reviewer_decision() -> None:
     )
 
 
-def test_zero_compute_artifacts_preserve_closed_p3_and_formal_p4() -> None:
-    source = forward.load_source_contract(root_dir=ROOT_DIR)
+def test_zero_compute_artifacts_preserve_closed_p3_and_formal_p4(frozen_source) -> None:
+    source = frozen_source
     feasibility, decision, replay = forward.build_artifacts(
         source_contract=source, registered_inputs=_inputs()
     )
@@ -52,8 +60,8 @@ def test_zero_compute_artifacts_preserve_closed_p3_and_formal_p4() -> None:
     assert replay["body"]["workload_rerun"] is False
 
 
-def test_replay_rebuilds_registered_content_without_workload() -> None:
-    source = forward.load_source_contract(root_dir=ROOT_DIR)
+def test_replay_rebuilds_registered_content_without_workload(frozen_source) -> None:
+    source = frozen_source
     artifacts = forward.build_artifacts(
         source_contract=source, registered_inputs=_inputs()
     )
@@ -80,7 +88,7 @@ def test_replay_rebuilds_registered_content_without_workload() -> None:
         )
 
 
-def test_manifest_adds_one_executable_decision_and_unimplemented_successor() -> None:
+def test_manifest_adds_one_executable_decision_and_unimplemented_successor(frozen_source) -> None:
     path = (
         ROOT_DIR
         / "apps/worker-python/scripts/build_m4_v2_forward_evidence_feasibility_manifest.py"
@@ -89,10 +97,9 @@ def test_manifest_adds_one_executable_decision_and_unimplemented_successor() -> 
     assert spec is not None and spec.loader is not None
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
-    source = forward.load_source_contract(root_dir=ROOT_DIR)
-    baseline = PostgresResearchOSRepository().load_manifest(
-        control_plane_key=builder.CONTROL_PLANE_KEY
-    )
+    source = frozen_source
+    from archival_manifest import archived_manifest
+    baseline = archived_manifest(builder.BASELINE_MANIFEST_DIGEST)
     assert baseline.artifact_digest == builder.BASELINE_MANIFEST_DIGEST
     payload, dry_run = builder.build_manifest(
         baseline.to_dict(include_digest=True),
@@ -109,8 +116,8 @@ def test_manifest_adds_one_executable_decision_and_unimplemented_successor() -> 
     assert dry_run["model_training"] == "NOT_STARTED"
 
 
-def test_frozen_calendar_cost_and_reuse_boundaries_are_explicit() -> None:
-    source = forward.load_source_contract(root_dir=ROOT_DIR)
+def test_frozen_calendar_cost_and_reuse_boundaries_are_explicit(frozen_source) -> None:
+    source = frozen_source
     analysis = source["feasibility_analysis"]
     assert analysis["official_calendar_horizons"]["2095"]["completion_date"] == (
         "2040-01-12"
