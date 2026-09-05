@@ -78,3 +78,17 @@ and 2026103; 2026102's audited label availability is
 `2026-09-03T22:00:42.330236+08:00`. The next actual draw is 2026103 on
 `2026-09-06T21:15:00+08:00`. Acceptance requires both a decision registered before
 that draw and a later registered, replayed report with complete labels.
+
+The original GitHub run 33940573425 ended with the explicit annotation:
+`The job has exceeded the maximum execution time of 45m0s`.
+It also contained failing tests, so no infrastructure-quota merge exception
+applies. CI now partitions the same eligible node set into four deterministic
+SHA256(nodeid) shards. Every shard prints its full selection and the common
+eligible-collection digest, checks exhaustive disjoint coverage, retains the
+same six existing exclusions, and must succeed before the stable `pytest`
+aggregate check succeeds. The job timeout remains 45 minutes per shard.
+
+The seven exact historical routing compatibility unit cases likewise use the
+original `bb39ee504ba22a497393e1f5e65ce3a25761650b` release sources and actual Git
+objects in a temporary test repository. Current production's retired routing
+failure disposition is unchanged; no live historical replay or recovery runs.

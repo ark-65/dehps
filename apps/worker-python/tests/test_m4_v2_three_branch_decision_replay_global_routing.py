@@ -4946,6 +4946,27 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     assert m4_v2_canonical_json(jsonable(after_snapshot.ready_queue)) == before_ready
 
 
+@pytest.fixture
+def archived_replay_sources(tmp_path, monkeypatch):
+    # Replay unit fixtures describe the original compatibility release, not the
+    # permanently retired production route at today's checkout. No live replay
+    # or resealing occurs; all original source and tamper checks still execute.
+    from archival_source import original_source
+    repository_root = ROOT_DIR
+    archive = original_source(tmp_path / "archive",
+        contract_path=replay_compatibility.SOURCE_PATH,
+        commit="bb39ee504ba22a497393e1f5e65ce3a25761650b")
+    subprocess.run(["git", "init", "-q", str(archive)], check=True)
+    objects = subprocess.check_output(
+        ["git", "rev-parse", "--path-format=absolute", "--git-path", "objects"],
+        cwd=repository_root, text=True).strip()
+    # A temporary Git repository reads the original objects without changing
+    # the real repository, worktrees, refs, or historical evidence.
+    (archive / ".git/objects/info/alternates").write_text(objects + "\n")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT_DIR", archive)
+    return archive
+
+
 def _running_replay_compatibility_manifest() -> ControlPlaneManifest:
     source = json.loads(
         (ROOT_DIR / replay_compatibility.SOURCE_PATH).read_text(encoding="utf-8")
@@ -5132,6 +5153,7 @@ def test_exact_replay_governance_binds_payload_execution_and_decision_chain() ->
             )
 
 
+@pytest.mark.usefixtures("archived_replay_sources")
 def test_exact_frozen_v3_replay_resolves_historical_and_current_sources_separately(
     monkeypatch,
 ) -> None:
@@ -5182,6 +5204,7 @@ def test_exact_frozen_v3_replay_resolves_historical_and_current_sources_separate
 
 
 @pytest.mark.parametrize("mutation", ("priority", "dependency", "metric"))
+@pytest.mark.usefixtures("archived_replay_sources")
 def test_exact_frozen_v3_replay_rejects_successor_definition_drift(
     monkeypatch, mutation: str
 ) -> None:
@@ -5236,6 +5259,7 @@ def test_exact_frozen_v3_replay_rejects_successor_definition_drift(
     ("row_index", "field"),
     ((0, "registration_digest"), (1, "execution_id"), (1, "parent_digests")),
 )
+@pytest.mark.usefixtures("archived_replay_sources")
 def test_exact_frozen_v3_replay_rejects_registration_identity_drift(
     monkeypatch, row_index: int, field: str
 ) -> None:
@@ -5269,6 +5293,7 @@ def test_exact_frozen_v3_replay_rejects_registration_identity_drift(
         )
 
 
+@pytest.mark.usefixtures("archived_replay_sources")
 def test_exact_frozen_v3_replay_rejects_producer_and_compatibility_source_drift(
     tmp_path: Path, monkeypatch
 ) -> None:
