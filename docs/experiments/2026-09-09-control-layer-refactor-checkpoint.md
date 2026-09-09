@@ -14,16 +14,36 @@ Production release still requires independent review of a concrete release and
 an authorized Operator execution. Scientific contracts, V11 retirement and
 no self-approval remain unchanged.
 
-Current stage: R0 merged as PR #427, main `5396ae700713ab19cf5007ccdcef139847171e33`;
-R1 resource-boundary implementation and real isolation tests completed locally.
+Current stage: R0 merged as PR #427; R1 resource boundaries merged as PR #428
+(`977aaf2`) but worker CI failed during installation. The PostgreSQL/kernel
+isolation CI job passed. R1 is not accepted while the installation regression
+remains. Same-scope packaging repair is in progress; no new Request is needed.
 Development checkout: `/tmp/dehps-control-refactor-r0`; branch
-`codex/control-refactor-r1-isolation`; base is merged R0 `5396ae7`.
+`codex/control-refactor-r1-packaging`; base is merged R1 `977aaf2`.
 The original production checkout is unchanged at ac0ef78. R1 is not integrated
-with the final migrated entry points and R2–R5 remain unimplemented. Next: publish
-the R1 resource-boundary PR, then bind trusted approval identities in R1's second
-PR. See `2026-09-09-control-layer-r1-resource-boundaries.md` for 23 unit, 3 real
+with the final migrated entry points and R2–R5 remain unimplemented. Next: fix
+package discovery, verify a clean editable install and all actual CI checks,
+then bind trusted approval identities in R1's next PR. See
+`2026-09-09-control-layer-r1-resource-boundaries.md` for 23 unit, 3 real
 PostgreSQL and 1 kernel-isolation test results. Ordinary fixes stay within this owner
 authorization; scope expansion remains subject to review.
+
+PR #428 audit: `gh pr merge --auto --squash` immediately merged the PR while
+checks were finishing. GitHub branch-protection API returned HTTP 403 requiring
+GitHub Pro or a public repository; auto-merge alone did not enforce a check gate.
+Do not repeat this: on this repository verify all exact-head checks succeeded
+before requesting auto-merge. Do not change visibility or billing. CI run
+34336844243 failed because setuptools discovered both `dehps` and the new
+`integration_tests` as top-level packages. This is an introduced code/packaging
+failure, not quota unavailability. Explicitly include the actual `dehps*`
+packages; retain every integration test and run them in the required CI job.
+
+Packaging repair validation: a fresh `/tmp/dehps-r1-package-check` environment
+successfully built and installed the editable worker using pip's explicit
+`--python` target. Importing `dehps.execution.context` from outside the repository
+succeeded and installed top-level metadata contains only `dehps`. The first
+venv command lacked system ensurepip; using the existing pip to target the new
+environment avoided changing system packages or production dependencies.
 
 The Chinese observations below are dated, preserved R0 audit notes. Their
 missing-authorization statements describe the earlier state and are superseded
