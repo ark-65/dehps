@@ -14,12 +14,15 @@ Production release still requires independent review of a concrete release and
 an authorized Operator execution. Scientific contracts, V11 retirement and
 no self-approval remain unchanged.
 
-Current stage: R0 documentation and governance implementation.
+Current stage: R0 merged as PR #427, main `5396ae700713ab19cf5007ccdcef139847171e33`;
+R1 resource-boundary implementation and real isolation tests completed locally.
 Development checkout: `/tmp/dehps-control-refactor-r0`; branch
-`codex/control-refactor-r0`; base `ac0ef7832c6f13c7500b3f7d67731420b575c0f4`.
-The original production checkout is unchanged. R1–R5 have no implementation or
-deployment acceptance yet. Next: publish R0, then implement explicit runtime
-paths and real resource isolation in R1. Ordinary fixes stay within this owner
+`codex/control-refactor-r1-isolation`; base is merged R0 `5396ae7`.
+The original production checkout is unchanged at ac0ef78. R1 is not integrated
+with the final migrated entry points and R2–R5 remain unimplemented. Next: publish
+the R1 resource-boundary PR, then bind trusted approval identities in R1's second
+PR. See `2026-09-09-control-layer-r1-resource-boundaries.md` for 23 unit, 3 real
+PostgreSQL and 1 kernel-isolation test results. Ordinary fixes stay within this owner
 authorization; scope expansion remains subject to review.
 
 The Chinese observations below are dated, preserved R0 audit notes. Their
