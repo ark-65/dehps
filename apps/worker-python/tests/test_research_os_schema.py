@@ -6,9 +6,33 @@ from dehps.storage.postgres_store import ensure_research_os_schema
 class RecordingConnection:
     def __init__(self) -> None:
         self.statements: list[str] = []
+        self.marker_exists = False
+        self.digest = None
+        self.row = None
 
-    def execute(self, sql: str) -> None:
+    def cursor(self, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, sql: str, params=()):
         self.statements.append(sql)
+        if sql.startswith("SELECT to_regclass"):
+            self.row = ("dehps_schema_applications" if self.marker_exists else None,)
+        elif sql.startswith("SELECT schema_digest"):
+            self.row = (self.digest,) if self.digest else None
+        elif sql.startswith("CREATE TABLE IF NOT EXISTS dehps_schema_applications"):
+            self.marker_exists = True
+        elif sql.startswith("INSERT INTO dehps_schema_applications"):
+            self.digest = params[1]
+        return self
+
+    def fetchone(self):
+        return self.row
 
 
 def test_research_os_migration_is_additive_idempotent_and_immutable() -> None:
@@ -59,12 +83,23 @@ def test_research_os_migration_is_additive_idempotent_and_immutable() -> None:
     ) in replay_constraint
 
 
-def test_research_os_schema_loader_replays_the_same_idempotent_migration() -> None:
+def test_research_os_schema_loader_skips_ddl_after_committed_digest() -> None:
     connection = RecordingConnection()
 
     ensure_research_os_schema(connection)  # type: ignore[arg-type]
+    first_count = len(connection.statements)
     ensure_research_os_schema(connection)  # type: ignore[arg-type]
 
-    assert len(connection.statements) == 2
-    assert connection.statements[0] == connection.statements[1]
-    assert connection.statements[0].startswith("CREATE TABLE IF NOT EXISTS research_os_goal_definitions")
+    assert len(connection.statements) == first_count + 2
+    assert all(s.startswith("SELECT") for s in connection.statements[first_count:])
+    assert sum(s.startswith("CREATE TABLE IF NOT EXISTS research_os_goal_definitions")
+               for s in connection.statements) == 1
+
+
+def test_changed_schema_digest_requires_reapplication() -> None:
+    connection = RecordingConnection()
+    ensure_research_os_schema(connection)
+    connection.digest = "old"
+    ensure_research_os_schema(connection)
+    assert sum(s.startswith("CREATE TABLE IF NOT EXISTS research_os_goal_definitions")
+               for s in connection.statements) == 2
