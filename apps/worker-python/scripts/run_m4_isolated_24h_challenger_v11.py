@@ -2322,7 +2322,128 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                 "isolated_v11_evolving_rebind_gate_reentrant"
             )
         current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        # Reconstruct both sides from the immutable POST_COMMIT manifest, never
+        # from a possibly partial or modified set of live replacement tasks.
+        source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+        registered_source = mainline.load_registered_input(
+            repository=self,
+            artifact_digest=self.source_digest,
+            expected_artifact_type=contract.SOURCE_ARTIFACT_TYPE,
+        )
+        if (
+            self.source_digest == contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            or source != registered_source
+            or source["artifact_digest"] != self.source_digest
+        ):
+            raise ResearchOSValidationError("isolated_v11_rebind_source_changed")
+        with self.connection_factory() as connection:
+            row = connection.execute(
+                "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest=%s",
+                (DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,),
+            ).fetchone()
+        if row is None:
+            raise ResearchOSValidationError("isolated_v11_rebind_origin_missing")
+        origin = ControlPlaneManifest.from_dict(dict(row[0]))
+        if origin.artifact_digest != DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST:
+            raise ResearchOSValidationError("isolated_v11_rebind_origin_changed")
+        frozen_keys = frozenset(
+            {
+                "m4-isolated-24h-challenger-v11-multiplicity-risk-limit",
+                "m4-isolated-24h-challenger-v11-daily-20260828-delivery",
+                "m4-isolated-24h-challenger-v11-daily-20260828-mail-replay",
+                "m4-isolated-24h-challenger-v11-daily-20260828-mail-envelope",
+                "m4-isolated-24h-challenger-v11-daily-20260828-summary-replay",
+                "m4-isolated-24h-challenger-v11-search-checkpoint-000000000004-replay",
+            }
+        )
+        origin_by_key = {item.task_key: item for item in origin.tasks}
+        replacements: dict[str, tuple[Any, Any]] = {}
+        for key in sorted(frozen_keys):
+            old = origin_by_key[key]
+            old_state = origin.task_state_by_digest[old.artifact_digest]
+            if (
+                old_state.declared_status is not TaskStatus.DRAFT
+                or json.loads(old.metric_contract)["source_contract_digest"]
+                != contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_rebind_origin_shape_changed"
+                )
+            payload, _ = builder.build_manifest(
+                context=_task_context(old),
+                source_digest=self.source_digest,
+                operator_configuration_authorized=True,
+                simulation_events=False,
+            )
+            expected = ControlPlaneManifest.from_dict(payload)
+            candidate = next(item for item in expected.tasks if item.task_key == key)
+            replacement = replace(
+                candidate, goal_digest=origin.goals[0].artifact_digest
+            )
+            replacements[key] = (
+                replacement,
+                replace(
+                    expected.task_state_by_digest[candidate.artifact_digest],
+                    task_digest=replacement.artifact_digest,
+                ),
+            )
         task_by_key = {item.task_key: item for item in current.tasks}
+        if len(task_by_key) != len(current.tasks) or (
+            current.goals != origin.goals or current.goal_states != origin.goal_states
+        ):
+            raise ResearchOSValidationError("isolated_v11_rebind_goal_or_keys_changed")
+        old_keys = {
+            key
+            for key in frozen_keys
+            if key in task_by_key and task_by_key[key] == origin_by_key[key]
+        }
+        new_keys = {
+            key
+            for key in frozen_keys
+            if key in task_by_key and task_by_key[key] == replacements[key][0]
+        }
+        if (old_keys, new_keys) not in ((frozen_keys, set()), (set(), frozen_keys)):
+            raise ResearchOSValidationError(
+                "isolated_v11_rebind_mixed_or_partial_closure"
+            )
+        already_rebound = new_keys == frozen_keys
+        # Historical completed old-source tasks remain immutable. Only the six
+        # named, previously unexecuted tasks belong to this replacement closure.
+        for key, old in origin_by_key.items():
+            if key in frozen_keys:
+                continue
+            if (
+                task_by_key.get(key) != old
+                or current.task_state_by_digest[old.artifact_digest]
+                != origin.task_state_by_digest[old.artifact_digest]
+            ):
+                raise ResearchOSValidationError("isolated_v11_rebind_history_changed")
+        extra_keys = set(task_by_key) - set(origin_by_key)
+        if extra_keys:
+            incident = origin_by_key[
+                f"m4-isolated-24h-challenger-v11-incident-{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
+            ]
+            extension = ControlPlaneManifest.from_dict(
+                builder.extend_manifest(
+                    origin.to_dict(include_digest=True),
+                    context=_task_context(incident),
+                    source_digest=self.source_digest,
+                    template_names=frozenset({"incident_resolution"}),
+                )
+            )
+            permitted = {
+                item.task_key: item
+                for item in extension.tasks
+                if item.task_key not in origin_by_key
+            }
+            if (
+                not already_rebound
+                or extra_keys != set(permitted)
+                or any(task_by_key[key] != value for key, value in permitted.items())
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_rebind_extra_tasks_changed"
+                )
         daily = task_by_key.get(contract.DAILY_RECOVERY_TASK_KEY)
         if daily is None:
             raise ResearchOSValidationError("isolated_v11_daily_recovery_task_missing")
@@ -2347,8 +2468,126 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
                     "isolated_v11_old_source_nonterminal_state_changed"
                 )
             candidates.append(task)
-        if not candidates:
-            raise ResearchOSValidationError("isolated_v11_old_source_rebind_set_empty")
+        if already_rebound:
+            if candidates:
+                raise ResearchOSValidationError(
+                    "isolated_v11_rebind_residual_old_tasks"
+                )
+            for key in sorted(frozen_keys | extra_keys):
+                task = task_by_key[key]
+                state = current.task_state_by_digest[task.artifact_digest]
+                events = self.list_mainline_execution_events(
+                    control_plane_key=contract.CONTROL_PLANE_KEY, task_key=key
+                )
+                if state.declared_status is TaskStatus.DRAFT:
+                    if key in replacements and state != replacements[key][1]:
+                        raise ResearchOSValidationError(
+                            "isolated_v11_rebind_draft_state_changed"
+                        )
+                    with self.connection_factory() as connection:
+                        count = connection.execute(
+                            "SELECT count(*) FROM research_os_mainline_artifacts "
+                            "WHERE control_plane_key=%s AND task_key=%s",
+                            (contract.CONTROL_PLANE_KEY, key),
+                        ).fetchone()[0]
+                    if (
+                        events
+                        or count
+                        or any(
+                            fact.startswith((f"{key}:", f"mainline-execution:{key}:"))
+                            for fact in current.facts.artifacts
+                        )
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_rebind_draft_provenance_changed"
+                        )
+                elif state.declared_status is TaskStatus.COMPLETED:
+                    if (
+                        state.completion_classification
+                        is not CompletionClassification.COMPLETE
+                    ):
+                        raise ResearchOSValidationError(
+                            "isolated_v11_rebind_completed_state_changed"
+                        )
+                    # Use the same locked V11 path adapter as publication;
+                    # this is registration validation, not another replay.
+                    with mainline._PUBLICATION_PATCH_LOCK:
+                        module = mainline.supervisor_module
+                        original_path = module._canonical_task_artifact_path
+                        module._canonical_task_artifact_path = (
+                            mainline._isolated_canonical_task_artifact_path
+                        )
+                        try:
+                            module._load_single_completed_execution(
+                                repository=self,
+                                root_dir=ROOT_DIR,
+                                control_plane_key=contract.CONTROL_PLANE_KEY,
+                                task_key=key,
+                            )
+                        finally:
+                            module._canonical_task_artifact_path = original_path
+                else:
+                    raise ResearchOSValidationError(
+                        "isolated_v11_rebind_nonterminal_state_changed"
+                    )
+            # Prove the complete replacement was durably imported, including
+            # the pre-existing facts. The summary activation can precede rebind.
+            rebound = replace(
+                origin,
+                tasks=tuple(
+                    replacements[t.task_key][0] if t.task_key in replacements else t
+                    for t in origin.tasks
+                ),
+                task_states=tuple(
+                    replacements[t.task_key][1]
+                    if t.task_key in replacements
+                    else origin.task_state_by_digest[t.artifact_digest]
+                    for t in origin.tasks
+                ),
+            )
+            daily_activation = f"{contract.DAILY_RECOVERY_TASK_KEY}:COMPLETE"
+            activated = ControlPlaneManifest.from_dict(
+                builder.manifest_with_facts(
+                    rebound.to_dict(include_digest=True),
+                    add_artifact_facts=(daily_activation,),
+                )
+            )
+            with self.connection_factory() as connection:
+                rows = connection.execute(
+                    "SELECT manifest_digest,manifest_json FROM research_os_manifests "
+                    "WHERE manifest_digest=ANY(%s)",
+                    ([rebound.artifact_digest, activated.artifact_digest],),
+                ).fetchall()
+            if (
+                not rows
+                or any(
+                    ControlPlaneManifest.from_dict(dict(raw)).artifact_digest != digest
+                    for digest, raw in rows
+                )
+                or self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+                != current
+            ):
+                raise ResearchOSValidationError(
+                    "isolated_v11_rebind_committed_head_changed"
+                )
+            return {
+                "status": "ALREADY_REBOUND",
+                "previous_manifest_digest": current.artifact_digest,
+                "manifest_digest": current.artifact_digest,
+                "task_keys": sorted(frozen_keys),
+                "task_count": len(frozen_keys),
+                "source_digest": self.source_digest,
+            }
+        if {item.task_key for item in candidates} != frozen_keys:
+            raise ResearchOSValidationError("isolated_v11_rebind_required_set_changed")
+        if any(
+            current.task_state_by_digest[item.artifact_digest]
+            != origin.task_state_by_digest[item.artifact_digest]
+            for item in candidates
+        ):
+            raise ResearchOSValidationError(
+                "isolated_v11_rebind_required_state_changed"
+            )
         candidate_keys = tuple(item.task_key for item in candidates)
         if self.list_mainline_execution_event_metadata(
             control_plane_key=contract.CONTROL_PLANE_KEY,
@@ -2375,34 +2614,6 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             for fact in current.facts.artifacts
         ):
             raise ResearchOSValidationError("isolated_v11_rebind_candidate_has_fact")
-        replacements: dict[str, tuple[Any, Any]] = {}
-        for task in candidates:
-            item_context = _task_context(task)
-            payload, _ = builder.build_manifest(
-                context=item_context,
-                source_digest=self.source_digest,
-                operator_configuration_authorized=True,
-                simulation_events=False,
-            )
-            expected = ControlPlaneManifest.from_dict(payload)
-            matches = [
-                item for item in expected.tasks if item.task_key == task.task_key
-            ]
-            if len(matches) != 1:
-                raise ResearchOSValidationError(
-                    "isolated_v11_rebind_expected_task_changed"
-                )
-            replacement = replace(
-                matches[0], goal_digest=current.goals[0].artifact_digest
-            )
-            replacement_state = replace(
-                expected.task_state_by_digest[matches[0].artifact_digest],
-                task_digest=replacement.artifact_digest,
-            )
-            replacements[task.task_key] = (
-                replacement,
-                replacement_state,
-            )
         tasks: list[Any] = []
         states: list[Any] = []
         for task in current.tasks:
@@ -2442,7 +2653,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
         finally:
             self._evolving_source_rebind_gate = None
         return {
-            "status": "OLD_SOURCE_UNEXECUTED_TASKS_REBOUND",
+            "status": "REBIND_REQUIRED",
             "previous_manifest_digest": current.artifact_digest,
             "manifest_digest": incoming.artifact_digest,
             "task_keys": sorted(candidate_keys),

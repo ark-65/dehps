@@ -48,6 +48,38 @@ test, config, report, manual run, or merged PR alone is not completion.
 The complete binding contract and acceptance matrix are in
 `docs/architecture/training-mainline-integration-governance.md`.
 
+## Mandatory Report Integrity And Continuity Gate
+
+Every development task must preserve the completeness and continuity of
+prediction and post-draw reports. This applies even when no report file is
+changed: database/schema locks, shared worker code, frozen source bindings,
+dependency dispatch, status projection, consumers, timers, and delivery can
+affect reports indirectly.
+
+- Before implementation, record the expected issues and deadlines, the current
+  report-chain state, and the direct and indirect impact of the proposed change.
+- Before release, validate the affected canonical report path and its failure
+  handling in isolation. Check frozen source compatibility; do not rewrite
+  historical source contracts merely to make validation pass.
+- Before declaring completion, record before/after evidence for the exact issue:
+  prediction sealed before the draw, complete registered report and input
+  provenance, deterministic replay, readable downstream output, delivery ledger,
+  and enabled timers with the next expected trigger. Updated runtime paths need
+  a fresh canonical execution under the accepted commit.
+- Tests passing, a merged PR, a zero service exit code, or `ALREADY_SENT` for an
+  older issue never proves the current issue's report is complete or delivered.
+  Unresolved report regressions or missing acceptance evidence block completion.
+- A future scheduled delivery is `PENDING_DELIVERY`, never delivery acceptance.
+  A missed pre-draw deadline remains an explicit gap; never manufacture a past
+  prediction, report success, or hypothetical realized return to close it.
+- Preserve original artifacts, failed events, and delivery records. Production
+  recovery and resends still require their existing authorization; validation
+  does not authorize test mail or duplicate delivery.
+- Every final development report must include a report-impact verdict and the
+  evidence required by the [report integrity acceptance contract](docs/architecture/training-mainline-integration-governance.md#report-integrity-and-continuity-acceptance).
+  `NO_RUNTIME_IMPACT` is allowed only with a concrete dependency and diff audit,
+  not merely because the change is described as documentation or research.
+
 ## Development Rules
 
 - Work in staged, reviewable rounds.

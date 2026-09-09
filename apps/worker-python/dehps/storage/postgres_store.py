@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from dehps.crawler.ssq_parser import ValidatedSsqDraw
 from dehps.models.prediction_input_boundary import DRAW_PREDICTION_HISTORY_FIELDS
@@ -764,9 +765,49 @@ def ensure_research_scheduler_schema(conn: Connection) -> None:
 
 
 def ensure_research_os_schema(conn: Connection) -> None:
-    """Apply the additive M3-P2 durable Research OS schema."""
+    """Apply each Research OS schema digest once, in the caller's transaction.
+
+    Replaying ALTER TABLE / DROP TRIGGER during ordinary reads takes exclusive
+    locks and can deadlock with the Supervisor's atomic publication transaction.
+    The committed digest is shared across processes; rollback also rolls back
+    the marker. A transaction lock serializes first installation and upgrades.
+    """
     schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/002_research_os.sql"
-    conn.execute(schema_path.read_text())
+    migration_sql = schema_path.read_text()
+    digest = hashlib.sha256(migration_sql.encode("utf-8")).hexdigest()
+
+    def already_applied() -> bool:
+        with conn.cursor(row_factory=tuple_row) as cursor:
+            cursor.execute("SELECT to_regclass('dehps_schema_applications')")
+            if cursor.fetchone()[0] is None:
+                return False
+            cursor.execute(
+                "SELECT schema_digest FROM dehps_schema_applications "
+                "WHERE schema_key = %s", ("research_os",),
+            )
+            row = cursor.fetchone()
+            return row is not None and row[0] == digest
+
+    if already_applied():
+        return
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended("
+        "current_database() || ':' || current_schema() || ':research_os_schema', 0))"
+    )
+    if already_applied():
+        return
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dehps_schema_applications ("
+        "schema_key TEXT PRIMARY KEY, schema_digest TEXT NOT NULL, "
+        "applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+    )
+    conn.execute(migration_sql)
+    conn.execute(
+        "INSERT INTO dehps_schema_applications (schema_key, schema_digest) "
+        "VALUES (%s, %s) ON CONFLICT (schema_key) DO UPDATE "
+        "SET schema_digest = EXCLUDED.schema_digest, applied_at = now()",
+        ("research_os", digest),
+    )
 
 
 def ensure_pattern_discovery_schema(conn: Connection) -> None:

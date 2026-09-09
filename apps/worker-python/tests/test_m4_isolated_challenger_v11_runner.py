@@ -21,10 +21,500 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.models import (
     CompletionClassification,
     ControlPlaneManifest,
+    MainlineArtifactRegistration,
     MainlineExecutionEvent,
     TaskStatus,
 )
 from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Jsonb
+
+
+@pytest.fixture(scope="module")
+def rebind_post_snapshot():
+    """One production READ ONLY snapshot; every restore targets a temporary DB."""
+    dsn = os.getenv("DEHPS_V11_READ_ONLY_SNAPSHOT_URL")
+    test_dsn = os.getenv("DEHPS_TEST_DATABASE_URL")
+    if os.getenv("DEHPS_TEST_POSTGRES") != "1" or not dsn or not test_dsn:
+        pytest.skip("requires explicit read-only snapshot and isolated test URLs")
+    assert dsn != test_dsn
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    cp = contract.CONTROL_PLANE_KEY
+    tables = {}
+    with psycopg.connect(dsn) as connection:
+        connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        assert connection.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+
+        def capture(table, predicate, params):
+            rows = connection.execute(
+                sql.SQL("SELECT to_jsonb(t) FROM {} t WHERE ").format(
+                    sql.Identifier(table)
+                )
+                + sql.SQL(predicate),
+                params,
+            ).fetchall()
+            tables[table] = [row[0] for row in rows]
+            return tables[table]
+
+        controls = capture("research_os_control_planes", "control_plane_key=%s", (cp,))
+        assert (
+            controls[0]["current_manifest_digest"]
+            == runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST
+        )
+        events = capture(
+            "research_os_mainline_execution_events", "control_plane_key=%s", (cp,)
+        )
+        manifest_ids = sorted(
+            {
+                controls[0]["current_manifest_digest"],
+                *(r["manifest_digest"] for r in events),
+            }
+        )
+        capture("research_os_manifests", "manifest_digest=ANY(%s)", (manifest_ids,))
+        mg = capture(
+            "research_os_manifest_goals", "manifest_digest=ANY(%s)", (manifest_ids,)
+        )
+        mt = capture(
+            "research_os_manifest_tasks", "manifest_digest=ANY(%s)", (manifest_ids,)
+        )
+        goal_ids = sorted({r["goal_digest"] for r in mg})
+        assert mt
+        capture("research_os_goal_definitions", "goal_digest=ANY(%s)", (goal_ids,))
+        capture("research_os_task_definitions", "goal_digest=ANY(%s)", (goal_ids,))
+        for table in (
+            "research_os_goal_states",
+            "research_os_task_states",
+            "research_os_dependency_facts",
+        ):
+            capture(table, "control_plane_key=%s", (cp,))
+        registered = capture(
+            "research_os_mainline_artifacts", "control_plane_key=%s", (cp,)
+        )
+        inputs = connection.execute(
+            "SELECT to_jsonb(t) FROM m4_isolated_v11.registered_inputs t"
+        ).fetchall()
+        tables["m4_isolated_v11.registered_inputs"] = [r[0] for r in inputs]
+        files = {}
+        for row in registered:
+            relative = row["artifact_path"]
+            path = ROOT / relative
+            assert (
+                path.is_file()
+                and not path.is_symlink()
+                and path.resolve().is_relative_to(ROOT)
+            )
+            files[relative] = path.read_bytes()
+    daily = [r for r in events if r["task_key"] == contract.DAILY_RECOVERY_TASK_KEY]
+    assert sorted(r["sequence"] for r in daily) == [0, 1, 2]
+    assert (
+        len(
+            [r for r in registered if r["task_key"] == contract.DAILY_RECOVERY_TASK_KEY]
+        )
+        == 2
+    )
+    return tables, files
+
+
+@pytest.fixture
+def real_rebind_repository(rebind_post_snapshot, tmp_path, monkeypatch):
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    tables, files = rebind_post_snapshot
+    admin_dsn = os.environ["DEHPS_TEST_DATABASE_URL"]
+    db_name = f"v11_rebind_{uuid.uuid4().hex}"
+    test_dsn = make_conninfo(admin_dsn, dbname=db_name)
+    with psycopg.connect(admin_dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db_name)))
+    try:
+        with psycopg.connect(test_dsn) as connection:
+            connection.execute(
+                (ROOT / "infra/postgres/init/002_research_os.sql").read_text()
+            )
+            for name in (
+                "003_m4_isolated_24h_challenger_v11.sql",
+                "004_m4_isolated_v11_runtime_migration_attestation_input.sql",
+            ):
+                connection.execute(
+                    (ROOT / "infra/postgres/migrations" / name).read_text()
+                )
+            order = (
+                "research_os_goal_definitions",
+                "research_os_task_definitions",
+                "research_os_manifests",
+                "research_os_manifest_goals",
+                "research_os_manifest_tasks",
+                "research_os_control_planes",
+                "research_os_goal_states",
+                "research_os_task_states",
+                "research_os_dependency_facts",
+                "research_os_mainline_execution_events",
+                "research_os_mainline_artifacts",
+                "m4_isolated_v11.registered_inputs",
+            )
+            for name in order:
+                qualified = sql.Identifier(*name.split("."))
+                with connection.cursor() as cursor:
+                    cursor.executemany(
+                        sql.SQL(
+                            "INSERT INTO {} SELECT * FROM jsonb_populate_record(NULL::{}, %s)"
+                        ).format(qualified, qualified),
+                        [(Jsonb(row),) for row in tables[name]],
+                    )
+        for relative, content in files.items():
+            target = tmp_path / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        source = json.loads((ROOT / contract.SOURCE_CONTRACT_PATH).read_bytes())
+        for entry in source["source_entries"]:
+            target = tmp_path / entry["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / entry["path"]).read_bytes())
+        target = tmp_path / contract.SOURCE_CONTRACT_PATH
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / contract.SOURCE_CONTRACT_PATH).read_bytes())
+        monkeypatch.setattr(runner, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(runner.mainline, "ROOT_DIR", tmp_path)
+        origin = ControlPlaneManifest.from_dict(
+            next(
+                row["manifest_json"]
+                for row in tables["research_os_manifests"]
+                if row["manifest_digest"]
+                == runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST
+            )
+        )
+        daily = next(
+            t for t in origin.tasks if t.task_key == contract.DAILY_RECOVERY_TASK_KEY
+        )
+        repo = runner.IsolatedChallengerRepository(
+            context=runner._task_context(daily), source_digest=source["artifact_digest"]
+        )
+        repo.connection_factory = lambda: psycopg.connect(test_dsn)
+        assert (
+            repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY) == origin
+        )
+        runner.mainline.register_input_artifact(
+            repository=repo,
+            payload=source,
+            git_commit="ece499208227de1ac4dff28ddfc6d45ada243620",
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=target.read_bytes(),
+        )
+        yield runner, repo, tmp_path, test_dsn
+    finally:
+        with psycopg.connect(admin_dsn, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(db_name))
+            )
+
+
+def _rebind_persisted_digest(repo, root):
+    """Include all columns (including timestamps) and every artifact byte."""
+    tables = {}
+    with repo.connection_factory() as connection:
+        names = connection.execute(
+            "SELECT schemaname,tablename FROM pg_tables WHERE schemaname IN ('public','m4_isolated_v11') ORDER BY 1,2"
+        ).fetchall()
+        for schema, name in names:
+            rows = connection.execute(
+                sql.SQL("SELECT to_jsonb(t) FROM {} t").format(
+                    sql.Identifier(schema, name)
+                )
+            ).fetchall()
+            tables[f"{schema}.{name}"] = sorted(
+                contract.canonical_json(row[0]) for row in rows
+            )
+    tree = [
+        (str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest())
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    ]
+    return hashlib.sha256(
+        contract.canonical_json({"tables": tables, "tree": tree}).encode("ascii")
+    ).hexdigest()
+
+
+def _commit_rebind_downstream_fixture(runner, repo, root, task_key):
+    """Persist a deterministic completed downstream shape, with real records.
+
+    This fixture producer runs no mail/science capability. The target under
+    test uses the real loader, import, registry and completion provenance.
+    """
+    module = runner.mainline.supervisor_module
+    current = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    task = next(t for t in current.tasks if t.task_key == task_key)
+    git_commit = "ece499208227de1ac4dff28ddfc6d45ada243620"
+    execution_id = module.stable_hash(
+        {
+            "schema": module.MAINLINE_EXECUTION_SCHEMA,
+            "control_plane_key": contract.CONTROL_PLANE_KEY,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": git_commit,
+        }
+    )
+    relative = f"runtime/isolated-24h-challenger-v11/artifacts/{task_key}/{execution_id}/execution.json"
+    payload = {
+        "schema_version": module.MAINLINE_EXECUTION_SCHEMA,
+        "artifact_type": "research_os_mainline_execution",
+        "control_plane_key": contract.CONTROL_PLANE_KEY,
+        "task_key": task_key,
+        "task_digest": task.artifact_digest,
+        "goal_key": task.goal_key,
+        "capability": task.requested_capability,
+        "execution_id": execution_id,
+        "git_commit": git_commit,
+        "status": "COMPLETE",
+        "completion_classification": "VALIDATED_IN_MAINLINE",
+        "input_artifact_digests": list(task.input_artifact_digests),
+        "parent_digests": list(task.input_artifact_digests),
+        "registered_artifact_count": 1,
+        "actual_fold_count": 0,
+        "simulation": True,
+        "workload_rerun": False,
+    }
+    payload["artifact_digest"] = module.canonical_digest(
+        payload, domain="dehps.research-os.mainline-execution.v1"
+    )
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contract.canonical_json(payload) + "\n")
+    common = {
+        "execution_id": execution_id,
+        "control_plane_key": contract.CONTROL_PLANE_KEY,
+        "manifest_digest": current.artifact_digest,
+        "task_key": task_key,
+        "task_digest": task.artifact_digest,
+        "capability": task.requested_capability,
+    }
+    started = MainlineExecutionEvent(
+        **common,
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-09-05T01:00:00+00:00",
+        payload=tuple(
+            {
+                "git_commit": git_commit,
+                "input_artifact_digests": list(task.input_artifact_digests),
+            }.items()
+        ),
+    )
+    completed = MainlineExecutionEvent(
+        **common,
+        event_type="completed",
+        sequence=1,
+        recorded_at="2026-09-05T01:00:01+00:00",
+        payload=tuple(
+            {
+                "git_commit": git_commit,
+                "actual_fold_count": 0,
+                "execution_artifact_path": relative,
+                "execution_artifact_digest": payload["artifact_digest"],
+                "registered_artifact_count": 1,
+            }.items()
+        ),
+    )
+    registration = MainlineArtifactRegistration(
+        execution_id=execution_id,
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=task_key,
+        task_digest=task.artifact_digest,
+        artifact_digest=payload["artifact_digest"],
+        artifact_type=payload["artifact_type"],
+        schema_version=payload["schema_version"],
+        artifact_path=relative,
+        parent_digests=tuple(payload["parent_digests"]),
+        git_commit=git_commit,
+    )
+    fact = module.mainline_completion_fact(task=task, execution_id=execution_id)
+    states = tuple(
+        replace(
+            s,
+            declared_status=TaskStatus.COMPLETED,
+            completion_classification=CompletionClassification.COMPLETE,
+        )
+        if s.task_digest == task.artifact_digest
+        else s
+        for s in current.task_states
+    )
+    incoming = ControlPlaneManifest.from_dict(
+        runner.builder.manifest_with_facts(
+            replace(current, task_states=states).to_dict(include_digest=True),
+            add_artifact_facts=(fact,),
+        )
+    )
+    # All three rows plus completed manifest/state commit in one temporary DB
+    # transaction; production is never connected through this factory.
+    with repo.connection_factory() as connection:
+        writer = runner.PostgresResearchOSRepository(lambda: nullcontext(connection))
+        writer.record_mainline_execution_event(event=started)
+        writer.register_mainline_artifact(registration=registration)
+        writer.record_mainline_execution_event(event=completed)
+        writer.import_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            payload=incoming.to_dict(include_digest=True),
+        )
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        "rebind_committed_before_return",
+        "daily_summary_replay_commit",
+        "daily_mail_envelope_commit",
+        "daily_mail_replay_commit",
+        "daily_delivery_commit",
+        "smtp_before_provider",
+        "smtp_accepted_before_ledger",
+        "smtp_ledger_before_return",
+        "incident_resolution_commit",
+        "activation_ready_boundary",
+    ],
+)
+def test_real_post_rebind_interruption_matrix(real_rebind_repository, point):
+    runner, repo, root, _ = real_rebind_repository
+    origin = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    before = _rebind_persisted_digest(repo, root)
+    first = repo.rebind_unexecuted_daily_recovery_source()
+    assert first["status"] == "REBIND_REQUIRED" and first["task_count"] == 6
+    assert before != _rebind_persisted_digest(repo, root)
+    rebound = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    assert {t.task_key for t in rebound.tasks} == {t.task_key for t in origin.tasks}
+    changed = {
+        a.task_key for a, b in zip(origin.tasks, rebound.tasks, strict=True) if a != b
+    }
+    assert changed == set(first["task_keys"])
+    stages = [
+        "daily_summary_replay",
+        "daily_mail_envelope",
+        "daily_mail_replay",
+        "daily_delivery",
+    ]
+    through = {
+        "rebind_committed_before_return": 0,
+        "daily_summary_replay_commit": 1,
+        "daily_mail_envelope_commit": 2,
+        "daily_mail_replay_commit": 3,
+        "daily_delivery_commit": 4,
+        "smtp_before_provider": 3,
+        "smtp_accepted_before_ledger": 3,
+        "smtp_ledger_before_return": 3,
+        "incident_resolution_commit": 4,
+        "activation_ready_boundary": 4,
+    }[point]
+    for name in stages[:through]:
+        _commit_rebind_downstream_fixture(
+            runner, repo, root, contract.task_template_by_name(name).key(repo.context)
+        )
+    if point in {"incident_resolution_commit", "activation_ready_boundary"}:
+        current = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        incident = next(
+            t
+            for t in origin.tasks
+            if t.task_key
+            == f"m4-isolated-24h-challenger-v11-incident-{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
+        )
+        context = runner._task_context(incident)
+        extension = runner.builder.extend_manifest(
+            current.to_dict(include_digest=True),
+            context=context,
+            source_digest=repo.source_digest,
+            template_names=frozenset({"incident_resolution"}),
+        )
+        repo.import_extension(extension)
+        _commit_rebind_downstream_fixture(
+            runner,
+            repo,
+            root,
+            contract.task_template_by_name("incident_resolution").key(context),
+        )
+    # Interrupt after real durable fixture commits; repeated source rebind must
+    # leave every event, registration, task state and byte untouched.
+    with repo.connection_factory() as connection:
+        connection.execute(
+            "CREATE TABLE correction_interruption(point text PRIMARY KEY)"
+        )
+        connection.execute("INSERT INTO correction_interruption VALUES (%s)", (point,))
+    stable = _rebind_persisted_digest(repo, root)
+    results = [repo.rebind_unexecuted_daily_recovery_source() for _ in range(3)]
+    assert all(r["status"] == "ALREADY_REBOUND" for r in results)
+    assert results[0] == results[1] == results[2]
+    assert stable == _rebind_persisted_digest(repo, root)
+    assert all(
+        r["manifest_digest"]
+        == repo.load_manifest(
+            control_plane_key=contract.CONTROL_PLANE_KEY
+        ).artifact_digest
+        for r in results
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["partial", "missing", "extra", "parent", "state", "wrong_source", "head"],
+)
+def test_real_rebind_closure_rejects_drift(
+    real_rebind_repository, monkeypatch, mutation
+):
+    runner, repo, root, _ = real_rebind_repository
+    origin = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    first = repo.rebind_unexecuted_daily_recovery_source()
+    current = repo.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    keys = set(first["task_keys"])
+    task = next(t for t in current.tasks if t.task_key in keys)
+    old = next(t for t in origin.tasks if t.task_key == task.task_key)
+    if mutation == "wrong_source":
+        repo.source_digest = "0" * 64
+    elif mutation == "head":
+        with repo.connection_factory() as connection:
+            connection.execute(
+                "UPDATE research_os_control_planes SET current_manifest_digest=%s WHERE control_plane_key=%s",
+                (origin.artifact_digest, contract.CONTROL_PLANE_KEY),
+            )
+    else:
+        if mutation == "partial":
+            changed = old
+        elif mutation == "parent":
+            changed = replace(task, input_artifact_digests=("0" * 64,))
+        elif mutation == "extra":
+            changed = replace(task, task_key=task.task_key + "-extra")
+        else:
+            changed = task
+        tasks = tuple(changed if t == task else t for t in current.tasks)
+        states = tuple(
+            replace(s, task_digest=changed.artifact_digest)
+            if s.task_digest == task.artifact_digest
+            else s
+            for s in current.task_states
+        )
+        if mutation == "missing":
+            tasks = tuple(t for t in tasks if t != task)
+            states = tuple(s for s in states if s.task_digest != task.artifact_digest)
+        if mutation == "state":
+            states = tuple(
+                replace(
+                    s,
+                    declared_status=TaskStatus.COMPLETED,
+                    completion_classification=CompletionClassification.COMPLETE,
+                )
+                if s.task_digest == task.artifact_digest
+                else s
+                for s in states
+            )
+        # Corrupt incoming immutable model, while retaining the actual DB for
+        # provenance checks. The success matrix above never replaces this read.
+        bad = replace(current, tasks=tasks, task_states=states)
+        monkeypatch.setattr(repo, "load_manifest", lambda **_kwargs: bad)
+    before = _rebind_persisted_digest(repo, root)
+    with pytest.raises(
+        (
+            runner.ResearchOSValidationError,
+            runner.mainline.IsolatedMainlineError,
+            runner.mainline.MainlineSupervisorError,
+        )
+    ):
+        repo.rebind_unexecuted_daily_recovery_source()
+    assert before == _rebind_persisted_digest(repo, root)
+
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -1866,403 +2356,6 @@ def test_repository_bootstrap_rebind_gate_is_nonreentrant() -> None:
         repository.import_bootstrap_manifest(incoming_payload)
 
 
-def test_daily_recovery_rebind_preserves_completed_and_rejects_event_bearing(
-    monkeypatch,
-) -> None:
-    runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    context = contract.render_context(
-        source_max_issue="2026099",
-        source_max_draw_date="2026-08-27",
-        target_issue="2026100",
-        target_draw_date="2026-08-30",
-        epoch_date="20260828",
-        minute="202608280900",
-        cut_checkpoint_ref="000000000000",
-        projection_time="2026-08-28T09:00:21.441271+08:00",
-    )
-    payload, _ = runner.builder.build_manifest(
-        context=context,
-        source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
-        operator_configuration_authorized=True,
-        simulation_events=False,
-    )
-    base = ControlPlaneManifest.from_dict(payload)
-    checkpoint_context = dict(context)
-    checkpoint_context["batch_seq"] = "000000000004"
-    checkpoint_context["cut_checkpoint_ref"] = "000000000004"
-    checkpoint_payload, _ = runner.builder.build_manifest(
-        context=checkpoint_context,
-        source_digest=contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST,
-        operator_configuration_authorized=True,
-        simulation_events=False,
-    )
-    checkpoint_manifest = ControlPlaneManifest.from_dict(checkpoint_payload)
-    old_checkpoint_key = (
-        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000000-replay"
-    )
-    checkpoint_key = (
-        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000004-replay"
-    )
-    old_checkpoint = next(
-        item for item in base.tasks if item.task_key == old_checkpoint_key
-    )
-    checkpoint = next(
-        item for item in checkpoint_manifest.tasks if item.task_key == checkpoint_key
-    )
-    base = replace(
-        base,
-        tasks=tuple(
-            checkpoint if item.task_key == old_checkpoint_key else item
-            for item in base.tasks
-        ),
-        task_states=tuple(
-            checkpoint_manifest.task_state_by_digest[checkpoint.artifact_digest]
-            if state.task_digest == old_checkpoint.artifact_digest
-            else state
-            for state in base.task_states
-        ),
-    )
-    daily = next(
-        item for item in base.tasks if item.task_key == contract.DAILY_RECOVERY_TASK_KEY
-    )
-    draft_keys = {
-        "m4-isolated-24h-challenger-v11-multiplicity-risk-limit",
-        "m4-isolated-24h-challenger-v11-daily-20260828-delivery",
-        "m4-isolated-24h-challenger-v11-daily-20260828-mail-replay",
-        "m4-isolated-24h-challenger-v11-daily-20260828-mail-envelope",
-        "m4-isolated-24h-challenger-v11-daily-20260828-summary-replay",
-        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000004-replay",
-    }
-    tasks_by_digest = {item.artifact_digest: item for item in base.tasks}
-    assert draft_keys.issubset({item.task_key for item in base.tasks})
-    states = [
-        replace(
-            state,
-            declared_status=(
-                TaskStatus.DRAFT
-                if tasks_by_digest[state.task_digest].task_key in draft_keys
-                else TaskStatus.COMPLETED
-            ),
-            completion_classification=(
-                CompletionClassification.INTEGRATION_PENDING
-                if tasks_by_digest[state.task_digest].task_key in draft_keys
-                else CompletionClassification.COMPLETE
-            ),
-        )
-        for state in base.task_states
-    ]
-    current = replace(base, task_states=tuple(states))
-    monkeypatch.setattr(
-        runner.contract, "DAILY_RECOVERY_TASK_DIGEST", daily.artifact_digest
-    )
-
-    class _Cursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def execute(self, statement, _params):
-            assert "research_os_mainline_artifacts" in statement
-            return self
-
-        @staticmethod
-        def fetchone():
-            return (0,)
-
-    class _Connection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        @staticmethod
-        def cursor():
-            return _Cursor()
-
-    class _Repository:
-        source_digest = "f" * 64
-
-        def __init__(self, *, events=()):
-            self._evolving_source_rebind_gate = None
-            self.events = tuple(events)
-            self.imported = None
-
-        @staticmethod
-        def load_manifest(**_kwargs):
-            return current
-
-        def list_mainline_execution_event_metadata(self, **_kwargs):
-            return self.events
-
-        @staticmethod
-        def connection_factory():
-            return _Connection()
-
-        def import_manifest(self, *, control_plane_key, payload, source):
-            assert control_plane_key == contract.CONTROL_PLANE_KEY
-            assert source == "m4-isolated-v11-exact-unexecuted-old-source-rebind"
-            incoming = ControlPlaneManifest.from_dict(payload)
-            assert (
-                incoming.artifact_digest
-                == self._evolving_source_rebind_gate["incoming_manifest_digest"]
-            )
-            self._evolving_source_rebind_gate["consumed"] = True
-            self.imported = incoming
-
-    repository = _Repository()
-    result = (
-        runner.IsolatedChallengerRepository.rebind_unexecuted_daily_recovery_source(
-            repository
-        )
-    )
-    assert result["task_count"] == 6
-    assert set(result["task_keys"]) == draft_keys
-    assert repository._evolving_source_rebind_gate is None
-    rebound_daily = next(
-        item
-        for item in repository.imported.tasks
-        if item.task_key == contract.DAILY_RECOVERY_TASK_KEY
-    )
-    assert rebound_daily.artifact_digest == daily.artifact_digest
-    for task in repository.imported.tasks:
-        source = json.loads(task.metric_contract)["source_contract_digest"]
-        assert source == (
-            "f" * 64
-            if task.task_key in draft_keys
-            else contract.DAILY_RECOVERY_ORIGINAL_SOURCE_DIGEST
-        )
-
-    with pytest.raises(
-        runner.ResearchOSValidationError,
-        match="rebind_candidate_has_execution_event",
-    ):
-        runner.IsolatedChallengerRepository.rebind_unexecuted_daily_recovery_source(
-            _Repository(events=({"event_type": "started"},))
-        )
-
-
-def test_daily_mail_recovery_reuses_failed_attempt_inputs_and_sends_exactly_once(
-    monkeypatch,
-) -> None:
-    runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    source_digest = "f04aaf3c0e73725a9c54e32024fda62c296fa24fd02bf93372994c5c7ef0c830"
-    attestation_digest = (
-        "0f9e8bf4bbffbc1e2188f49ed261515a49ec24e03d17be3d88befe05a3b2477d"
-    )
-    receipt_digest = "9" * 64
-    daily_context = contract.render_context(
-        source_max_issue="2026099",
-        source_max_draw_date="2026-08-27",
-        target_issue="2026100",
-        target_draw_date="2026-08-30",
-        batch_seq=0,
-        epoch_date="20260828",
-        minute="202608280900",
-        cut_checkpoint_ref="000000000000",
-        projection_time="2026-08-28T09:00:21.441271+08:00",
-    )
-    incident_task_key = (
-        "m4-isolated-24h-challenger-v11-incident-"
-        f"{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
-    )
-    incident_task = SimpleNamespace(
-        task_key=incident_task_key,
-        metric_contract=json.dumps(
-            {"render_context": daily_context}, sort_keys=True, separators=(",", ":")
-        ),
-    )
-    manifest = SimpleNamespace(
-        artifact_digest=runner.DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST,
-        tasks=(incident_task,),
-    )
-    draft_keys = {
-        "m4-isolated-24h-challenger-v11-multiplicity-risk-limit",
-        "m4-isolated-24h-challenger-v11-daily-20260828-delivery",
-        "m4-isolated-24h-challenger-v11-daily-20260828-mail-replay",
-        "m4-isolated-24h-challenger-v11-daily-20260828-mail-envelope",
-        "m4-isolated-24h-challenger-v11-daily-20260828-summary-replay",
-        "m4-isolated-24h-challenger-v11-search-checkpoint-000000000004-replay",
-    }
-    repository_instances = []
-
-    class _Cursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def execute(self, statement, _params=None):
-            assert "m4_isolated_v11.delivery_ledger" in statement
-            return self
-
-        @staticmethod
-        def fetchone():
-            return (1, receipt_digest, receipt_digest)
-
-    class _Connection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        @staticmethod
-        def cursor():
-            return _Cursor()
-
-    class _Repository:
-        def __init__(self, *, context, source_digest):
-            self.context = dict(context)
-            self.source_digest = source_digest
-            self.imported_extensions = []
-            repository_instances.append(self)
-
-        @staticmethod
-        def daily_recovery_event_view():
-            return nullcontext()
-
-        @staticmethod
-        def rebind_unexecuted_daily_recovery_source():
-            return {
-                "status": "OLD_SOURCE_UNEXECUTED_TASKS_REBOUND",
-                "task_count": 6,
-                "task_keys": sorted(draft_keys),
-                "source_digest": source_digest,
-            }
-
-        @staticmethod
-        def load_manifest(**_kwargs):
-            return manifest
-
-        @staticmethod
-        def export_manifest(**_kwargs):
-            return {"artifact_digest": runner.DAILY_RECOVERY_CURRENT_MANIFEST_DIGEST}
-
-        def import_extension(self, payload):
-            self.imported_extensions.append(payload)
-
-        @staticmethod
-        def connection_factory():
-            return _Connection()
-
-    registered_inputs = {source_digest, attestation_digest}
-    registration_attempts = []
-    registration_writes = []
-
-    def _register_input_artifact(*, payload, **_kwargs):
-        digest = payload["artifact_digest"]
-        registration_attempts.append(digest)
-        if digest not in registered_inputs:
-            registration_writes.append(digest)
-        return {"artifact_digest": digest, "status": "ALREADY_REGISTERED"}
-
-    dispatches = []
-    smtp_calls = []
-    daily_delivery_key = contract.task_template_by_name("daily_delivery").key(
-        daily_context
-    )
-
-    def _dispatch(*, task_key, **_kwargs):
-        dispatches.append(task_key)
-        if task_key == daily_delivery_key:
-            if not smtp_calls:
-                smtp_calls.append(task_key)
-            execution_id = "daily-delivery-execution"
-        else:
-            execution_id = hashlib.sha256(task_key.encode("utf-8")).hexdigest()
-        return {
-            "task_key": task_key,
-            "execution_id": execution_id,
-            "generic_replay": "REPLAY_VERIFIED",
-        }
-
-    p3_identity = ("139ddc97" + "0" * 56, "a3b34318" + "0" * 56)
-    monkeypatch.setattr(runner, "IsolatedChallengerRepository", _Repository)
-    monkeypatch.setattr(runner, "AgentRequestRepository", lambda: object())
-    monkeypatch.setattr(runner, "_p3_source_identity", lambda: p3_identity)
-    monkeypatch.setattr(
-        runner,
-        "_daily_recovery_committed_state_preflight",
-        lambda **_kwargs: (
-            "PRE_COMMIT",
-            manifest,
-            daily_context,
-            {
-                "open_incident_ids": [contract.DAILY_RECOVERY_INCIDENT_ID],
-                "transition_seq": 0,
-            },
-        ),
-    )
-    monkeypatch.setattr(
-        runner,
-        "_isolated_units_quiescent",
-        lambda: {"timer": "inactive", "service": "inactive", "main_pid": 0},
-    )
-    monkeypatch.setattr(
-        runner,
-        "validate_daily_mail_recovery_governance",
-        lambda **_kwargs: {"operator_request_id": 790},
-    )
-    monkeypatch.setattr(
-        runner.mainline,
-        "build_runtime_migration_attestation_input",
-        lambda **_kwargs: {
-            "artifact_type": "M4IsolatedRuntimeMigrationAttestationInputV11",
-            "artifact_digest": attestation_digest,
-        },
-    )
-    monkeypatch.setattr(
-        runner.mainline, "register_input_artifact", _register_input_artifact
-    )
-    monkeypatch.setattr(runner, "_dispatch_recovery_task", _dispatch)
-    monkeypatch.setattr(
-        runner.builder,
-        "extend_manifest",
-        lambda *_args, **_kwargs: {"extension": "incident-resolution"},
-    )
-    monkeypatch.setattr(
-        runner.mainline,
-        "latest_incident_ledger_state",
-        lambda **_kwargs: {
-            "open_count": 0,
-            "resolved_incident_ids": [contract.DAILY_RECOVERY_INCIDENT_ID],
-            "transition_seq": 1,
-        },
-    )
-
-    result = runner.recover_daily_mail_chain(
-        apply=True,
-        context=daily_context,
-        source_contract={"artifact_digest": source_digest},
-        source_digest=source_digest,
-        git_commit="c" * 40,
-    )
-
-    assert result["status"] == "DAILY_MAIL_RECOVERED_SENT_AND_INCIDENT_RESOLVED"
-    assert result["registered_source_contract_digest"] == source_digest
-    assert result["runtime_migration_attestation_digest"] == attestation_digest
-    assert result["source_rebind"]["task_count"] == 6
-    assert set(result["source_rebind"]["task_keys"]) == draft_keys
-    assert registration_attempts == [source_digest, attestation_digest]
-    assert registration_writes == []
-    assert len(repository_instances) == 1
-    assert repository_instances[0].imported_extensions == [
-        {"extension": "incident-resolution"}
-    ]
-    assert dispatches.count(daily_delivery_key) == 2
-    assert smtp_calls == [daily_delivery_key]
-    assert result["smtp_calls"] == 1
-    assert result["duplicate_cycle_smtp_calls"] == 0
-    assert result["daily_sent_receipt_digest"] == receipt_digest
-    assert result["scientific_workloads"] == 0
-    assert result["formal_p3_mutated"] is False
-    assert result["p4_p5_p6_or_promotion_triggered"] is False
-
-
 def test_recovery_completion_is_committed_then_replayed_before_activation(
     monkeypatch,
 ) -> None:
@@ -2617,474 +2710,6 @@ def test_committed_recovery_fixture_identities_are_frozen() -> None:
     assert runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST == (
         "cb2707fa51bb37209fea9c5aa54ef3b12d50a8f19cf7db1be934d1799626d76a"
     )
-
-
-@pytest.mark.skipif(
-    os.getenv("DEHPS_TEST_POSTGRES") != "1" or not os.getenv("DEHPS_TEST_DATABASE_URL"),
-    reason="requires an explicit isolated PostgreSQL URL",
-)
-@pytest.mark.parametrize(
-    "interruption",
-    [
-        "before_sequence2_commit",
-        "commit_acknowledged_unknown",
-        "post_commit_readback_failure",
-        "committed_validation_before_replay",
-        "between_typed_and_generic_replay",
-        "after_replays_before_source_rebind",
-        "downstream_daily_summary_replay",
-        "downstream_daily_mail_envelope",
-        "downstream_daily_mail_replay",
-        "downstream_daily_delivery",
-        "smtp_before_provider",
-        "smtp_provider_accepted_uncertain",
-        "smtp_ledger_committed_before_return",
-        "incident_resolution_commit",
-        "duplicate_proof_before_activation_ready",
-        "postcommit_start_committed_validation_before_replay",
-    ],
-)
-def test_offline_committed_recovery_interruption_matrix_is_strict_noop(
-    monkeypatch, interruption: str
-) -> None:
-    runner = _load_script("run_m4_isolated_24h_challenger_v11")
-    database_url = os.environ["DEHPS_TEST_DATABASE_URL"]
-    schema = f"m4_v11_recovery_{uuid.uuid4().hex}"
-    source_digest = "f" * 64
-    attestation_digest = "e" * 64
-    receipt_digest = "9" * 64
-    start_postcommit = interruption.startswith("postcommit_start_")
-    interruption_point = interruption.removeprefix("postcommit_start_")
-    context = contract.render_context(
-        source_max_issue="2026099",
-        source_max_draw_date="2026-08-27",
-        target_issue="2026100",
-        target_draw_date="2026-08-30",
-        epoch_date="20260828",
-        minute="202608280900",
-        cut_checkpoint_ref="000000000000",
-        projection_time="2026-08-28T09:00:21.441271+08:00",
-    )
-    downstream_keys = {
-        name: contract.task_template_by_name(name).key(context)
-        for name in (
-            "daily_summary_replay",
-            "daily_mail_envelope",
-            "daily_mail_replay",
-            "daily_delivery",
-        )
-    }
-    incident_task_key = (
-        "m4-isolated-24h-challenger-v11-incident-"
-        f"{contract.DAILY_RECOVERY_INCIDENT_ID}-open"
-    )
-    incident_context = context
-    incident_task = SimpleNamespace(
-        task_key=incident_task_key,
-        metric_contract=json.dumps(
-            {"render_context": incident_context},
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
-    )
-    resolution_key = contract.task_template_by_name("incident_resolution").key(
-        incident_context
-    )
-    initial_state = {
-        "fixture_digest": runner.DAILY_RECOVERY_PRE_COMMIT_FIXTURE_DIGEST,
-        "manifest_digest": runner.DAILY_RECOVERY_RUNNING_MANIFEST_DIGEST,
-        "events": 2,
-        "sequence2_digest": None,
-        "registrations": 0,
-        "completion_facts": 0,
-        "summary_artifact_digest": None,
-        "execution_artifact_digest": None,
-        "artifact_bytes_unchanged": True,
-        "typed_replay_count": 0,
-        "generic_replay_count": 0,
-        "summary_activation": False,
-        "source_rebound": False,
-        "downstream": [],
-        "delivery_state": "NONE",
-        "smtp_calls": 0,
-        "incident_transitions": 0,
-        "activation_ready": False,
-        "workload_rerun": False,
-        "scientific_workloads": 0,
-        "formal_p3_artifact": contract.FORMAL_P3_SOURCE_DIGEST,
-        "formal_p3_source_set": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
-        "formal_p3_timer": "active/waiting",
-        "systemd_activation_calls": 0,
-        "interruption_consumed": False,
-    }
-    if start_postcommit:
-        initial_state.update(
-            {
-                "fixture_digest": runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST,
-                "manifest_digest": runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
-                "events": 3,
-                "sequence2_digest": runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST,
-                "registrations": 2,
-                "completion_facts": 1,
-                "summary_artifact_digest": runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST,
-                "execution_artifact_digest": runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST,
-            }
-        )
-
-    def load_state() -> dict[str, object]:
-        with psycopg.connect(database_url) as connection:
-            row = connection.execute(
-                sql.SQL("SELECT payload FROM {}.recovery_state WHERE id=1").format(
-                    sql.Identifier(schema)
-                )
-            ).fetchone()
-        assert row is not None
-        return dict(row[0])
-
-    def save_state(state: dict[str, object]) -> None:
-        with psycopg.connect(database_url) as connection:
-            connection.execute(
-                sql.SQL(
-                    "UPDATE {}.recovery_state SET payload=%s::jsonb WHERE id=1"
-                ).format(sql.Identifier(schema)),
-                (json.dumps(state, sort_keys=True, separators=(",", ":")),),
-            )
-
-    def state_digest() -> str:
-        return hashlib.sha256(
-            json.dumps(load_state(), sort_keys=True, separators=(",", ":")).encode(
-                "ascii"
-            )
-        ).hexdigest()
-
-    class InjectedInterruption(RuntimeError):
-        pass
-
-    def interrupt_once(point: str, state: dict[str, object]) -> None:
-        if interruption_point == point and not bool(state["interruption_consumed"]):
-            state["interruption_consumed"] = True
-            save_state(state)
-            raise InjectedInterruption(point)
-
-    class _Cursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def execute(self, statement, _params=None):
-            assert "delivery_ledger" in statement
-            return self
-
-        @staticmethod
-        def fetchone():
-            state = load_state()
-            count = 1 if state["delivery_state"] == "SENT" else 0
-            digest = receipt_digest if count else None
-            return count, digest, digest
-
-    class _Connection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        @staticmethod
-        def cursor():
-            return _Cursor()
-
-    class _Repository:
-        def __init__(self, *, context, source_digest):
-            self.context = dict(context)
-            self.source_digest = source_digest
-
-        @staticmethod
-        def daily_recovery_event_view():
-            return nullcontext()
-
-        @staticmethod
-        def rebind_unexecuted_daily_recovery_source():
-            state = load_state()
-            interrupt_once("after_replays_before_source_rebind", state)
-            state["source_rebound"] = True
-            save_state(state)
-            return {"status": "OLD_SOURCE_UNEXECUTED_TASKS_REBOUND", "task_count": 6}
-
-        @staticmethod
-        def load_manifest(**_kwargs):
-            state = load_state()
-            return SimpleNamespace(
-                artifact_digest=state["manifest_digest"], tasks=(incident_task,)
-            )
-
-        @staticmethod
-        def export_manifest(**_kwargs):
-            return {"artifact_digest": load_state()["manifest_digest"]}
-
-        @staticmethod
-        def import_extension(_payload):
-            return None
-
-        @staticmethod
-        def connection_factory():
-            return _Connection()
-
-    def committed_preflight(*, repository):
-        del repository
-        state = load_state()
-        if state["delivery_state"] == "UNCERTAIN":
-            raise runner.IsolatedRunnerError(
-                "daily_recovery_smtp_state_uncertain_or_changed"
-            )
-        mode = "PRE_COMMIT" if state["events"] == 2 else "POST_COMMIT_RESUME"
-        incident = {
-            "open_incident_ids": (
-                [contract.DAILY_RECOVERY_INCIDENT_ID]
-                if state["incident_transitions"] == 0
-                else []
-            ),
-            "transition_seq": state["incident_transitions"],
-        }
-        manifest = SimpleNamespace(
-            artifact_digest=state["manifest_digest"], tasks=(incident_task,)
-        )
-        return mode, manifest, context, incident
-
-    def perform_replay(state: dict[str, object]) -> None:
-        interrupt_once("committed_validation_before_replay", state)
-        if state["typed_replay_count"] == 0:
-            state["typed_replay_count"] = 1
-            save_state(state)
-        interrupt_once("between_typed_and_generic_replay", state)
-        if state["generic_replay_count"] == 0:
-            state["generic_replay_count"] = 1
-        state["summary_activation"] = True
-        save_state(state)
-
-    def commit_summary_and_replay(**_kwargs):
-        state = load_state()
-        interrupt_once("before_sequence2_commit", state)
-        state.update(
-            {
-                "fixture_digest": runner.DAILY_RECOVERY_POST_COMMIT_FIXTURE_DIGEST,
-                "manifest_digest": runner.DAILY_RECOVERY_POST_COMMIT_MANIFEST_DIGEST,
-                "events": 3,
-                "sequence2_digest": runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST,
-                "registrations": 2,
-                "completion_facts": 1,
-                "summary_artifact_digest": (
-                    runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST
-                ),
-                "execution_artifact_digest": (
-                    runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST
-                ),
-            }
-        )
-        save_state(state)
-        interrupt_once("commit_acknowledged_unknown", state)
-        interrupt_once("post_commit_readback_failure", state)
-        perform_replay(state)
-        return {
-            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
-            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
-            "typed_replay": "REPLAY_VERIFIED",
-            "generic_replay": "REPLAY_VERIFIED",
-            "workload_rerun": False,
-        }
-
-    def resume_summary(**_kwargs):
-        state = load_state()
-        perform_replay(state)
-        return {
-            "task_key": contract.DAILY_RECOVERY_TASK_KEY,
-            "execution_id": contract.DAILY_RECOVERY_EXECUTION_ID,
-            "typed_replay": "REPLAY_VERIFIED",
-            "generic_replay": "REPLAY_VERIFIED",
-            "workload_rerun": False,
-            "dispatch_performed": False,
-        }
-
-    def dispatch(*, task_key, **_kwargs):
-        if task_key == contract.DAILY_RECOVERY_TASK_KEY:
-            return commit_summary_and_replay()
-        state = load_state()
-        if task_key == resolution_key:
-            if state["incident_transitions"] == 0:
-                state["incident_transitions"] = 1
-                save_state(state)
-                interrupt_once("incident_resolution_commit", state)
-            return {"task_key": task_key, "execution_id": "8" * 64}
-        name = next(name for name, key in downstream_keys.items() if key == task_key)
-        completed = set(state["downstream"])
-        if name == "daily_delivery" and name not in completed:
-            if state["delivery_state"] == "NONE":
-                interrupt_once("smtp_before_provider", state)
-                state["smtp_calls"] = 1
-                if (
-                    interruption_point == "smtp_provider_accepted_uncertain"
-                    and not bool(state["interruption_consumed"])
-                ):
-                    state["delivery_state"] = "UNCERTAIN"
-                    interrupt_once("smtp_provider_accepted_uncertain", state)
-                state["delivery_state"] = "SENT"
-                save_state(state)
-                interrupt_once("smtp_ledger_committed_before_return", state)
-            completed.add(name)
-            state["downstream"] = sorted(completed)
-            save_state(state)
-            interrupt_once("downstream_daily_delivery", state)
-        elif name not in completed:
-            completed.add(name)
-            state["downstream"] = sorted(completed)
-            save_state(state)
-            interrupt_once(f"downstream_{name}", state)
-        elif name == "daily_delivery":
-            interrupt_once("duplicate_proof_before_activation_ready", state)
-        return {
-            "task_key": task_key,
-            "execution_id": hashlib.sha256(task_key.encode("ascii")).hexdigest(),
-            "generic_replay": "REPLAY_VERIFIED",
-            "dispatch_performed": name not in set(load_state()["downstream"]),
-        }
-
-    def incident_state(**_kwargs):
-        state = load_state()
-        resolved = state["incident_transitions"] == 1
-        return {
-            "open_count": 0 if resolved else 1,
-            "open_incident_ids": []
-            if resolved
-            else [contract.DAILY_RECOVERY_INCIDENT_ID],
-            "resolved_incident_ids": (
-                [contract.DAILY_RECOVERY_INCIDENT_ID] if resolved else []
-            ),
-            "transition_seq": state["incident_transitions"],
-        }
-
-    with psycopg.connect(database_url, autocommit=True) as setup:
-        setup.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-        setup.execute(
-            sql.SQL(
-                "CREATE TABLE {}.recovery_state (id integer PRIMARY KEY,payload jsonb)"
-            ).format(sql.Identifier(schema))
-        )
-        setup.execute(
-            sql.SQL("INSERT INTO {}.recovery_state VALUES (1,%s::jsonb)").format(
-                sql.Identifier(schema)
-            ),
-            (json.dumps(initial_state, sort_keys=True, separators=(",", ":")),),
-        )
-    try:
-        monkeypatch.setattr(runner, "IsolatedChallengerRepository", _Repository)
-        monkeypatch.setattr(
-            runner, "_daily_recovery_committed_state_preflight", committed_preflight
-        )
-        monkeypatch.setattr(runner, "AgentRequestRepository", lambda: object())
-        monkeypatch.setattr(
-            runner, "validate_daily_mail_recovery_governance", lambda **_kwargs: {}
-        )
-        monkeypatch.setattr(
-            runner.mainline,
-            "register_input_artifact",
-            lambda **kwargs: {"artifact_digest": kwargs["payload"]["artifact_digest"]},
-        )
-        monkeypatch.setattr(
-            runner.mainline,
-            "build_runtime_migration_attestation_input",
-            lambda **_kwargs: {"artifact_digest": attestation_digest},
-        )
-        monkeypatch.setattr(runner, "_dispatch_recovery_task", dispatch)
-        monkeypatch.setattr(runner, "_resume_committed_daily_summary", resume_summary)
-        monkeypatch.setattr(
-            runner.builder,
-            "extend_manifest",
-            lambda *_args, **_kwargs: {"extension": "incident-resolution"},
-        )
-        monkeypatch.setattr(
-            runner.mainline, "latest_incident_ledger_state", incident_state
-        )
-        monkeypatch.setattr(
-            runner,
-            "_p3_source_identity",
-            lambda: {
-                "artifact_digest": contract.FORMAL_P3_SOURCE_DIGEST,
-                "source_set_digest": runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST,
-                "timer": "active/waiting",
-            },
-        )
-        monkeypatch.setattr(
-            runner, "_isolated_units_quiescent", lambda: {"status": "QUIESCENT"}
-        )
-
-        def resume():
-            return runner.recover_daily_mail_chain(
-                apply=True,
-                context=context,
-                source_contract={"artifact_digest": source_digest},
-                source_digest=source_digest,
-                git_commit="c" * 40,
-            )
-
-        with pytest.raises((InjectedInterruption, runner.IsolatedRunnerError)):
-            resume()
-        first_digest = state_digest()
-        if interruption_point == "smtp_provider_accepted_uncertain":
-            with pytest.raises(runner.IsolatedRunnerError):
-                resume()
-            second_digest = state_digest()
-            with pytest.raises(runner.IsolatedRunnerError):
-                resume()
-            assert first_digest == second_digest == state_digest()
-            state = load_state()
-            assert state["smtp_calls"] == 1
-            assert state["delivery_state"] == "UNCERTAIN"
-            return
-
-        second = resume()
-        second_digest = state_digest()
-        third = resume()
-        third_digest = state_digest()
-        assert second["activation_ready"] is True
-        assert third["activation_ready"] is True
-        assert second_digest == third_digest
-        state = load_state()
-        assert state["events"] == 3
-        assert state["sequence2_digest"] == runner.DAILY_RECOVERY_COMMITTED_EVENT_DIGEST
-        assert state["registrations"] == 2
-        assert state["completion_facts"] == 1
-        assert state["summary_artifact_digest"] == (
-            runner.DAILY_RECOVERY_COMMITTED_SUMMARY_DIGEST
-        )
-        assert state["execution_artifact_digest"] == (
-            runner.DAILY_RECOVERY_COMMITTED_EXECUTION_DIGEST
-        )
-        assert state["artifact_bytes_unchanged"] is True
-        assert state["typed_replay_count"] == 1
-        assert state["generic_replay_count"] == 1
-        assert state["smtp_calls"] == 1
-        assert state["delivery_state"] == "SENT"
-        assert state["incident_transitions"] == 1
-        assert state["workload_rerun"] is False
-        assert state["scientific_workloads"] == 0
-        assert state["formal_p3_artifact"] == contract.FORMAL_P3_SOURCE_DIGEST
-        assert state["formal_p3_source_set"] == (
-            runner.FORMAL_P3_FROZEN_SOURCE_SET_DIGEST
-        )
-        assert state["formal_p3_timer"] == "active/waiting"
-        assert state["systemd_activation_calls"] == 0
-        assert first_digest != third_digest or interruption_point in {
-            "incident_resolution_commit",
-            "duplicate_proof_before_activation_ready",
-        }
-    finally:
-        with psycopg.connect(database_url, autocommit=True) as cleanup:
-            cleanup.execute(
-                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
-                    sql.Identifier(schema)
-                )
-            )
 
 
 def test_roll_forward_before_preregistration_never_loads_completed_health(
