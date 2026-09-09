@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import json
+import subprocess
+
+import pytest
 from datetime import date, datetime
 
 from dehps.config import ROOT_DIR
@@ -57,7 +61,7 @@ def _builder():
     return module
 
 
-def test_source_contract_and_old_lineage_are_both_replay_verifiable() -> None:
+def test_source_contract_and_old_lineage_are_both_replay_verifiable(tmp_path, monkeypatch) -> None:
     source = successor.load_source_contract()
     assert source["frozen_contract"]["interim_looks"] == [20, 40, 60, 90, 120]
     assert source["frozen_contract"]["practical_effect"][
@@ -66,7 +70,31 @@ def test_source_contract_and_old_lineage_are_both_replay_verifiable() -> None:
     assert source["frozen_contract"]["old_lineage"]["disposition"] == (
         "IMMUTABLE_HISTORY_NOT_CURRENT_ROUTE"
     )
-    assert successor.old_source_digest_verification()["status"] == "VERIFIED"
+    # The retired source is immutable history, not the current checkout.
+    # Verify its original release bytes; do not reseal the historical contract
+    # when unrelated, current repository code evolves.
+    historical = successor.historical_bounded
+    release = "f330f36e42c9e506860ac3634f86d28cced137d6"
+    relative = historical.SOURCE_CONTRACT_PATH
+    raw = subprocess.check_output(["git", "show", f"{release}:{relative}"], cwd=ROOT_DIR)
+    assert raw == (ROOT_DIR / relative).read_bytes()
+    contract = json.loads(raw)
+    for entry in [*contract["source_entries"], {"path": relative}]:
+        path = tmp_path / entry["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(subprocess.check_output(
+            ["git", "show", f"{release}:{entry['path']}"], cwd=ROOT_DIR))
+    monkeypatch.setattr(successor, "ROOT_DIR", tmp_path)
+    verified = successor.old_source_digest_verification()
+    assert verified["status"] == "VERIFIED"
+    assert verified["artifact_digest"] == contract["artifact_digest"]
+    assert verified["source_set_digest"] == contract["source_set_digest"]
+    # Retain the fail-closed check: even one changed archived byte must fail.
+    victim = tmp_path / contract["source_entries"][0]["path"]
+    victim.write_bytes(victim.read_bytes() + b"\n")
+    with pytest.raises(historical.M4V2BoundedOperationalForwardError,
+                       match="bounded_forward_source_bytes_changed"):
+        successor.old_source_digest_verification()
 
 
 def test_refit_is_deterministic_and_reads_strictly_through_t_minus_one() -> None:

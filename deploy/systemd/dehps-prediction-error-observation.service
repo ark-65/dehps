@@ -1,0 +1,15 @@
+[Unit]
+Description=DEHPS registered prediction decisions and opened-issue diagnostics
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_prediction_error_observations.py --apply --minimum-issue 2026102 --operator-request operator-pr420-observation-release-20260905
+TimeoutStartSec=300

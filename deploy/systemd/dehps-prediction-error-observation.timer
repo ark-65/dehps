@@ -1,0 +1,11 @@
+[Unit]
+Description=Observe new frozen P3 decisions and already-opened draw reports
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Unit=dehps-prediction-error-observation.service
+
+[Install]
+WantedBy=timers.target

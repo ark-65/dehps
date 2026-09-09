@@ -118,8 +118,11 @@ def _execution_artifact(
     )
 
 
-def test_source_contract_and_governance_are_frozen() -> None:
-    source = diagnostic.load_source_contract(root_dir=ROOT_DIR)
+def test_source_contract_and_governance_are_frozen(tmp_path) -> None:
+    from archival_source import original_source
+    archive = original_source(tmp_path, contract_path=diagnostic.SOURCE_CONTRACT_PATH,
+                              commit="b3b905aa3cbf9ee39f88d07f559d9159c4b58a42")
+    source = diagnostic.load_source_contract(root_dir=archive)
     assert source["artifact_digest"]
     assert source["frozen_program"]["control_ids"] == list(
         diagnostic.CONTROL_IDS
