@@ -54,13 +54,53 @@ jobs:
       - name: Run complete worker test partition
         run: OPENBLAS_CORETYPE=Haswell python ../../.github/scripts/run_worker_tests.py
 
+  execution-isolation:
+    name: Execution PostgreSQL isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dehps_execution_test_admin
+          POSTGRES_USER: execution_test_admin
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U execution_test_admin -d dehps_execution_test_admin"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DEHPS_EXECUTION_TEST_ADMIN_DSN: "host=127.0.0.1 port=5432 dbname=dehps_execution_test_admin user=execution_test_admin password=disposable-ci-only"
+    defaults:
+      run:
+        working-directory: apps/worker-python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14.4"
+      - name: Install boundary test dependencies
+        run: python -m pip install 'psycopg[binary]>=3.2' 'pytest>=8.2'
+      - name: Require real database role isolation
+        run: python -m pytest -q tests/test_execution_context.py integration_tests/test_execution_database_isolation.py
+      - name: Resolve isolated process test image
+        run: |
+          docker pull python:3.12-slim
+          echo "DEHPS_EXECUTION_OS_IMAGE=$(docker image inspect python:3.12-slim --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Require kernel-enforced file isolation
+        run: python -m pytest -q integration_tests/test_execution_os_isolation.py
+
   pytest:
     name: pytest
     if: always()
-    needs: worker
+    needs: [worker, execution-isolation]
     runs-on: ubuntu-latest
     steps:
       - name: Require every partition to succeed
         env:
           WORKER_RESULT: ${{ needs.worker.result }}
-        run: test "$WORKER_RESULT" = success
+          ISOLATION_RESULT: ${{ needs.execution-isolation.result }}
+        run: |
+          test "$WORKER_RESULT" = success
+          test "$ISOLATION_RESULT" = success
