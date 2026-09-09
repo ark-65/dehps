@@ -48,6 +48,34 @@ test, config, report, manual run, or merged PR alone is not completion.
 The complete binding contract and acceptance matrix are in
 `docs/architecture/training-mainline-integration-governance.md`.
 
+### Control-layer refactor scope (owner-authorized 2026-09-09)
+
+For the bounded R0–R5 roadmap in
+`docs/architecture/control-layer-refactor-roadmap-20260909.md`, apply the
+control-domain acceptance clarification in the governance contract. Keep the
+Goal -> Resolver -> Ready Queue -> Supervisor -> Artifacts -> Status -> Next Task
+proof, but validate independent experiment/observation capabilities in their own
+authorized control domain. Record offline integration, release readiness,
+deployment, business-cycle acceptance, and scientific conclusions separately.
+Unrelated historical mail failures do not block an isolated engineering result.
+
+The owner's direct continuing authorization is recorded in
+`docs/experiments/2026-09-09-control-layer-refactor-checkpoint.md`. It authorizes
+this bounded development, its necessary isolated engineering tests, ordinary
+fixes, documentation, and reviewable PRs, including these rule clarifications.
+For this scope, do not require the owner to repeat that authorization or fabricate
+an approved lifecycle Request to represent it. Record it as owner consent, never
+as independent Reviewer approval. This is a task-specific authorization, not a
+general bypass in the runtime authorization policy. Check scope and revocation
+before continuing; preserve platform protections and independent review.
+
+Refresh only the changed control domain's execution process. An independent
+experiment must not restart Formal P3. Formal P3 may remain on a fixed legacy
+release during its frozen contract; report this explicitly as retained legacy
+execution. V11 remains archived and unschedulable. Production changes require
+a concrete reviewed release/rollback package and authorized Operator execution;
+engineering PR acceptance alone is not deployment approval or evidence.
+
 ## Mandatory Report Integrity And Continuity Gate
 
 Every development task must preserve the completeness and continuity of

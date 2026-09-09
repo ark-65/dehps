@@ -33,6 +33,51 @@ is `INTEGRATION_PENDING`.
 
 ## Required design answers
 
+### Control-domain acceptance for the R0–R5 refactor
+
+The owner-approved 2026-09-09 control-layer roadmap clarifies that canonical
+integration is scoped to the capability's authorized control domain. Observation
+and experiment domains must each use the same declared Goal/DAG/resolver/queue,
+execution storage, versioned verifier, immutable artifact and downstream-consumer
+protocol. They need not execute through the legacy production Python class.
+There must still be exactly one active writer per business path.
+
+Track these acceptance dimensions separately, with evidence for each:
+
+| Dimension | Required proof |
+| --- | --- |
+| Offline integration | Real isolated persistence, canonical dispatch, artifacts, projection, downstream consumption and deterministic replay |
+| Release readiness | Pinned code/environment/configuration, relevant checks, compatibility and concrete rollback package |
+| Deployment | Independently reviewed release and authorized Operator execution on the exact affected services |
+| Business cycle | Exact issue, deadline, prediction/report provenance, delivery ledger and scheduling facts when applicable |
+| Scientific result | Frozen research criteria and authorized evidence; engineering success gives no scientific credit |
+
+An isolated capability may complete its offline engineering acceptance without
+production deployment or SMTP delivery. Its deployment and business-cycle
+dimensions must remain explicitly pending or not applicable with a dependency
+audit. This does not mark an unintegrated task COMPLETE, erase historical gaps,
+or grant production approval. Retain existing durable task states; do not rewrite
+historical completion facts to implement these reporting dimensions.
+
+Report-integrity checks follow the actual dependency and resource boundary.
+An unrelated old report gap blocks its affected production path, not an isolated
+experiment whose independence is demonstrated by source/diff analysis and real
+permission enforcement. A changed production report path still requires every
+applicable exact-issue check below. Future delivery remains PENDING_DELIVERY.
+
+Formal P3 may use its fixed historical implementation and frozen scientific
+contract while new domains consume only legally opened artifacts. Do not claim
+that P3 has migrated to the new executor. Refresh only a changed domain's runner;
+do not restart P3 as a side effect of experiment acceptance. Historical source
+digests, failed events, and V11 retirement are preserved.
+
+Direct owner consent and independent technical review are different facts.
+For this refactor, the recorded continuing owner authorization covers engineering
+implementation and necessary isolated tests without per-failure Requests. It
+does not authenticate a caller-supplied Reviewer label. Runtime admission and
+production release must bind trusted subjects to the actual request and release,
+check revocation at execution, and enforce reviewer/executor separation.
+
 Before implementation, every governed task must name:
 
 1. the mainline problem it solves;
