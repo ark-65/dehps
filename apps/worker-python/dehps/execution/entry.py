@@ -66,7 +66,8 @@ def _execute(inputs, code_root, context, config_path, credentials_path, action):
     if sha256(config_bytes).hexdigest() != release.payload['config_sha256']:
         raise BoundaryError('baked configuration differs from verified release')
     config = json.loads(config_bytes)
-    if set(config) != {'schema','control_plane','factory','lease_seconds'} or config['schema'] != 'execution-entry.v1':
+    required = {'schema','control_plane','factory','lease_seconds'}
+    if not required <= set(config) <= required | {'dependency_constraints'} or config['schema'] != 'execution-entry.v1':
         raise BoundaryError('closed execution entry configuration required')
     if config['control_plane'] != os.environ['DEHPS_CONTROL_DOMAIN']:
         raise BoundaryError('launch and baked control domains differ')

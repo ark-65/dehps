@@ -84,7 +84,7 @@ jobs:
         with:
           python-version: "3.14.4"
       - name: Install worker and boundary test dependencies
-        run: python -m pip install -e .
+        run: python -m pip install -e . "numpy==2.4.6"
       - uses: actions/setup-node@v4
         with:
           node-version: "24.16.0"
@@ -97,7 +97,7 @@ jobs:
       - name: Require real database role isolation
         env:
           DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
-        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py integration_tests/test_observation_execution.py
+        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py integration_tests/test_observation_execution.py integration_tests/test_learning_execution.py
       - name: Resolve isolated process test image
         run: |
           docker pull python:3.12-slim
@@ -114,6 +114,10 @@ jobs:
         env:
           DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
         run: python -m pytest -q -s integration_tests/test_observation_release.py
+      - name: Require installed learning release and preserved evidence
+        env:
+          DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
+        run: python -m pytest -q -s integration_tests/test_learning_release.py
 
   pytest:
     name: pytest

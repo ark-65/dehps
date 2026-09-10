@@ -40,6 +40,41 @@ first explicit input after the second preserves the same result. This is interfa
 equivalence in the host NumPy2.4.6 environment, not yet historical fixed-image or
 new-mainline integration acceptance.
 
+The five-stage adapter now performs fixed-snapshot fitting, chronological
+evaluation verification, complete analysis, archived Top-100 verification and
+report consumption. Dependencies and input artifacts are explicit; the common
+coordinator has no learning-specific registrations or branches. A content-addressed
+input export retains the original 519-source-file Git archive, eight main artifacts,
+2599 issue results and 16 opened payout records. Its manifest SHA is
+`fa3e15d9de5a3f9b8ad6fec4549d1c555553f4d1a39403655a28658dff465aa3`.
+The original source archive is verified separately from the new release identity.
+
+Host verification of the retained real inputs has passed: all 3499 rows refit the
+original checkpoint exactly (`09f936e09e2a935fc7ff5c286904a3edc996dbca0590114677102f19577384a8`);
+the complete 2599-issue analysis matches
+`1a491aed6c86f8bf939604255b50f801e6143c50e8d31eed6ff57d5f2a1451ee` (107.26 s).
+All chronological probabilities and losses, full candidate calculations for the
+three prespecified examples (2009076, 2017148, 2026102), and the original Top-100
+also match (90.17 s). The other 2596 ticket evaluations are retained evidence,
+not claimed as freshly recomputed ticket searches. The conclusion remains
+“证据不足”. These checks are migration verification, not another model experiment.
+
+Real PostgreSQL recovery checks: 2 passed in 33.45 s. A killed process leaves the
+fit committed; restart consumes it without another fit execution, registers all
+five stages, and a separate process replays without writing new records. Input
+tampering is rejected even when numerical results were cached. Run
+`323eb660-fee3-43a4-ab7e-9416ec3eb43f`, replay
+`41f29765-b0b0-41e9-b465-da8e7129ba63`, report SHA
+`46b5181661612f6ebf91ed38e485e8d2396bc95ea8549728f73c50e4b6951237`.
+These use test principals and a fixture release binding, not deployment review.
+Updated AST/import/release-constraint checks: 14 passed in 4.92 s.
+
+The release builder now accepts a committed, hashed constraints file to retain
+NumPy 2.4.6, and fixes numerical worker threads to one. Installed image verification
+is the next acceptance step; its test includes real scoped PostgreSQL admission,
+all five artifacts, an independent HTTP consumer, and readonly replay. It is
+required in CI in addition to process crash/recovery, not substituted by host tests.
+
 Required exit proof includes actual finite fitting/evaluation/checkpoint/difference
 analysis, reuse explicitly distinguished from fresh calculation, original
 NumPy/Python compatibility, all-issue probability/loss and complete analysis

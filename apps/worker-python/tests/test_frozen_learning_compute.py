@@ -39,7 +39,7 @@ class Reject(importlib.abc.MetaPathFinder):
   if any(fullname==name or fullname.startswith(name+'.') for name in forbidden):
    raise AssertionError(fullname)
 sys.meta_path.insert(0,Reject())
-from dehps.prediction.frozen_learning import calculation
+from dehps.prediction.frozen_learning import calculation, analysis
 assert not hasattr(calculation,'_INPUTS')
 '''
     subprocess.run([sys.executable, '-c', script], cwd=WORKER, check=True,
@@ -63,3 +63,33 @@ def test_complete_four_model_six_arm_random_baseline_result_matches_original(syn
     assert calculation.evaluate_issue(901, snapshot=synthetic, contract=contract) == original.evaluate_issue(901)
     assert calculation.evaluate_issue(900, snapshot=synthetic, contract=contract) == expected
     assert calculation.combinations().flags.writeable is False
+
+
+def test_analysis_numerical_bodies_preserved_while_io_is_explicit():
+    before = definitions(WORKER / 'dehps/prediction/learning_v1_runtime.py')
+    after = definitions(WORKER / 'dehps/prediction/frozen_learning/analysis.py')
+    assert ast.dump(after['paired_interval']) == ast.dump(before['paired_interval'])
+    expected = deepcopy(before['payouts'])
+    expected.args.args = [ast.arg(arg='issue_values'), ast.arg(arg='payout_records')]
+    expected.body[0] = ast.parse('"""Use only supplied frozen payout evidence; verify exact label identity."""').body[0]
+    assert isinstance(expected.body[1], ast.ImportFrom)
+    del expected.body[1]
+    loop = expected.body[4]
+    assert ast.unparse(loop.target) == 'value' and ast.unparse(loop.iter) == 'required'
+    assert ast.unparse(loop.body[1].targets[0]) == 'path' and isinstance(loop.body[2], ast.If)
+    loop.body[1:3] = ast.parse('record = core.verify(payout_records[issue])["body"]["record"]').body
+    assert ast.dump(after['payouts']) == ast.dump(expected)
+    expected = deepcopy(before['analyze'])
+    expected.args.args = [ast.arg(arg=name) for name in ('contract', 'training', 'read_issue', 'payout_records')]
+    del expected.body[:2]
+    assert isinstance(expected.body[1], ast.For)
+    expected.body[1].body[0] = ast.parse('value = core.verify(deepcopy(read_issue(item["artifact_digest"])))').body[0]
+    expected.body[2] = ast.parse('exact_payouts = payouts(issue_values, payout_records)').body[0]
+    assert 'core.immutable' in ast.unparse(expected.body[-2])
+    del expected.body[-2]
+    assert ast.dump(after['analyze']) == ast.dump(expected)
+    training = before['run_training'].body
+    start = next(i for i, node in enumerate(training) if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == 'all_y')
+    end = next(i for i, node in enumerate(training[start:], start) if isinstance(node, ast.Expr)
+               and ast.unparse(node).startswith('core.immutable'))
+    assert [ast.dump(node) for node in after['refit_checkpoint'].body[2:-1]] == [ast.dump(node) for node in training[start:end]]

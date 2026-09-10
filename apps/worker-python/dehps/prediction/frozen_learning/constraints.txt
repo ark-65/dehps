@@ -1,0 +1,2 @@
+# Preserve the first-round numerical contract in this independent release.
+numpy==2.4.6
