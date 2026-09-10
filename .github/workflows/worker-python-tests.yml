@@ -93,6 +93,8 @@ jobs:
           echo "DEHPS_EXECUTION_OS_IMAGE=$(docker image inspect python:3.12-slim --format '{{.Id}}')" >> "$GITHUB_ENV"
       - name: Require kernel-enforced file isolation
         run: python -m pytest -q integration_tests/test_execution_os_isolation.py
+      - name: Require fixed release and offline rollback
+        run: python -m pytest -q tests/test_execution_release_schema.py integration_tests/test_execution_release.py
 
   pytest:
     name: pytest
