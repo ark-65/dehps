@@ -15,6 +15,8 @@ import pytest
 from dehps.execution.context import RunContext
 from dehps.execution.release import Release, build_release, canonical, launch
 from dehps.prediction.observation_plan import build_plan
+from dehps.prediction import error_learning as legacy_observation
+from dehps.notifications import p3_top100 as legacy_report
 from test_execution_mainline import mainline, records
 from test_execution_status_api import api
 from tests.test_prediction_error_learning import inputs, outcome
@@ -56,8 +58,13 @@ def test_fixed_image_observation_admission_full_report_http_and_readonly_replay(
     bundle, payout = outcome(inputs)
     opened = canonical(dict(settlement=bundle.settlement, settlement_replay=bundle.settlement_replay,
                             payout=payout, available_at='2026-09-03T22:00:00+08:00'))
-    plan = build_plan(issue=inputs.predraw.issue, frozen_sha256=sha256(frozen).hexdigest(),
-                      scientific_contract_sha256=inputs.source['artifact_digest'],
+    historical = os.environ.get('DEHPS_OBSERVATION_TEST_INPUTS')
+    if historical:
+        frozen = (Path(historical) / 'frozen.json').read_bytes()
+        opened = (Path(historical) / 'opened.json').read_bytes()
+    frozen_value, opened_value = json.loads(frozen), json.loads(opened)
+    plan = build_plan(issue=frozen_value['predraw']['issue'], frozen_sha256=sha256(frozen).hexdigest(),
+                      scientific_contract_sha256=frozen_value['source']['artifact_digest'],
                       opened_sha256=sha256(opened).hexdigest())
     request_id = clients['engineer'].request(plan.payload, release.digest)
     content = clients['reviewer'].get(request_id)['content_sha256']
@@ -100,6 +107,15 @@ def test_fixed_image_observation_admission_full_report_http_and_readonly_replay(
         assert len(report['sample']['body']['red_labels_1_to_33']) == 33
         assert len(report['sample']['body']['blue_labels_1_to_16']) == 16
         assert report['new_prediction'] is False and report['text'] and report['html']
+        decision_ref = next(value for key, value in result['artifacts'].items() if key.endswith('-record'))
+        decision = json.loads((runtime / decision_ref['path']).read_bytes())['scientific']
+        original_bundle = legacy_report.PostdrawBundle(
+            legacy_report.PredrawBundle(**frozen_value['predraw']),
+            opened_value['settlement'], opened_value['settlement_replay'])
+        expected = legacy_observation.build_preview(decision, original_bundle, opened_value['payout'],
+                                                    code_root=ROOT, available_at=opened_value['available_at'])
+        assert report == expected, 'installed calculation differs from the complete original report'
+        assert decision['body']['original_sealed_at'] == frozen_value['predraw']['checkpoint']['body']['sealed_at']
         status_path = runtime / 'observer/status/execution.json'
         status = json.loads(status_path.read_bytes())['payload']
         execution_id = clients['operator'].begin(request_id, content, release.digest)
@@ -127,7 +143,8 @@ def test_fixed_image_observation_admission_full_report_http_and_readonly_replay(
         assert replay.returncode == 0, replay.stderr.decode()
         assert json.loads(replay.stdout)['artifacts'] == result['artifacts']
         assert records(admin_dsn) == before
-        print(json.dumps({'release_sha256': release.digest, 'image_id': first.image_id,
+        print(json.dumps({'issue': frozen_value['predraw']['issue'],
+                          'release_sha256': release.digest, 'image_id': first.image_id,
                           'run_id': result['run_id'], 'replay_run_id': replayed['run_id'],
                           'manifest_digest': result['manifest_digest'], 'report_sha256': report_ref['sha256']}))
     finally:
