@@ -5,13 +5,15 @@ Descriptors are content bindings, not signatures or independent approvals.
 """
 from dataclasses import dataclass
 from hashlib import sha256
+from io import BytesIO
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import subprocess
 import tempfile
+import tarfile
 from uuid import uuid4
 
 from .context import BoundaryError, RunContext, _directory
@@ -36,6 +38,25 @@ def _file_digest(stream):
     for block in iter(lambda: stream.read(1024 * 1024), b''):
         value.update(block)
     return value.hexdigest()
+
+
+def dependency_constraint(config: dict, source_archive: bytes) -> str:
+    """An optional constraint file belongs to the committed, reviewed release."""
+    if 'dependency_constraints' not in config:
+        return ''
+    name = config['dependency_constraints']
+    if (not isinstance(name, str) or not re.fullmatch('[a-zA-Z0-9_./-]+', name)
+            or name.startswith('/') or str(PurePosixPath(name)) != name
+            or '..' in PurePosixPath(name).parts):
+        raise BoundaryError('dependency constraints require a canonical committed path')
+    with tarfile.open(fileobj=BytesIO(source_archive), mode='r:') as archive:
+        try:
+            member = archive.getmember(name)
+        except KeyError:
+            raise BoundaryError('dependency constraint file is not committed') from None
+        if not member.isfile():
+            raise BoundaryError('dependency constraint must be a regular committed file')
+    return ' -c /opt/dehps/source/' + name
 
 
 def image_info(image_id: str) -> dict:
@@ -147,6 +168,7 @@ def build_release(repository: Path, commit: str, base_image_id: str,
         raise BoundaryError('explicit non-secret configuration required')
     config_data = canonical(config)
     source = _command(['git', '-C', str(repository), 'archive', '--format=tar', commit], timeout=60).stdout
+    constraint = dependency_constraint(config, source)
     source_sha = sha256(source).hexdigest()
     config_sha = sha256(config_data).hexdigest()
     # Validate entry/identities before invoking the build backend.
@@ -164,9 +186,10 @@ def build_release(repository: Path, commit: str, base_image_id: str,
         (root / 'Dockerfile').write_text('\n'.join([
             f'FROM {base_reference}',
             'ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 NUMBA_CACHE_DIR=/tmp/dehps-numba',
+            'ENV OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1',
             'ADD source.tar /opt/dehps/source/',
             'COPY config.json /opt/dehps/config.json',
-            'RUN python -m pip install --no-cache-dir /opt/dehps/source/apps/worker-python && python -m pip check',
+            'RUN python -m pip install --no-cache-dir' + constraint + ' /opt/dehps/source/apps/worker-python && python -m pip check',
             'RUN python -c "import importlib.metadata as m,json,sys; from pathlib import Path; '
             'Path(\'/opt/dehps/inventory.json\').write_text(json.dumps({\'python\':sys.version,'
             '\'packages\':sorted((d.metadata[\'Name\'],d.version) for d in m.distributions())},sort_keys=True))"',

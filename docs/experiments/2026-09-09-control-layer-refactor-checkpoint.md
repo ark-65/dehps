@@ -56,7 +56,7 @@ on 2026-09-10 11:31:30 Asia/Shanghai, after every exact-head check succeeded on
 `503a14f2da1623c8a48e2e5dff3ff2c4f3fdf68c` in CI run `34432757037`.
 
 Development checkout: `/tmp/dehps-control-refactor-r0`; current branch
-`codex/control-refactor-r4-observation`. Explicit status/API binding passes 79
+`codex/control-refactor-r4-learning`. Explicit status/API binding passes 79
 affected Worker/real PostgreSQL/HTTP tests, 121 API tests and API build. New status
 binds domain/plan/execution/release; missing, stale, malformed and wrong identities
 return UNKNOWN. Actual authorization/recovery failures replace stale success,
@@ -79,9 +79,24 @@ PostgreSQL interruptions, later-opened report extension and frozen source/body
 checks. New domain capabilities reuse the existing coordinator/store without
 capability-specific core dispatch. See `2026-09-10-control-layer-r4-observation.md`.
 
-Next: publish/review this observation PR, require all exact-head CI checks, then
-migrate the existing finite learning path. Its numerical dependency equivalence
-has not yet been demonstrated; observation equality cannot substitute for it.
+Observation PR #435 merged as `d5c963e5a69d588f669b2525d7bd76e5e07ccc0b`
+after all six exact-head checks passed in run `34435697381`.
+
+R4 learning now passes the actual fixed-image historical integration. Source
+`5f8c1da7967461b784f0b5f150ab3ab691fb977f`, release
+`d0ad80169b25143341feb2baaf5f78d4f212c1f69bec62dc50eceb381db347de`,
+run `bf1920ad-d747-42ca-84ae-03c68ec70c53`, replay
+`b25054fe-c483-4261-be72-29cd870e2c79`: all 2599 probabilities/losses, original
+checkpoint, complete analysis, three full diagnostic examples and archived Top-100
+remain equal; all five canonical stages and HTTP/report consumption complete.
+1 installed historical test passed in 421.61 s including build. Stronger recovery
+and source checks passed 17 tests in 34.65 s. The actual checkpoint fitting
+function is called only once across crash/resume/replay; replay succeeds when
+fitting/search/bootstrap functions raise on invocation. An earlier callback-only
+counter missed fitting inside the verifier; its result is preserved but superseded.
+See `2026-09-10-control-layer-r4-learning.md` for exact evidence and limitations.
+
+Next: publish the learning PR and require all exact-head CI checks before merge.
 R5 still needs a concrete reviewed release/rollback and actual deployment proof.
 R1 full deployed-entry isolation/identity acceptance is also not yet claimed.
 The original production checkout remains clean ac0ef78, with no service/venv/
