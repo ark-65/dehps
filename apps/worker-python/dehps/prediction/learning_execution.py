@@ -3,7 +3,6 @@
 Reused evidence, fresh fitting and replay verification are explicitly distinct.
 No production connection, live calendar, crawler or legacy executor is loaded.
 """
-from copy import deepcopy
 import json
 
 from dehps.execution.context import BoundaryError
@@ -109,26 +108,19 @@ def build_capabilities(plan, store, context):
             raise BoundaryError('learning task capability or input binding differs')
     snapshot, contract = inputs.artifact('snapshot'), inputs.artifact('contract')
     by_digest = {ref['artifact_digest']: issue for issue, ref in inputs.manifest['issues'].items()}
-    cache = {}
+    def reference(phase, parent):
+        """A sealed historical oracle, not fitting hidden inside read/recovery.
 
-    def calculate(phase, parent, parent_refs):
-        cache_key = (phase, parent_refs)
-        if cache_key in cache:
-            inputs.verify_files()
-            return deepcopy(cache[cache_key])
+        This adapter migrates an already completed frozen experiment. Its admitted
+        original artifacts supply exact expected results. New experiments need
+        their own verifier; they must not invent a historical oracle.
+        """
         if phase == 'fit':
-            y = core.targets(snapshot['body']['rows'])
-            models = {config['name']: core.fit(y, config)[1] for config in core.CONFIGS}
-            checkpoint = analysis.refit_checkpoint(snapshot, contract)
-            if checkpoint != inputs.artifact('checkpoint'):
-                raise BoundaryError('full-snapshot checkpoint refit differs')
-            value = {'models': models, 'checkpoint': checkpoint, 'scope': 'FRESH_REFIT_OF_FIXED_HISTORICAL_SNAPSHOT'}
+            value = {'checkpoint': inputs.artifact('checkpoint'), 'scope': 'FRESH_REFIT_OF_FIXED_HISTORICAL_SNAPSHOT'}
         elif phase == 'evaluate':
             if parent['checkpoint'] != inputs.artifact('checkpoint'):
                 raise BoundaryError('evaluation producer checkpoint differs')
             examples = set(contract['body']['examples'])
-            for issue in contract['body']['outer_issues']:
-                verify_issue(snapshot, contract, inputs.issue(issue), complete=issue in examples)
             value = {'checkpoint': parent['checkpoint'], 'issue_count': len(by_digest), 'all_probabilities_and_losses_recomputed': True,
                      'complete_ticket_calculations_recomputed': sorted(examples),
                      'retained_ticket_evaluations_verified': len(by_digest)-len(examples),
@@ -136,23 +128,15 @@ def build_capabilities(plan, store, context):
         elif phase == 'analysis':
             if parent['evaluations'] != {issue: ref['artifact_digest'] for issue, ref in inputs.manifest['issues'].items()}:
                 raise BoundaryError('analysis predecessor evaluation set differs')
-            verified = {digest: issue for issue, digest in parent['evaluations'].items()}
-            payouts = {issue: inputs.payout(issue) for issue in inputs.manifest['payouts']}
-            value = analysis.analyze(contract, inputs.artifact('training'),
-                                     lambda digest: inputs.issue(verified[digest]), payouts)
-            if value != inputs.artifact('analysis'):
-                raise BoundaryError('complete historical analysis recomputation differs')
-            value = {'analysis': value, 'checkpoint': parent['checkpoint']}
+            value = {'analysis': inputs.artifact('analysis'), 'checkpoint': parent['checkpoint']}
         elif phase == 'top100':
             value = inputs.artifact('top100')
-            verify_historical_top100(snapshot, parent['checkpoint'], value)
             value = {'reference': value, 'checkpoint': parent['checkpoint'], 'analysis': parent['analysis'],
                      'new_prediction': False, 'verification': 'EXACT_ARCHIVED_TICKETS'}
         else:
             value = {'text': render_report(snapshot, contract, parent['analysis'], parent['checkpoint'], parent['reference']),
                      'scientific_conclusion': parent['analysis']['body']['conclusion'],
                      'new_scientific_experiment': False}
-        cache[cache_key] = deepcopy(value)
         return value
 
     def expected(task_digest, parents):
@@ -168,12 +152,17 @@ def build_capabilities(plan, store, context):
         return {'schema': SCHEMA, 'phase': phase, 'task_digest': task_digest,
                 'release_sha256': context.release.digest, 'inputs_sha256': inputs.digest,
                 'parents': {key: value.artifact.sha256 for key, value in parents.items()},
-                'scientific': calculate(phase, parent_value, tuple(sorted((key,value.artifact.sha256) for key,value in parents.items())))}
+                'scientific': reference(phase, parent_value)}
 
     def verify(binding, data):
         if (binding['scientific_contract_sha256'] != contract['artifact_digest']
                 or binding['artifact_schema'] != SCHEMA or binding['release_sha256'] != context.release.digest):
             raise BoundaryError('learning result contract/release binding differs')
+        phase = contracts[binding['task_digest']]['phase']
+        # Every descendant reads/verifies its committed predecessor recursively.
+        # Rehash issue bytes at the evaluation boundary, not at every unrelated
+        # checkpoint/report read. No stat-only or trusted-in-memory hash shortcut.
+        inputs.verify_files(include_issues=phase == 'evaluate')
         parents = {}
         for parent in MainlineLedger(store).context(binding['id'])['parents']:
             result = store.result(parent['task_id'])
@@ -184,6 +173,24 @@ def build_capabilities(plan, store, context):
             raise BoundaryError('learning result differs from its canonical computation')
 
     def execute(task, parents, artifacts):
-        return canonical(expected(task.artifact_digest, parents))
+        value = expected(task.artifact_digest, parents)
+        phase = value['phase']
+        if phase == 'fit':
+            value['scientific']['checkpoint'] = analysis.refit_checkpoint(snapshot, contract)
+        elif phase == 'evaluate':
+            examples = set(contract['body']['examples'])
+            for issue in contract['body']['outer_issues']:
+                verify_issue(snapshot, contract, inputs.issue(issue), complete=issue in examples)
+        elif phase == 'analysis':
+            predecessor = json.loads(next(iter(parents.values())).data)['scientific']
+            verified = {digest: issue for issue, digest in predecessor['evaluations'].items()}
+            payouts = {issue: inputs.payout(issue) for issue in inputs.manifest['payouts']}
+            value['scientific']['analysis'] = analysis.analyze(
+                contract, inputs.artifact('training'), lambda digest: inputs.issue(verified[digest]), payouts)
+        elif phase == 'top100':
+            verify_historical_top100(snapshot, value['scientific']['checkpoint'], value['scientific']['reference'])
+        # The same verifier compares this newly computed result to the admitted
+        # frozen oracle on commit, readback, recovery, replay and consumption.
+        return canonical(value)
 
     return {name: Capability(name, verify, execute) for name in CAPABILITIES.values()}

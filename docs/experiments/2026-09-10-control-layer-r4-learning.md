@@ -59,15 +59,44 @@ also match (90.17 s). The other 2596 ticket evaluations are retained evidence,
 not claimed as freshly recomputed ticket searches. The conclusion remains
 “证据不足”. These checks are migration verification, not another model experiment.
 
-Real PostgreSQL recovery checks: 2 passed in 33.45 s. A killed process leaves the
-fit committed; restart consumes it without another fit execution, registers all
-five stages, and a separate process replays without writing new records. Input
+Initial PostgreSQL checks: 2 passed in 33.45 s. A killed process leaves the
+fit committed; restart does not re-enter that task's execute callback, registers
+all five stages, and a separate process replays without writing new records. Input
 tampering is rejected even when numerical results were cached. Run
 `323eb660-fee3-43a4-ab7e-9416ec3eb43f`, replay
 `41f29765-b0b0-41e9-b465-da8e7129ba63`, report SHA
 `46b5181661612f6ebf91ed38e485e8d2396bc95ea8549728f73c50e4b6951237`.
 These use test principals and a fixture release binding, not deployment review.
 Updated AST/import/release-constraint checks: 14 passed in 4.92 s.
+
+That initial execute-callback counter was insufficient to prove no retraining:
+the verifier still refitted and resampled when checking committed results in a
+new process. The first actual historical image completed with full equality
+(759.10 s; release `3a06f9ffcc99c18760b35a807179a180f41b8f38a3f710d755b49f5be41c26a9`,
+run `f454038e-d7e3-4bd1-8a9c-b051961111e2`, replay
+`d642846b-f28c-43e5-a7e4-745094c0d519`), but is superseded for recovery acceptance.
+Its evidence is retained, not relabelled as satisfying the stronger requirement.
+
+The adapter now confines fitting, chronological computation and bootstrap analysis
+to initial task execution. Its single versioned verifier compares newly computed
+and stored outputs against the same admitted, sealed historical reference; it
+does not fit, search or resample on read/recovery/replay. Original input bytes and
+source provenance are still checked, with issue bytes verified at the evaluation
+boundary and each descendant recursively verifying its actual committed parent.
+There is no stat-only hash shortcut. This historical reference is appropriate to
+migration of the completed experiment; a new scientific experiment must supply
+its own capability/verifier rather than inventing historical expected results.
+
+Stronger checks: **17 passed in 34.65 s**, including real PostgreSQL recovery,
+source-archive relabelling/rebinding rejection, and the existing computation and
+release checks. The actual checkpoint-fitting function is called exactly once
+across the killed process, recovery and separate replay. In that replay process,
+fitting, ticket search and bootstrap functions deliberately raise if called;
+replay still succeeds with unchanged records. Run
+`c546d515-b2b3-423f-818a-a51305ed0d59`, replay
+`95cad699-168b-4f23-a095-ad380f267019`, report SHA
+`180aea5ddd1a86ac4dd5f55981aa1abe70fc05325537e475d7c03d508dd4a479`.
+The fixed image must now be rebuilt and the complete historical path revalidated.
 
 The release builder now accepts a committed, hashed constraints file to retain
 NumPy 2.4.6, and fixes numerical worker threads to one. Installed image verification

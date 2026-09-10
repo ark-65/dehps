@@ -14,6 +14,7 @@ from dehps.execution.entry import CapabilityContext
 from dehps.execution.plan import ExecutionPlan
 from dehps.execution.store import ExecutionAuthorization, ExecutionStore
 from dehps.prediction.learning_execution import build_capabilities
+from dehps.prediction.frozen_learning import calculation as core, analysis
 
 
 def coordinator(config, mode='normal'):
@@ -41,6 +42,19 @@ if __name__ == '__main__':
     assert 'DEHPS_EXECUTION_TEST_ADMIN_DSN' not in os.environ
     config = json.loads(Path(sys.argv[1]).read_text())
     mode = sys.argv[2]
+    original_refit = analysis.refit_checkpoint
+    def refit(*args, **kwargs):
+        with open(Path(config['root']) / 'actual-checkpoint-fits.calls', 'ab') as stream:
+            stream.write(b'fit\n'); stream.flush(); os.fsync(stream.fileno())
+        return original_refit(*args, **kwargs)
+    analysis.refit_checkpoint = refit
+    if mode == 'replay':
+        def forbidden_computation(*args, **kwargs):
+            raise AssertionError('committed learning replay must not fit, search or resample')
+        core.fit = forbidden_computation
+        core.evaluate_issue = forbidden_computation
+        core.scores = forbidden_computation
+        analysis.paired_interval = forbidden_computation
     engine = coordinator(config, mode)
     manifest = engine.replay() if mode == 'replay' else engine.run()
     print(json.dumps({'run_id': engine.run_id, 'manifest': manifest.to_dict(), 'projection_errors': engine.projection_errors}))

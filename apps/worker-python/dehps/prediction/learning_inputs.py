@@ -139,12 +139,14 @@ class FrozenLearningInputs:
             raise BoundaryError('learning payout artifact binding differs')
         return value
 
-    def verify_files(self):
-        """Recheck bytes even when numerical verification is cached in-process."""
+    def verify_files(self, *, include_issues=True):
+        """Recheck frozen bytes; descendants verify issues via their predecessor."""
         if file_digest(self._path('inputs.json')) != self.digest:
             raise BoundaryError('learning input manifest changed')
-        refs = [*self.manifest['artifacts'].values(), *self.manifest['issues'].values(),
+        refs = [*self.manifest['artifacts'].values(),
                 *self.manifest['payouts'].values(), self.manifest['original_source']]
+        if include_issues:
+            refs.extend(self.manifest['issues'].values())
         for ref in refs:
             if file_digest(self._path(ref['path'])) != ref['sha256']:
                 raise BoundaryError('learning input artifact file changed')

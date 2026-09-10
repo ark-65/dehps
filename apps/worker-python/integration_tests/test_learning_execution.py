@@ -14,7 +14,7 @@ import pytest
 
 from dehps.execution.context import BoundaryError
 from dehps.prediction.frozen_learning import calculation as core, analysis
-from dehps.prediction.learning_inputs import FrozenLearningInputs, SOURCE_PATHS
+from dehps.prediction.learning_inputs import FrozenLearningInputs, SOURCE_PATHS, verify_source_archive
 from dehps.prediction.learning_plan import build_plan
 from learning_scenario import coordinator
 from test_execution_mainline import mainline, records
@@ -114,6 +114,7 @@ def test_learning_resumes_without_new_training_commit_and_consumes_report(mainli
     assert records(admin_dsn) == before
     fit = plan.validate().tasks[0]
     assert (Path(config['root']) / (fit.task_key + '.calls')).read_bytes() == b'compute\n'
+    assert (Path(config['root']) / 'actual-checkpoint-fits.calls').read_bytes() == b'fit\n'
     engine = coordinator(config); engine.replay()
     report = engine.store.result(engine.bindings[engine.initial.tasks[-1].artifact_digest])
     text = json.loads(report.data)['scientific']['text']
@@ -122,7 +123,7 @@ def test_learning_resumes_without_new_training_commit_and_consumes_report(mainli
     print(json.dumps({'run_id': first['run_id'], 'replay_run_id': last['run_id'], 'report_sha256': report.artifact.sha256}))
 
 
-def test_cached_learning_verification_still_rejects_changed_input_bytes(mainline, learning_packet):
+def test_learning_readback_still_rejects_changed_input_bytes(mainline, learning_packet):
     _, admin_dsn, authorize = mainline
     directory, digest, scientific = learning_packet
     plan = build_plan(inputs_sha256=digest, scientific_contract_sha256=scientific)
@@ -139,3 +140,20 @@ def test_cached_learning_verification_still_rejects_changed_input_bytes(mainline
     finally:
         path.write_bytes(original)
     engine.replay()
+
+
+def test_retained_source_archive_cannot_be_relabelled_or_rebound(learning_packet):
+    directory, digest, _ = learning_packet
+    frozen = FrozenLearningInputs(directory, digest)
+    source = frozen.manifest['original_source']
+    identities = frozen.artifact('contract')['body']['source']
+    archive = directory / source['path']
+    with pytest.raises(BoundaryError, match='source commit differs'):
+        verify_source_archive(archive, source['sha256'], identities, '0' * 40)
+    name = 'apps/worker-python/dehps/prediction/learning_v1.py'
+    with pytest.raises(BoundaryError, match='source file differs'):
+        verify_source_archive(archive, source['sha256'], {**identities, name: '0' * 64}, source['git_commit'])
+    with pytest.raises(BoundaryError, match='identity inventory differs'):
+        verify_source_archive(archive, source['sha256'], {key: value for key, value in identities.items() if key != name}, source['git_commit'])
+    # The actual retained source and input bytes were never changed.
+    FrozenLearningInputs(directory, digest).validate_execution(ROOT)
