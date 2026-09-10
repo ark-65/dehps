@@ -5,6 +5,7 @@ on:
     paths:
       - "apps/worker-python/**"
       - "apps/api/**"
+      - "deploy/execution/**"
       - ".github/workflows/worker-python-tests.yml"
       - ".github/scripts/run_worker_tests.py"
       - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
@@ -13,6 +14,7 @@ on:
     paths:
       - "apps/worker-python/**"
       - "apps/api/**"
+      - "deploy/execution/**"
       - ".github/workflows/worker-python-tests.yml"
       - ".github/scripts/run_worker_tests.py"
       - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
