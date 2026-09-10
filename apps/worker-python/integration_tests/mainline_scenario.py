@@ -29,14 +29,14 @@ def coordinator(config,mode='normal'):
             stream.write(b'compute\n'); stream.flush(); os.fsync(stream.fileno())
         if mode=='before_next' and task.task_key=='consume':
             os.kill(os.getpid(),signal.SIGKILL)
-        if mode=='long_source' and task.task_key=='source':
-            time.sleep(1.3)
+        if mode in {'long_source','status_heartbeat'} and task.task_key=='source':
+            time.sleep(3 if mode=='status_heartbeat' else 1.3)
         value=7 if not parents else json.loads(next(iter(parents.values())).data)['value']+1
         return json.dumps({'task_digest':task.artifact_digest,'value':value,'schema':'fixture-graph.v1'},sort_keys=True).encode()
     caps={name:Capability('fixture-graph.v1',verify,execute) for name in ('fixture-source','fixture-consume','fixture-extend')}
     store=ExecutionStore(DatabaseBinding(config['dsn'],config['database'],config['role']),ArtifactStore(RunContext(root,'learning')),
                          ExecutionAuthorization(**config['authorization']),{'fixture-graph.v1':verify})
-    engine=Coordinator(ExecutionPlan(config['plan']),store,caps,lease_seconds=1 if mode in {'before_next','long_source','during_registration'} else 300)
+    engine=Coordinator(ExecutionPlan(config['plan']),store,caps,lease_seconds=1 if mode in {'before_next','long_source','during_registration','status_heartbeat'} else 300)
     if mode=='during_registration':
         register=engine.ledger.register
         def interrupted(connection,task_id):
@@ -49,6 +49,7 @@ def coordinator(config,mode='normal'):
 
 
 if __name__=='__main__':
+    assert 'DEHPS_EXECUTION_TEST_ADMIN_DSN' not in os.environ
     config=json.loads(Path(sys.argv[1]).read_text())
     mode=sys.argv[2]
     engine=coordinator(config,mode)

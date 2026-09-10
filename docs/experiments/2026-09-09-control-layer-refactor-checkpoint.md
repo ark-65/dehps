@@ -41,16 +41,27 @@ A third fixture capability extends the approved plan without core edits or
 retraining completed tasks. See `2026-09-10-control-layer-r2-mainline.md` for
 binding checks, actual process interruptions and original digest compatibility.
 
-Development checkout: `/tmp/dehps-control-refactor-r0`; current branch
-`codex/control-refactor-r3-release`. R3 release identity, fixed userspace build,
+R3 release PR #433 merged as `48ead2b85b758a55ba59ffd78762c94e5c48b187`
+on 2026-09-10 11:13:09 Asia/Shanghai. All four shards, isolation/release tests
+and aggregate succeeded on `ab98471` in run `34431476770`, aggregate 11:11:22,
+before merge. R3 release identity, fixed userspace build,
 restricted launch and retained archive/rollback now pass 10 schema/real Docker
 tests in 29.85 s. The real full Worker image also starts successfully with 531
 installed Python files byte-matching its committed archive. Numba's cache needed
 an isolated tmpfs; the original failed run is retained. See
 `2026-09-10-control-layer-r3-release.md` for exact identities and boundaries.
 
-Next: publish/review the R3 release PR and verify every current-head CI check;
-then implement explicit API/status consumers. R4 must
+Development checkout: `/tmp/dehps-control-refactor-r0`; current branch
+`codex/control-refactor-r3-status`. Explicit status/API binding now passes 79
+affected Worker/real PostgreSQL/HTTP tests, 121 API tests and API build. New status
+binds domain/plan/execution/release; missing, stale, malformed and wrong identities
+return UNKNOWN. Actual authorization/recovery failures replace stale success,
+and a long-running fixture refreshed status through lease heartbeats. Actual API
+reads receive no DB credentials and leave durable records untouched. See
+`2026-09-10-control-layer-r3-status.md` for run IDs and projection-only limitations.
+
+Next: publish/review the R3 status PR and verify every current-head CI check;
+then R4 must
 migrate real observation/learning calculations and verify scientific equivalence;
 R5 still needs a concrete reviewed release/rollback and actual deployment proof.
 R1 full deployed-entry isolation/identity acceptance is also not yet claimed.

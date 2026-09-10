@@ -37,6 +37,7 @@ class Coordinator:
         self.run_id = str(uuid4())
         self.projection_errors: list[str] = []
         self.bindings: dict[str,int] = {}
+        self._last_manifest = self.initial
         specs = {s['task_digest']:s for s in self.plan.payload['tasks']}
         policies = {}
         for task in self.initial.tasks:
@@ -93,7 +94,9 @@ class Coordinator:
                 return manifest
 
     def _project(self, phase: str, manifest: ControlPlaneManifest):
-        payload = {'schema':'execution-status.v1','run_id':self.run_id,'phase':phase,
+        payload = {'schema':'execution-status.v2','run_id':self.run_id,'phase':phase,
+                   'execution_id':self.store.authorization.execution_id,
+                   'release_sha256':self.store.authorization.release_sha256,
                    'plan_digest':self.plan.digest,'manifest_digest':manifest.artifact_digest,
                    'updated_at':datetime.now(timezone.utc).isoformat(),
                    'tasks':{t.task_key:manifest.task_state_by_digest[t.artifact_digest].declared_status.value for t in manifest.tasks}}
@@ -105,13 +108,14 @@ class Coordinator:
             self.projection_errors.append(f'{type(exc).__name__}: {exc}')
 
     @contextmanager
-    def _lease(self, attempt: Attempt):
+    def _lease(self, attempt: Attempt, manifest: ControlPlaneManifest):
         stopped = Event()
         failures = []
         def renew():
             while not stopped.wait(max(0.1,self.lease_seconds/3)):
                 try:
                     self.store.renew(attempt,lease_seconds=self.lease_seconds)
+                    self._project('running',manifest)
                 except Exception as exc:
                     failures.append(exc)
                     return
@@ -126,9 +130,20 @@ class Coordinator:
             thread.join()
 
     def run(self) -> ControlPlaneManifest:
-        self.admit()
+        # A failed admission/readback must not leave an earlier process's success
+        # as the current projection. This is status only, never a durable fact.
+        self._project('starting',self.initial)
+        try:
+            self.admit()
+            return self._run()
+        except Exception:
+            self._project('failed',self._last_manifest)
+            raise
+
+    def _run(self) -> ControlPlaneManifest:
         while True:
             manifest = self.snapshot(recover_registration=True)
+            self._last_manifest = manifest
             ready = ReadyQueue.build(manifest,TaskDependencyResolver().resolve(manifest))
             if not ready:
                 complete = all(manifest.task_state_by_digest[t.artifact_digest].declared_status is TaskStatus.COMPLETED for t in manifest.tasks)
@@ -146,7 +161,7 @@ class Coordinator:
                     progressed = True
                     continue
                 try:
-                    with self._lease(attempt):
+                    with self._lease(attempt,manifest):
                         parents = {}
                         for dependency in task.dependencies:
                             if dependency.dependency_type is DependencyType.TASK:
@@ -163,7 +178,6 @@ class Coordinator:
                     # a durable success into a failure or rerun it based on error.
                     if self.store.result(task_id) is None:
                         self.store.fail(attempt,type(exc).__name__)
-                        self._project('failed',manifest)
                         raise
                     self.ledger.recover_registration(task_id)
                 progressed = True
