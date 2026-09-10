@@ -76,7 +76,7 @@ def child(config,mode):
     config_path=Path(config['root'])/'mainline-config.json'
     config_path.write_text(json.dumps(config));config_path.chmod(0o600)
     return subprocess.run([sys.executable,str(Path(__file__).with_name('mainline_scenario.py')),str(config_path),mode],
-                          env={**os.environ,'PYTHONPATH':str(Path(__file__).resolve().parents[1]),'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True,timeout=20)
+                          env={'PATH':os.defpath,'PYTHONPATH':str(Path(__file__).resolve().parents[1]),'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True,timeout=20)
 
 
 def records(admin_dsn):

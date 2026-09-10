@@ -16,6 +16,7 @@ import { PatternDiscoveryModule } from './pattern-discovery/pattern-discovery.mo
 import { DrawSyncModule } from './draw-sync/draw-sync.module';
 import { ForwardStateModule } from './forward-state/forward-state.module';
 import { TrainingResumeModule } from './training-resume/training-resume.module';
+import { ExecutionStatusModule } from './execution-status';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TrainingResumeModule } from './training-resume/training-resume.module';
     DrawSyncModule,
     ForwardStateModule,
     TrainingResumeModule,
+    ExecutionStatusModule,
   ],
   controllers: [ResearchController],
   providers: [

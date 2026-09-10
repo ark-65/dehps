@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/worker-python/**"
+      - "apps/api/**"
       - ".github/workflows/worker-python-tests.yml"
       - ".github/scripts/run_worker_tests.py"
       - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - "apps/worker-python/**"
+      - "apps/api/**"
       - ".github/workflows/worker-python-tests.yml"
       - ".github/scripts/run_worker_tests.py"
       - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
@@ -83,10 +85,19 @@ jobs:
           python-version: "3.14.4"
       - name: Install boundary test dependencies
         run: python -m pip install 'psycopg[binary]>=3.2' 'pytest>=8.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+      - name: Install and verify status API
+        working-directory: apps/api
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
       - name: Require real database role isolation
         env:
           DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
-        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py
+        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py
       - name: Resolve isolated process test image
         run: |
           docker pull python:3.12-slim
