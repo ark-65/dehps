@@ -46,6 +46,7 @@ def _directory(root: Path, parts: tuple[str, ...], *, create: bool = False):
             if create:
                 try:
                     os.mkdir(name, mode=0o700, dir_fd=fd)
+                    os.fsync(fd)
                 except FileExistsError:
                     pass
             child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)

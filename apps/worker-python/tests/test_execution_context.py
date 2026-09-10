@@ -101,6 +101,7 @@ import sys
 from dehps.execution.context import RunContext
 from dehps.execution.database import DatabaseBinding
 from dehps.execution.authority import AuthorityClient
+from dehps.execution.store import ExecutionStore
 assert 'dehps.config' not in sys.modules
 assert 'dehps.research_os.supervisor' not in sys.modules
 assert not any(m.startswith('dehps.notifications') for m in sys.modules)
