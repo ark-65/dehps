@@ -144,7 +144,7 @@ def install(admin_dsn: str, spec: dict, source: Path) -> dict:
 def private_json(path: Path) -> dict:
     if not path.is_absolute() or path.resolve() != path:
         raise ValueError('canonical private credential file required')
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd) as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:

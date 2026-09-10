@@ -160,3 +160,18 @@ def test_installation_preserves_an_existing_unrelated_schema(target):
     with psycopg.connect(admin_dsn) as admin:
         assert admin.execute('SELECT value FROM unrelated.evidence').fetchall() == [('preserve original',)]
         assert admin.execute('SELECT count(*) FROM pg_roles WHERE rolname LIKE %s',(spec['database']+'_%',)).fetchone()[0] == 0
+
+
+def test_administrator_secret_file_rejects_public_file_symlink_and_fifo(tmp_path):
+    secret = tmp_path/'admin.json'; secret.write_text('{"dsn":"fixture-only"}'); secret.chmod(0o600)
+    assert installer.private_json(secret) == {'dsn':'fixture-only'}
+    secret.chmod(0o644)
+    with pytest.raises(ValueError,match='must be private'):
+        installer.private_json(secret)
+    secret.chmod(0o600)
+    link = tmp_path/'alias'; link.symlink_to(secret)
+    with pytest.raises(ValueError,match='canonical private'):
+        installer.private_json(link)
+    pipe = tmp_path/'pipe'; os.mkfifo(pipe,0o600)
+    with pytest.raises(ValueError,match='must be private'):
+        installer.private_json(pipe)

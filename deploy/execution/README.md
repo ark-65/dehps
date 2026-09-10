@@ -136,6 +136,7 @@ PostgreSQL image and record volume/socket ownership in the final package.
 The accepted learning image works unchanged over this socket. The integration
 test installs the real schema/grants, performs all five learning stages, inspects
 the running container (only `lo`, non-root UID, read-only socket mount), and
-replays in a fresh process with no extra records or status writes. It also rejects
+restarts the actual test database, then replays in a fresh process with no extra
+records or status writes. It also rejects
 a runtime-owned socket and combining this transport with IP networking. Fixture
 identities and their activation are not production review evidence.

@@ -26,13 +26,22 @@ from test_learning_execution import learning_packet, synthetic
 from test_learning_release import learning_release
 
 
+def wait_for_socket(details):
+    deadline = time.monotonic()+60
+    while time.monotonic() < deadline:
+        try:
+            with psycopg.connect(make_conninfo(**details),connect_timeout=1) as connection:
+                # Don't admit the official entrypoint's temporary init server.
+                if connection.execute("SELECT split_part(pg_read_file('postmaster.pid'),chr(10),1)").fetchone() == ('1',):
+                    return
+        except psycopg.OperationalError:
+            pass
+        time.sleep(0.1)
+    raise AssertionError('socket test database startup timed out')
+
+
 @pytest.fixture
 def socket_target(tmp_path):
-    details = conninfo_to_dict(os.environ['DEHPS_EXECUTION_TEST_ADMIN_DSN'])
-    if Path(details['host']).is_absolute():
-        with control_database_target(details) as value:
-            yield value
-        return
     # CI starts a separate socket-only server from its actual labelled test
     # image. Never add a mount, restart or alter the existing server.
     existing = json.loads(subprocess.check_output(['docker','inspect',
@@ -54,22 +63,11 @@ def socket_target(tmp_path):
     details = {'host':str(socket),'port':'5432','dbname':'dehps_execution_test_admin',
                'user':'execution_test_admin','password':password}
     try:
-        deadline = time.monotonic()+60
-        while True:
-            if time.monotonic() >= deadline:
-                raise AssertionError('socket test database startup timed out')
-            try:
-                with psycopg.connect(make_conninfo(**details),connect_timeout=1) as connection:
-                    # The official entrypoint briefly starts an initialization
-                    # server. Admit tests only after the final postmaster is PID 1.
-                    if connection.execute("SELECT split_part(pg_read_file('postmaster.pid'),chr(10),1)").fetchone() == ('1',): break
-            except psycopg.OperationalError:
-                pass
-            time.sleep(0.1)
+        wait_for_socket(details)
         info = json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
         assert info['HostConfig']['NetworkMode'] == 'none' and not info['NetworkSettings']['Ports']
         with control_database_target(details) as value:
-            yield value
+            yield (*value,container)
     finally:
         info = json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
         assert info['Config']['Labels'].get('dehps.socket-test') == nonce
@@ -80,13 +78,14 @@ def socket_target(tmp_path):
 
 def test_networkless_learning_runs_and_replays_through_installed_socket_database(
         socket_target, learning_packet, learning_release, tmp_path):
-    spec, admin_dsn, details = socket_target
+    spec, admin_dsn, details, database_container = socket_target
     socket = Path(details['host'])
     assert socket.is_absolute(), 'this test must use the dedicated Unix socket PostgreSQL fixture'
     installed = installer.install(admin_dsn, spec, ROOT)
     clients = {}
     with psycopg.connect(admin_dsn) as admin:
         assert admin.execute("SELECT inet_server_addr(),current_setting('listen_addresses')").fetchone() == (None, '')
+        assert admin.execute("SELECT current_setting('fsync'),current_setting('synchronous_commit')").fetchone() == ('on','on')
         assert all(row[0] == 'scram-sha-256' for row in admin.execute("SELECT auth_method FROM pg_hba_file_rules WHERE type='local'").fetchall())
         for kind, role in installed['roles'].items():
             password = uuid4().hex
@@ -141,6 +140,11 @@ def test_networkless_learning_runs_and_replays_through_installed_socket_database
     before = records(admin_dsn)
     status = runtime/'learning/status/execution.json'
     before_status = status.read_bytes(),status.stat().st_mtime_ns
+    # Recreate the real socket after a server restart. A stale socket-file bind
+    # would fail here; this exercises the retained directory mount and database.
+    subprocess.run(['docker','restart',database_container],check=True,capture_output=True)
+    wait_for_socket(details)
+    assert records(admin_dsn) == before
     replay = launch(release,release.digest,context,action='replay',**args)
     assert replay.returncode == 0, replay.stderr.decode()
     replayed = json.loads(replay.stdout)
@@ -161,4 +165,4 @@ def test_networkless_learning_runs_and_replays_through_installed_socket_database
     print(json.dumps({'release':release.digest,'transport':'private Unix socket','network':'none',
                       'run_id':result['run_id'],'replay_run_id':replayed['run_id'],
                       'manifest_digest':result['manifest_digest'],'commits':5,'replay_writes':0,
-                      'kernel_transport':transport}))
+                      'kernel_transport':transport,'database_restarted':True}))

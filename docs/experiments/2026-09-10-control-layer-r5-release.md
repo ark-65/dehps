@@ -204,3 +204,19 @@ production account, control database, service, credential or authority mapping h
 been installed. Reviewer identity remains requested, not fabricated. The final
 Operator package still needs exact installed ownership, active entry/consumer
 mapping, reviewed transition/rollback and real report continuity evidence.
+
+
+The socket acceptance was strengthened to restart the actual test PostgreSQL
+container after all five commits and before fresh-process replay. **17 checks
+passed in 20.82 seconds**. The same database records survived socket recreation;
+replay kept every artifact reference and left the status bytes/mtime unchanged.
+Run `247278da-e1c4-42de-ad27-fd4edca1f2be`, replay
+`773ff1b7-8284-445f-a0f6-713e3a1a4419`, manifest
+`560b557ddd2634699405afb9443b5560bddc8537cbd24adddd803b33cb5fdf70`.
+The kernel probe still found only `lo`, UID 1000 and a read-only socket mount.
+Log: `/tmp/dehps-r5-socket-restart-validation.log`.
+
+The administrator credential reader opens with O_NOFOLLOW and O_NONBLOCK before
+checking the descriptor type/permissions. A wrong FIFO path cannot hang before
+the regular-file check; public files and symlinks also remain rejected. This does
+not generate, activate or consume any real Reviewer credential.
