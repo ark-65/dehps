@@ -47,7 +47,8 @@ def persisted(authority, tmp_path):
         admin.execute(sql.SQL('SET ROLE {}').format(sql.Identifier(owner)))
         schema = Path(__file__).resolve().parents[3] / 'infra/postgres/init/002_research_os.sql'
         admin.execute(schema.read_text())
-        admin.execute(files('dehps.execution').joinpath('migrations/002_store.sql').read_text())
+        for migration in ('002_store.sql','003_mainline.sql'):
+            admin.execute(files('dehps.execution').joinpath('migrations/'+migration).read_text())
         admin.execute('RESET ROLE')
         admin.execute(sql.SQL('REVOKE CREATE ON DATABASE {} FROM {}').format(sql.Identifier(dbname), sql.Identifier(owner)))
         admin.execute(sql.SQL('REVOKE CREATE ON SCHEMA public FROM {}').format(sql.Identifier(owner)))
