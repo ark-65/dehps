@@ -48,6 +48,9 @@ def _directory(root: Path, parts: tuple[str, ...], *, create: bool = False):
                     os.mkdir(name, mode=0o700, dir_fd=fd)
                 except FileExistsError:
                     pass
+                # Another writer may have created this entry but died before
+                # flushing its parent. Existing entries need the same barrier.
+                os.fsync(fd)
             child = os.open(name, DIRECTORY_FLAGS, dir_fd=fd)
             os.close(fd)
             fd = child

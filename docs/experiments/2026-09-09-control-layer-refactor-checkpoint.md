@@ -19,21 +19,26 @@ Current stage: R0 merged as PR #427; R1 resource boundaries merged as PR #428
 `e1211f1`. All four worker shards, real PostgreSQL/kernel isolation and the pytest
 aggregate succeeded on exact head `d165ef8` in run `34337248382`; aggregate
 completed 2026-09-09 18:06:51 Asia/Shanghai. The earlier failed run remains below.
-R1 authenticated authorization is now in progress under the same owner consent.
+R1 authority PR #430 merged as `234b717eaddecc04c19b7aaf243e82644712f7df`
+on 2026-09-10 09:38:21 Asia/Shanghai. All four shards, isolation and aggregate
+succeeded on `ae14be3` (CI run `34425251617`, aggregate 09:37:31) before merge.
+This is component acceptance, not full R1 integration or deployment.
+
 Development checkout: `/tmp/dehps-control-refactor-r0`; branch
-`codex/control-refactor-r1-authority`; base is merged repair `e1211f1`.
-The original production checkout is unchanged at ac0ef78. R1 is not integrated
-with the final migrated entry points and R2–R5 remain unimplemented. Next: bind
-requests, independent approval and execution to authenticated database principals;
-verify real privilege rejection, revocation and release/content binding. The new
-authority component now passes 19 real PostgreSQL cases plus an additional real
-SET ROLE test; the affected suite passed 45 cases before that addition. Installed
-wheel migration bytes and import isolation were verified. See
-`2026-09-10-control-layer-r1-authority.md`; exact-head CI and R2/R5 consumers remain
-pending. See also
-`2026-09-09-control-layer-r1-resource-boundaries.md` for 23 unit, 3 real
-PostgreSQL and 1 kernel-isolation test results. Ordinary fixes stay within this owner
-authorization; scope expansion remains subject to review.
+`codex/control-refactor-r2-store`. R2 claim/attempt/commit storage and immutable
+file publication are now locally validated: 64 affected database/execution tests
+plus 1 kernel-isolation test passed. Actual SIGKILL, lost commit confirmation,
+concurrent fencing and PostgreSQL server restart preserve the expected attempt/
+commit/computation counts. Both packaged migration resources byte-match source.
+See `2026-09-10-control-layer-r2-store.md` for exact commands, the corrected dynamic
+Docker port fixture failure and remaining integration requirements.
+
+The original production checkout remains clean at ac0ef78. No production service,
+source contract, artifact, venv or ledger changed. Next: publish/review R2 store;
+integrate versioned resume/replay and canonical event/consumer transitions in the
+next R2 PR. R1 final entry/deployment acceptance and R3–R5 remain incomplete.
+Ordinary fixes stay within the same owner authorization. Do not equate isolated
+component tests or merged PRs with full domain or scientific acceptance.
 
 PR #428 audit: `gh pr merge --auto --squash` immediately merged the PR while
 checks were finishing. GitHub branch-protection API returned HTTP 403 requiring
