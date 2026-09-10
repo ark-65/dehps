@@ -51,8 +51,12 @@ installed Python files byte-matching its committed archive. Numba's cache needed
 an isolated tmpfs; the original failed run is retained. See
 `2026-09-10-control-layer-r3-release.md` for exact identities and boundaries.
 
+R3 status/API PR #434 merged as `d948e8ad3e825076534599746e5efc9bd4725edd`
+on 2026-09-10 11:31:30 Asia/Shanghai, after every exact-head check succeeded on
+`503a14f2da1623c8a48e2e5dff3ff2c4f3fdf68c` in CI run `34432757037`.
+
 Development checkout: `/tmp/dehps-control-refactor-r0`; current branch
-`codex/control-refactor-r3-status`. Explicit status/API binding now passes 79
+`codex/control-refactor-r4-observation`. Explicit status/API binding passes 79
 affected Worker/real PostgreSQL/HTTP tests, 121 API tests and API build. New status
 binds domain/plan/execution/release; missing, stale, malformed and wrong identities
 return UNKNOWN. Actual authorization/recovery failures replace stale success,
@@ -60,9 +64,24 @@ and a long-running fixture refreshed status through lease heartbeats. Actual API
 reads receive no DB credentials and leave durable records untouched. See
 `2026-09-10-control-layer-r3-status.md` for run IDs and projection-only limitations.
 
-Next: publish/review the R3 status PR and verify every current-head CI check;
-then R4 must
-migrate real observation/learning calculations and verify scientific equivalence;
+R4 observation is now validated in the isolated observer domain. Source commit
+`641abdb3b3f054051af6a6cbbcda78e0e1defb58` built actual release
+`3ae2211b57e6af9ae471d8cc403cb905a62a1b5afde007adfd38af23d757478c`.
+Actual retained 2026103 inputs completed as run
+`ae93751e-0b37-476b-b8bc-c5b669b65ce9`; independent image replay
+`745eb258-54c4-4492-9273-3a4c2fcdb97e` preserved all commits and artifacts.
+The complete installed diagnostic/sample/text/HTML output equals the original
+implementation with the same captured decision, without field exclusions. The
+original prediction seal and all five historical source-file hashes are intact.
+Actual HTTP consumption and revoked-admission/readonly-replay checks passed.
+The related regression suite passes 101 tests in 91.41 s, including real
+PostgreSQL interruptions, later-opened report extension and frozen source/body
+checks. New domain capabilities reuse the existing coordinator/store without
+capability-specific core dispatch. See `2026-09-10-control-layer-r4-observation.md`.
+
+Next: publish/review this observation PR, require all exact-head CI checks, then
+migrate the existing finite learning path. Its numerical dependency equivalence
+has not yet been demonstrated; observation equality cannot substitute for it.
 R5 still needs a concrete reviewed release/rollback and actual deployment proof.
 R1 full deployed-entry isolation/identity acceptance is also not yet claimed.
 The original production checkout remains clean ac0ef78, with no service/venv/

@@ -10,7 +10,9 @@ async function main() {
   const app = await NestFactory.create(ExecutionStatusModule, { logger: false });
   try {
     await app.listen(0, '127.0.0.1');
-    const response = await fetch(await app.getUrl() + '/execution-status/learning');
+    const sources = JSON.parse(process.env.DEHPS_EXECUTION_STATUS_SOURCES ?? '[]');
+    if (sources.length !== 1) throw new Error('probe requires exactly one configured domain');
+    const response = await fetch(await app.getUrl() + '/execution-status/' + encodeURIComponent(sources[0].controlPlane));
     if (!response.ok) throw new Error('configured execution status endpoint failed');
     console.log(JSON.stringify(await response.json()));
   } finally { await app.close(); }

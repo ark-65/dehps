@@ -59,7 +59,7 @@ jobs:
   execution-isolation:
     name: Execution PostgreSQL isolation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -83,8 +83,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14.4"
-      - name: Install boundary test dependencies
-        run: python -m pip install 'psycopg[binary]>=3.2' 'pytest>=8.2'
+      - name: Install worker and boundary test dependencies
+        run: python -m pip install -e .
       - uses: actions/setup-node@v4
         with:
           node-version: "24.16.0"
@@ -97,7 +97,7 @@ jobs:
       - name: Require real database role isolation
         env:
           DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
-        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py
+        run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py integration_tests/test_observation_execution.py
       - name: Resolve isolated process test image
         run: |
           docker pull python:3.12-slim
@@ -106,6 +106,14 @@ jobs:
         run: python -m pytest -q integration_tests/test_execution_os_isolation.py
       - name: Require fixed release and offline rollback
         run: python -m pytest -q tests/test_execution_release_schema.py integration_tests/test_execution_release.py
+      - name: Resolve observation release base
+        run: |
+          docker pull python:3.14.4-slim
+          echo "DEHPS_OBSERVATION_TEST_BASE_IMAGE=$(docker image inspect python:3.14.4-slim --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Require installed observation release and real downstream consumption
+        env:
+          DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
+        run: python -m pytest -q -s integration_tests/test_observation_release.py
 
   pytest:
     name: pytest
