@@ -140,3 +140,60 @@ restarts the actual test database, then replays in a fresh process with no extra
 records or status writes. It also rejects
 a runtime-owned socket and combining this transport with IP networking. Fixture
 identities and their activation are not production review evidence.
+
+## Read-only status consumer for private domain files
+
+`status-api.Dockerfile` builds a separate entry using the existing
+`ExecutionStatusModule`; it never imports the research API or its database
+providers. Only the compiled status entry, reader, port parser and locked Node
+dependencies enter the final image. Build from a clean accepted source archive,
+with the inspected Node digest, then record/export the resulting image ID and
+archive digest in the release packet. The learning and observation worker images
+do not change for this adaptation.
+
+Each domain gets one reader container. Its container UID/GID must equal that
+domain's runtime owner, because canonical status directories are 0700 and files
+0600. The reader has a read-only root filesystem, no capabilities, no new
+privileges and exactly one read-only bind: the canonical **status directory** at
+`/status/<domain>/status`. Do not mount the entire runtime, credentials, database
+socket, host home or Docker socket. Do not change canonical file permissions or
+copy/rewrite projections for publication. Mounting the directory preserves the
+writer's atomic rename updates; mounting only the current JSON inode does not.
+
+The trusted host Operator creates the container. The reader account itself gets
+no host Docker group membership or administrative credentials. Container UID
+reuse grants read access to the selected directory, while the mount boundary
+still denies writes by that same UID. The worker and reader have separate process
+lifecycles. Stopping a reader never stops or retries a computation.
+
+Use one root-owned binding JSON per domain, containing the existing API fields:
+`root` exactly `/status`, `controlPlane`, the actual admitted `executionId`,
+`planDigest`, `releaseSha256`, and `maxAgeSeconds`. Do not use fixture execution
+IDs or replace an unavailable binding with a previous successful one. The
+standalone entry rejects root execution, multiple domains and credential-bearing
+environment variables. It listens on container port 3000; publish only to
+`127.0.0.1`, proposed host ports 3311 (learning) and 3312 (observer), after checking
+those exact ports are free. Keep this HTTP network separate from the workers and
+their socket-only PostgreSQL containers. This entry requires no production mail
+or database connection.
+
+The existing `/execution-status/<domain>` response remains an operational
+projection with `durableCompletionVerified: false`. Identity mismatch, stale or
+unreadable data is UNKNOWN. A failed attempt must replace an earlier success.
+This endpoint is not a replacement for the immutable report/artifact consumer or
+deterministic replay. The final Operator package must record both separately.
+
+`integration_tests/test_status_api_release.py` runs a real database-backed
+canonical execution, relocates its unchanged status bytes to a private test
+directory owned by another host UID, and serves the actual compiled entry in the
+deployment image. It checks HTTP completion, kernel EROFS write denial even for
+the owner UID, EACCES for a third UID, absent authority mounts, a later canonical
+failure appearing through the same directory mount, and unchanged durable
+records. Separate launches reject root and credentials. Test relocation is only
+an isolated UID fixture; deployed readers mount canonical directories directly.
+
+Rollback stops/removes only the exact recorded reader containers and restores
+their previous pinned image/binding if one existed. It must not chmod status
+files, edit projections, remove committed work, restart P3 or re-enable legacy
+observation writers. First installation has no prior reader to restore; record
+the reader as unavailable instead of serving stale success.

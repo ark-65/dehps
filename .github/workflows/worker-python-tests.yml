@@ -100,6 +100,11 @@ jobs:
         env:
           DEHPS_EXECUTION_TEST_CONTAINER: ${{ job.services.postgres.id }}
         run: python -m pytest -q tests/test_execution_context.py tests/test_execution_artifacts.py integration_tests/test_execution_database_isolation.py integration_tests/test_execution_authority.py integration_tests/test_execution_store.py integration_tests/test_execution_mainline.py integration_tests/test_execution_status_api.py integration_tests/test_observation_execution.py integration_tests/test_learning_execution.py integration_tests/test_control_database_install.py
+      - name: Require deployed read-only status consumer under a separate UID
+        run: |
+          docker build --build-arg NODE_IMAGE=node@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203 -f ../../deploy/execution/status-api.Dockerfile --iidfile /tmp/dehps-status-api-image-id ../..
+          export DEHPS_STATUS_API_TEST_IMAGE="$(cat /tmp/dehps-status-api-image-id)"
+          python -m pytest -q -s integration_tests/test_status_api_release.py
       - name: Resolve isolated process test image
         run: |
           docker pull python:3.12-slim

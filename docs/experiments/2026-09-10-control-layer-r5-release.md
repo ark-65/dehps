@@ -3,6 +3,45 @@
 Role: Engineering under the continuing R0–R5 owner consent. Status:
 **PREPARATION_IN_PROGRESS**, not release-ready, reviewed or deployed.
 
+Latest engineering continuation: PR #438 merged as
+`3d0e5395414d64c2108360d156d2d5800cc0fc68` at 2026-09-10 16:04:14
+Asia/Shanghai. All six checks of CI `34451541677` passed on exact source
+`9c0e0b971e6c3832b3f67cff194a873575b8ab88` before merge. Twelve PRs
+(#427–#438) are now merged; this does not complete R5 deployment.
+
+The remaining status-consumer permission gap is addressed by a separate
+credential-free entry for the existing API reader. Each reader uses its domain's
+UID inside a read-only container and receives only that domain's status directory.
+Canonical directory/file modes stay 0700/0600. The host caller's same-UID R4 HTTP
+test was insufficient evidence for distinct deployed accounts; the new actual
+image test uses consumer UID 65531 versus host UID 1000 and also checks another
+UID cannot read. A real canonical failure replaces the previously visible success
+without changing committed records. This adds no model, calculation or shared
+supervisor behavior. Full deployment identities and service installation remain
+pending, including separate immutable report consumption.
+
+Local validation of this consumer change: the actual image/real PostgreSQL test
+passed **3 tests in 3.66 seconds**, canonical run
+`0d7e7102-9f73-4605-a3b4-82218788f058`. The container used UID 65531, returned
+the canonical completion, denied writes with EROFS, denied a different UID with
+EACCES, and then returned FAILED after the canonical authority-revocation test.
+No committed record changed. Root and credential-bearing starts were rejected.
+Node base was pinned to
+`node@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203`.
+The build's TypeScript compilation passed. API tests also passed in the local
+network-enabled execution environment; the first sandboxed invocation exited in
+the existing HTTP-test file and its failure log is retained. No application code
+was changed to suppress that failure.
+
+Report-impact verdict for this engineering change: **NO_RUNTIME_IMPACT** on
+existing production. The diff adds a separate status entry/image, its integration
+test, CI and deployment documentation; it does not modify the existing API entry,
+status reader, frozen worker images, scientific code, source contracts, production
+units, runtime files, credentials or delivery ledger. This verdict covers the
+undeployed change only. Actual deployment and the affected current report cycle
+still require their own before/after evidence; old delivery success and future
+timers are not acceptance.
+
 Primary goal: package the accepted independent observation/learning entries,
 actual resource/identity isolation, retained legacy P3 execution and a reversible
 single-writer transition. No new scientific experiment or model is introduced.
