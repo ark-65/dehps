@@ -268,6 +268,7 @@ class LaunchResult:
 
 def launch(release: Release, expected_sha256: str, context: RunContext, *,
            inputs: Path, credentials: Path, network: str, action: str,
+           database_socket: Path | None = None,
            timeout: float | None = None) -> LaunchResult:
     """Run the frozen entry with fixed mount targets; no code or config overrides.
 
@@ -285,7 +286,7 @@ def launch(release: Release, expected_sha256: str, context: RunContext, *,
         raise BoundaryError('launch requires a non-root runtime owner')
     # Revalidate even if a previously constructed context has since changed.
     RunContext(context.root, context.control_plane)
-    roots = (context.root, inputs, credentials)
+    roots = (context.root, inputs, credentials) + ((database_socket,) if database_socket is not None else ())
     for path in roots:
         if not path.is_absolute() or path.resolve() != path or ',' in str(path):
             raise BoundaryError('canonical mount source required')
@@ -296,6 +297,19 @@ def launch(release: Release, expected_sha256: str, context: RunContext, *,
     info = credentials.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
         raise BoundaryError('credentials must be a private file owned by the runtime uid')
+    socket_mount = []
+    if database_socket is not None:
+        if network != 'none':
+            raise BoundaryError('socket-only database access requires disabled IP networking')
+        directory = database_socket.stat()
+        socket_path = database_socket / '.s.PGSQL.5432'
+        socket = socket_path.lstat()
+        if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid == os.geteuid()
+                or directory.st_gid != os.getgid() or directory.st_mode & 0o027
+                or not stat.S_ISSOCK(socket.st_mode) or socket.st_uid != directory.st_uid
+                or socket.st_gid != os.getgid() or socket.st_mode & 0o007):
+            raise BoundaryError('private PostgreSQL-owned socket directory and runtime group required')
+        socket_mount = ['--mount', f'type=bind,src={database_socket},dst=/run/dehps-postgres,readonly']
     release.verify()
     # The content-addressed ID is used after verification, never a mutable tag.
     # No Docker socket, host home, source tree or production credential fallback.
@@ -309,6 +323,7 @@ def launch(release: Release, expected_sha256: str, context: RunContext, *,
         '--mount', f'type=bind,src={context.root},dst=/runtime' + (',readonly' if action == 'replay' else ''),
         '--mount', f'type=bind,src={inputs},dst=/inputs,readonly',
         '--mount', f'type=bind,src={credentials},dst=/run/dehps-credentials.json,readonly',
+        *socket_mount,
         '--env', 'DEHPS_RELEASE_SHA256=' + expected_sha256,
         '--env', 'DEHPS_CONTROL_DOMAIN=' + context.control_plane,
         '--env', 'DEHPS_EXECUTION_ACTION=' + action,
@@ -363,6 +378,7 @@ def main():
             command.add_argument('--inputs', type=Path, required=True)
             command.add_argument('--credentials', type=Path, required=True)
             command.add_argument('--network', required=True)
+            command.add_argument('--database-socket', type=Path)
             command.add_argument('--action', choices=['run', 'replay'], required=True)
     args = parser.parse_args()
     if args.command == 'build':
@@ -384,7 +400,7 @@ def main():
     else:
         result = launch(release, args.release_sha256, RunContext(args.runtime_root, args.control_domain),
                         inputs=args.inputs, credentials=args.credentials,
-                        network=args.network, action=args.action)
+                        network=args.network, action=args.action, database_socket=args.database_socket)
         sys.stdout.buffer.write(result.stdout)
         sys.stdout.buffer.flush()
         sys.stderr.buffer.write(result.stderr)
