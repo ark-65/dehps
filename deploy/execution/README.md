@@ -4,6 +4,12 @@ These launchers prepare the R5 compatibility release. They do not approve or
 deploy it. Formal P3 keeps its original executor and scientific contracts. The
 independent learning and observation images use `dehps.execution.release`.
 
+The concrete account/resource plan, six service instances, ordered installation,
+admission, canonical replay, single-writer retirement and rollback are in
+[R5-operator-runbook.md](R5-operator-runbook.md). The supplied `systemd/` files are
+candidates, not installed services. They require actual independent approval and
+the recorded preflight; a static validator does not prove runtime acceptance.
+
 `legacy_p3_namespace.py` selects two retained source trees and one dependency
 environment through a private mount namespace. The paths seen by old code remain
 unchanged, so existing artifact references and source probes need no rewriting.

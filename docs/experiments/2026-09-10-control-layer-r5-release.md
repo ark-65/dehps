@@ -3,6 +3,48 @@
 Role: Engineering under the continuing R0–R5 owner consent. Status:
 **PREPARATION_IN_PROGRESS**, not release-ready, reviewed or deployed.
 
+Concrete rollout continuation: PR #439 passed all six jobs in CI `34453781093`
+on exact head `e7503b26e034dfcc755902eeb68a43edfd9021d4`, then merged as
+`15ebc9589b96a28aed6ca2bfc314986e2a2ee701` at 2026-09-10 16:30:38 CST.
+Thirteen PRs #427–#439 are merged. The candidate rollout now includes three
+systemd templates for six domain instances, four explicit nologin accounts,
+private directory definitions and `deploy/execution/R5-operator-runbook.md`.
+It fixes owners, image/release identities, launch arguments, trust boundaries,
+installation/admission order, readonly consumers, old-entry retirement and
+rollback without changing production resources.
+
+Actual host preflight found UID 999 belongs to dnsmasq, so the candidate does not
+reuse the image's UID as a host resource owner. Planned worker UIDs are 61010 and
+61011; PostgreSQL UIDs are 61012 and 61013 with the respective domain groups.
+`systemd-sysusers --dry-run` accepted the four-account definition without creating
+accounts. Static `systemd-analyze verify` accepted all six final instances with
+empty diagnostic output. An initial unsupported `ConditionPathIsSocket` warning
+was retained and fixed to an existence condition plus an actual `test -S` precheck.
+The database/status units also compare configured IDs to actual passwd entries
+before Docker starts, preventing an empty user setting from selecting root.
+
+The real socket test now exercises both the existing image-default setup and
+dedicated PostgreSQL UID 61012. Final validation: **2 passed in 34.05 seconds**.
+The dedicated variant mounts a private password file, drops all capabilities,
+sets NoNewPrivileges, initializes the real schema/grants, completes five phases,
+restarts PostgreSQL and replays with no new committed/registered records or status
+writes. Database process UID, zero effective capabilities and NoNewPrivileges are
+inspected from the actual running container. Run
+`c9cd84a3-2868-4032-951e-98eacef97151`, replay
+`4f4ea956-18e3-4c78-a570-dddc5195dfee`, manifest
+`114b5d36ec5187861d32ca3522ddcdec112cb5bdd82c5de902535470f471d1c5`.
+The accepted worker release remains d0ad8016 (full identity below). This tests the
+database account arrangement in isolation, not installed host service acceptance.
+An earlier invocation omitted the required release digest and failed at fixture
+setup; its log remains alongside the successful runs, with no test exclusion.
+
+Live read-only inspection found old observer Request 815 still executing although
+its service has MainPID 0 and timer is disabled. Decisions 3474–3477 are preserved;
+their historical actor labels do not prove a new independent identity. The
+runbook specifies the existing cancellation transition under real authorized
+control. No cancellation, account installation or production database change
+was performed. The original production tree remains clean at ac0ef783.
+
 Latest engineering continuation: PR #438 merged as
 `3d0e5395414d64c2108360d156d2d5800cc0fc68` at 2026-09-10 16:04:14
 Asia/Shanghai. All six checks of CI `34451541677` passed on exact source

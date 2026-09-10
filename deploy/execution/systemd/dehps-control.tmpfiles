@@ -1,0 +1,8 @@
+d /run/dehps 0755 root root -
+d /run/dehps/learning-postgres-socket 2750 dehps-learning-db dehps-learning -
+d /run/dehps/observer-postgres-socket 2750 dehps-observer-db dehps-observer -
+d /var/lib/dehps 0755 root root -
+d /var/lib/dehps/control-learning 0700 dehps-learning dehps-learning -
+d /var/lib/dehps/control-observer 0700 dehps-observer dehps-observer -
+d /var/lib/dehps/postgres-learning 0700 dehps-learning-db dehps-learning -
+d /var/lib/dehps/postgres-observer 0700 dehps-observer-db dehps-observer -
