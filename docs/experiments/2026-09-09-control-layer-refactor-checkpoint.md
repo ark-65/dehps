@@ -15,15 +15,22 @@ an authorized Operator execution. Scientific contracts, V11 retirement and
 no self-approval remain unchanged.
 
 Current stage: R0 merged as PR #427; R1 resource boundaries merged as PR #428
-(`977aaf2`) but worker CI failed during installation. The PostgreSQL/kernel
-isolation CI job passed. R1 is not accepted while the installation regression
-remains. Same-scope packaging repair is in progress; no new Request is needed.
+(`977aaf2`). Its packaging regression was repaired by PR #429, merged as
+`e1211f1`. All four worker shards, real PostgreSQL/kernel isolation and the pytest
+aggregate succeeded on exact head `d165ef8` in run `34337248382`; aggregate
+completed 2026-09-09 18:06:51 Asia/Shanghai. The earlier failed run remains below.
+R1 authenticated authorization is now in progress under the same owner consent.
 Development checkout: `/tmp/dehps-control-refactor-r0`; branch
-`codex/control-refactor-r1-packaging`; base is merged R1 `977aaf2`.
+`codex/control-refactor-r1-authority`; base is merged repair `e1211f1`.
 The original production checkout is unchanged at ac0ef78. R1 is not integrated
-with the final migrated entry points and R2–R5 remain unimplemented. Next: fix
-package discovery, verify a clean editable install and all actual CI checks,
-then bind trusted approval identities in R1's next PR. See
+with the final migrated entry points and R2–R5 remain unimplemented. Next: bind
+requests, independent approval and execution to authenticated database principals;
+verify real privilege rejection, revocation and release/content binding. The new
+authority component now passes 19 real PostgreSQL cases plus an additional real
+SET ROLE test; the affected suite passed 45 cases before that addition. Installed
+wheel migration bytes and import isolation were verified. See
+`2026-09-10-control-layer-r1-authority.md`; exact-head CI and R2/R5 consumers remain
+pending. See also
 `2026-09-09-control-layer-r1-resource-boundaries.md` for 23 unit, 3 real
 PostgreSQL and 1 kernel-isolation test results. Ordinary fixes stay within this owner
 authorization; scope expansion remains subject to review.
