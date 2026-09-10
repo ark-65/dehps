@@ -99,6 +99,7 @@ class ExecutionStore:
 
     def renew(self, attempt: Attempt, *, lease_seconds: int = 300) -> None:
         with self.database.connect() as connection:
+            connection.execute("SET LOCAL statement_timeout = '5s'")
             connection.execute(
                 'SELECT execution_store.renew(%s,%s,%s,%s,%s,%s)',
                 (attempt.task_id, attempt.id, *self.authorization.parameters(), lease_seconds),
@@ -116,7 +117,7 @@ class ExecutionStore:
         self._verify(snapshot['task'], data)
         return self.artifacts.prepare(data)
 
-    def commit(self, attempt: Attempt, artifact: PreparedArtifact) -> StoredResult:
+    def commit(self, attempt: Attempt, artifact: PreparedArtifact, *, register=None) -> StoredResult:
         snapshot = self._snapshot(attempt.task_id)
         data = self.artifacts.read(artifact)
         self._verify(snapshot['task'], data)
@@ -126,6 +127,10 @@ class ExecutionStore:
                 'SELECT execution_store.commit_result(%s,%s,%s,%s,%s,%s,%s)',
                 (attempt.task_id, attempt.id, *self.authorization.parameters(), artifact.sha256, artifact.size),
             )
+            if register is not None:
+                # Trusted entry-point sink: canonical registrations participate
+                # in the same transaction; capability code receives no connection.
+                register(connection, attempt.task_id)
         result = self.result(attempt.task_id)
         if result is None:
             raise BoundaryError('committed result missing on readback')

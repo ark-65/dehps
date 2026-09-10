@@ -24,21 +24,29 @@ on 2026-09-10 09:38:21 Asia/Shanghai. All four shards, isolation and aggregate
 succeeded on `ae14be3` (CI run `34425251617`, aggregate 09:37:31) before merge.
 This is component acceptance, not full R1 integration or deployment.
 
-Development checkout: `/tmp/dehps-control-refactor-r0`; branch
-`codex/control-refactor-r2-store`. R2 claim/attempt/commit storage and immutable
-file publication are now locally validated: 64 affected database/execution tests
-plus 1 kernel-isolation test passed. Actual SIGKILL, lost commit confirmation,
-concurrent fencing and PostgreSQL server restart preserve the expected attempt/
-commit/computation counts. Both packaged migration resources byte-match source.
-See `2026-09-10-control-layer-r2-store.md` for exact commands, the corrected dynamic
-Docker port fixture failure and remaining integration requirements.
+R2 store PR #431 merged as `327fc2163ad59633d3538a89f25c600a2b441577`
+on 2026-09-10 10:08:24 Asia/Shanghai. All four worker shards, real persistence/
+isolation and pytest aggregate succeeded on `10eb4bc` in run `34426889356`
+(aggregate completed 10:02:27) before merge.
 
-The original production checkout remains clean at ac0ef78. No production service,
-source contract, artifact, venv or ledger changed. Next: publish/review R2 store;
-integrate versioned resume/replay and canonical event/consumer transitions in the
-next R2 PR. R1 final entry/deployment acceptance and R3–R5 remain incomplete.
-Ordinary fixes stay within the same owner authorization. Do not equate isolated
-component tests or merged PRs with full domain or scientific acceptance.
+Development checkout: `/tmp/dehps-control-refactor-r0`; branch
+`codex/control-refactor-r2-mainline`. New canonical plan intake, injected
+coordinator, atomic event/artifact registration, reconstruction and replay now
+pass 76 affected tests in 28.19 s. The real two-task run ID is
+`1bcc27dc-ac50-4a82-886a-abb4f59d90e6`; independent replay process
+`0c451fbc-dcdd-426c-8b8b-41123ca264df` reconstructs the identical completed manifest.
+A third fixture capability extends the approved plan without core edits or
+retraining completed tasks. See `2026-09-10-control-layer-r2-mainline.md` for
+binding checks, actual process interruptions and original digest compatibility.
+
+Next: publish/review this R2 integration PR and verify every exact-head CI check;
+then R3 fixed releases/source identity and explicit API/status consumers. R4 must
+migrate real observation/learning calculations and verify scientific equivalence;
+R5 still needs a concrete reviewed release/rollback and actual deployment proof.
+R1 full deployed-entry isolation/identity acceptance is also not yet claimed.
+The original production checkout remains clean ac0ef78, with no service/venv/
+source-contract/artifact/ledger changes. Ordinary fixes remain within the same
+owner authorization. Overall result remains NO — INTEGRATION_PENDING.
 
 PR #428 audit: `gh pr merge --auto --squash` immediately merged the PR while
 checks were finishing. GitHub branch-protection API returned HTTP 403 requiring
