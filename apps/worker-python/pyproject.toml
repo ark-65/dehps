@@ -29,6 +29,9 @@ opencl = [
 [project.scripts]
 dehps = "dehps.cli:app"
 
+[tool.setuptools.packages.find]
+include = ["dehps*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
