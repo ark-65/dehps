@@ -51,8 +51,12 @@ installed Python files byte-matching its committed archive. Numba's cache needed
 an isolated tmpfs; the original failed run is retained. See
 `2026-09-10-control-layer-r3-release.md` for exact identities and boundaries.
 
+R3 status/API PR #434 merged as `d948e8ad3e825076534599746e5efc9bd4725edd`
+on 2026-09-10 11:31:30 Asia/Shanghai, after every exact-head check succeeded on
+`503a14f2da1623c8a48e2e5dff3ff2c4f3fdf68c` in CI run `34432757037`.
+
 Development checkout: `/tmp/dehps-control-refactor-r0`; current branch
-`codex/control-refactor-r3-status`. Explicit status/API binding now passes 79
+`codex/control-refactor-r4-observation`. Explicit status/API binding passes 79
 affected Worker/real PostgreSQL/HTTP tests, 121 API tests and API build. New status
 binds domain/plan/execution/release; missing, stale, malformed and wrong identities
 return UNKNOWN. Actual authorization/recovery failures replace stale success,
@@ -60,9 +64,16 @@ and a long-running fixture refreshed status through lease heartbeats. Actual API
 reads receive no DB credentials and leave durable records untouched. See
 `2026-09-10-control-layer-r3-status.md` for run IDs and projection-only limitations.
 
-Next: publish/review the R3 status PR and verify every current-head CI check;
-then R4 must
-migrate real observation/learning calculations and verify scientific equivalence;
+R4 observation is in progress, not yet committed or published. Pure frozen
+calculation extraction passes nine source-body/import/full-result checks and
+matches the retained 2026103 full diagnostic/sample/report payload (excluding
+only operational integration labels). The first real PostgreSQL observation
+run, SIGKILL recovery, later-opened report extension and readonly replay checks
+also pass. New domain capabilities reuse the existing coordinator/store without
+capability-specific core dispatch. See `2026-09-10-control-layer-r4-observation.md`.
+
+Next: finish fixed-image observation entry validation and its fresh canonical
+execution/status/report/replay proof, then migrate the existing finite learning path.
 R5 still needs a concrete reviewed release/rollback and actual deployment proof.
 R1 full deployed-entry isolation/identity acceptance is also not yet claimed.
 The original production checkout remains clean ac0ef78, with no service/venv/
