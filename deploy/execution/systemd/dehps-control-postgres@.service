@@ -1,0 +1,30 @@
+[Unit]
+Description=DEHPS socket-only %i control database
+Requires=docker.service
+After=docker.service systemd-tmpfiles-setup.service
+ConditionPathExists=/etc/dehps/control/%i/admin-password
+
+[Service]
+Type=exec
+User=root
+Environment=PATH=/usr/bin:/bin
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=DOCKER_CONFIG=/opt/dehps/releases/control-refactor-r5/docker-client
+EnvironmentFile=/etc/dehps/control/%i/postgres-uid.env
+RuntimeDirectory=dehps-%i-postgres-control
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/python3.14 -I -B -c 'import os,pwd,sys; expected={"learning":(61012,61010),"observer":(61013,61011)}[sys.argv[1]]; account=pwd.getpwnam("dehps-"+sys.argv[1]+"-db"); sys.exit(0 if (account.pw_uid,account.pw_gid)==expected and os.environ.get("DEHPS_POSTGRES_USER")==str(expected[0])+":"+str(expected[1]) else 1)' %i
+ExecStart=/usr/bin/docker run --rm --sig-proxy=true --name dehps-control-%i-postgres --cidfile /run/dehps-%i-postgres-control/container.id --label org.dehps.control-domain=%i --label org.dehps.control-role=database --network none --cap-drop ALL --security-opt no-new-privileges --user ${DEHPS_POSTGRES_USER} --mount type=bind,src=/var/lib/dehps/postgres-%i,dst=/var/lib/postgresql/data --mount type=bind,src=/run/dehps/%i-postgres-socket,dst=/socket --mount type=bind,src=/etc/dehps/control/%i/admin-password,dst=/run/control-admin-password,readonly --env POSTGRES_USER=dehps_control_admin --env POSTGRES_DB=postgres --env POSTGRES_PASSWORD_FILE=/run/control-admin-password --env POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 sha256:2203e6282d9e7de7c24d7da234e2a744fb325df366a3fd8ed940e8abbee39527 postgres -c listen_addresses= -c unix_socket_directories=/var/run/postgresql,/socket -c unix_socket_permissions=0770
+Restart=no
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# Readiness is an actual authenticated cluster check in the Operator runbook.
+# Preserve CID after failure; archive only after verifying that exact container exited.

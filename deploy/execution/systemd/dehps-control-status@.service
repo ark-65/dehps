@@ -1,0 +1,30 @@
+[Unit]
+Description=DEHPS read-only %i execution status
+Requires=docker.service
+After=docker.service
+ConditionPathIsDirectory=/var/lib/dehps/control-%i/%i/status
+
+[Service]
+Type=exec
+User=root
+Environment=PATH=/usr/bin:/bin
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=DOCKER_CONFIG=/opt/dehps/releases/control-refactor-r5/docker-client
+EnvironmentFile=/etc/dehps/control/%i/reader-uid.env
+RuntimeDirectory=dehps-%i-status-control
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/python3.14 -I -B -c 'import os,pwd,sys; expected={"learning":(61010,3311),"observer":(61011,3312)}[sys.argv[1]]; account=pwd.getpwnam("dehps-"+sys.argv[1]); sys.exit(0 if (account.pw_uid,account.pw_gid)==(expected[0],expected[0]) and os.environ.get("DEHPS_READER_USER")==str(expected[0])+":"+str(expected[0]) and os.environ.get("DEHPS_READER_PORT")==str(expected[1]) else 1)' %i
+ExecStart=/usr/bin/docker run --rm --sig-proxy=true --name dehps-control-%i-status --cidfile /run/dehps-%i-status-control/container.id --label org.dehps.control-domain=%i --label org.dehps.control-role=status --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --user ${DEHPS_READER_USER} --publish 127.0.0.1:${DEHPS_READER_PORT}:3000 --mount type=bind,src=/var/lib/dehps/control-%i/%i/status,dst=/status/%i/status,readonly --env-file /etc/dehps/control/%i/reader.env sha256:bb0a4afd351a78b090eb4fde4fd66db7d3263d942e7ee323a102a099c6063859
+Restart=no
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# The administrative Docker client is outside the unprivileged reader container.
+# Reader failure never stops/restarts a worker or formal P3.

@@ -40,8 +40,8 @@ def wait_for_socket(details):
     raise AssertionError('socket test database startup timed out')
 
 
-@pytest.fixture
-def socket_target(tmp_path):
+@pytest.fixture(params=['image-default', 'dedicated-uid'])
+def socket_target(tmp_path, request):
     # CI starts a separate socket-only server from its actual labelled test
     # image. Never add a mount, restart or alter the existing server.
     existing = json.loads(subprocess.check_output(['docker','inspect',
@@ -51,14 +51,39 @@ def socket_target(tmp_path):
     socket = root/'socket'; socket.mkdir(mode=0o750)
     password = uuid4().hex
     nonce = uuid4().hex
+    dedicated = request.param == 'dedicated-uid'
+    uid = 61012
+    assert not dedicated or uid != os.getuid()
+    extra = []
+    entry = ['--entrypoint','/bin/sh',existing['Image'],'-ec',
+             f'chown postgres:{os.getgid()} /socket; chmod 2750 /socket; exec /usr/local/bin/docker-entrypoint.sh "$@"',
+             '--']
+    secret_args = ['--env','POSTGRES_PASSWORD='+password]
+
+    def ownership(owner):
+        # Only this disposable fixture mount is exposed to the setup helper.
+        subprocess.run(['docker','run','--rm','--network=none','--user=0:0',
+            '--mount',f'type=bind,src={root},dst=/fixture','--entrypoint','/bin/sh',
+            existing['Image'],'-ec',
+            f'chown -R {owner}:{os.getgid()} /fixture/data /fixture/socket /fixture/admin-password; '
+            'chmod 2750 /fixture/socket; chmod 700 /fixture/data; chmod 600 /fixture/admin-password'],
+            check=True,capture_output=True)
+
+    if dedicated:
+        data = root/'data'; data.mkdir(mode=0o700)
+        secret = root/'admin-password'; secret.write_text(password); secret.chmod(0o600)
+        ownership(uid)
+        extra = ['--user',f'{uid}:{os.getgid()}', '--cap-drop=ALL', '--security-opt=no-new-privileges',
+                 '--mount',f'type=bind,src={data},dst=/var/lib/postgresql/data',
+                 '--mount',f'type=bind,src={secret},dst=/run/control-admin-password,readonly']
+        secret_args = ['--env','POSTGRES_PASSWORD_FILE=/run/control-admin-password']
+        entry = [existing['Image']]
     container = subprocess.check_output(['docker','run','-d',
         '--label','dehps.execution-test=true','--label','dehps.socket-test='+nonce,
         '--network=none','--mount',f'type=bind,src={socket},dst=/socket',
         '--env','POSTGRES_USER=execution_test_admin','--env','POSTGRES_DB=dehps_execution_test_admin',
-        '--env','POSTGRES_PASSWORD='+password,'--env','POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256',
-        '--entrypoint','/bin/sh',existing['Image'],'-ec',
-        f'chown postgres:{os.getgid()} /socket; chmod 2750 /socket; exec /usr/local/bin/docker-entrypoint.sh "$@"',
-        '--','postgres','-c','listen_addresses=',
+        *secret_args,'--env','POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256',
+        *extra,*entry,'postgres','-c','listen_addresses=',
         '-c','unix_socket_directories=/var/run/postgresql,/socket','-c','unix_socket_permissions=0770'],text=True).strip()
     details = {'host':str(socket),'port':'5432','dbname':'dehps_execution_test_admin',
                'user':'execution_test_admin','password':password}
@@ -66,6 +91,14 @@ def socket_target(tmp_path):
         wait_for_socket(details)
         info = json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
         assert info['HostConfig']['NetworkMode'] == 'none' and not info['NetworkSettings']['Ports']
+        if dedicated:
+            assert info['Config']['User'] == f'{uid}:{os.getgid()}'
+            assert socket.stat().st_uid == (root/'data').stat().st_uid == uid
+            assert socket.stat().st_gid == os.getgid()
+            assert subprocess.check_output(['docker','exec',container,'id','-u'],text=True).strip() == str(uid)
+            process_status = subprocess.check_output(['docker','exec',container,'cat','/proc/1/status'],text=True)
+            assert 'CapEff:\t0000000000000000' in process_status
+            assert 'NoNewPrivs:\t1' in process_status
         with control_database_target(details) as value:
             yield (*value,container)
     finally:
@@ -74,6 +107,8 @@ def socket_target(tmp_path):
         subprocess.run(['docker','stop',container],check=True,capture_output=True)
         (root/'postgres.log').write_bytes(subprocess.check_output(['docker','logs',container],stderr=subprocess.STDOUT))
         subprocess.run(['docker','rm','--volumes',container],check=True,capture_output=True)
+        if dedicated:
+            ownership(os.getuid())
 
 
 def test_networkless_learning_runs_and_replays_through_installed_socket_database(
@@ -165,4 +200,5 @@ def test_networkless_learning_runs_and_replays_through_installed_socket_database
     print(json.dumps({'release':release.digest,'transport':'private Unix socket','network':'none',
                       'run_id':result['run_id'],'replay_run_id':replayed['run_id'],
                       'manifest_digest':result['manifest_digest'],'commits':5,'replay_writes':0,
-                      'kernel_transport':transport,'database_restarted':True}))
+                      'kernel_transport':transport,'database_restarted':True,
+                      'database_uid':socket.stat().st_uid}))

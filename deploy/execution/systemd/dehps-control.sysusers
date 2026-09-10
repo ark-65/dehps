@@ -1,0 +1,6 @@
+# Install only after the reviewed preflight confirms names are not pre-existing.
+# No password, login shell, home or permanent Docker membership.
+u dehps-learning 61010 "DEHPS isolated learning runtime" /nonexistent /usr/sbin/nologin
+u dehps-observer 61011 "DEHPS isolated observation runtime" /nonexistent /usr/sbin/nologin
+u dehps-learning-db 61012:61010 "DEHPS isolated learning PostgreSQL" /nonexistent /usr/sbin/nologin
+u dehps-observer-db 61013:61011 "DEHPS isolated observation PostgreSQL" /nonexistent /usr/sbin/nologin
