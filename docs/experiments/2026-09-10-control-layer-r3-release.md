@@ -60,8 +60,26 @@ container created by that call; no detached computation remains.
 - Archived image bytes: `4bb562feac62c0a6bdf0c0ba320084d25144134afbb5402d9af02e5e43edab32`.
 
 These are engineering fixtures, not scientific/production replay acceptance.
-Fixture images are removed by their test cleanup. A full worker image build and
-smoke verification remains the next check before PR acceptance.
+Fixture images are removed by their test cleanup. The full worker build and
+smoke verification also passed after the Numba cache correction below.
+
+Full worker verification used committed source
+`55906b05932cdd22a4f0432b3d09e94e967ba299`, release
+`122a40f2a9c58d0e579e39ee7428593d5058dc81fa8072c2b7d5baec77c032ef`, image
+`sha256:7a2586be833f1d2ed688a7fa45fc80268ee6624c620c35bc9dbb56564f96d746`.
+Container `6e5fbf24725a7c5a9749b23967e2f9e3070ff72156151fee3beb0e399a66fd02`
+exited 0. All **531** archived Python files matched the installed package byte
+for byte, coordinator and learning_v1 imported successfully, source writes were
+denied and no production credentials were present. Python is 3.14.4; the resolved
+NumPy is 2.5.3, distinct from CI's 2.4.6 pin. This is packaging/environment proof,
+not frozen-science parity. R4 must explicitly select and verify the scientific
+environment. The complete inventory and descriptor remain outside Git in the
+local engineering artifact directory `/tmp/dehps-r3-full-worker`.
+The same fixed descriptor also passed the `release run --action replay` CLI with
+runtime mounted readonly, container
+`b1793a3cea5dece391ae3e5ba6ec4ff42c9a3d158df87dcb3196107323a355ab`, exit 0.
+This smoke entry only verifies packaging and imports; it does not replace the R2
+canonical task replay or the historical scientific verifier required in R4.
 
 Failures retained in the local run log: pytest initially found duplicate test
 module names (renamed the unit module); BuildKit interpreted bare image IDs in
