@@ -5,6 +5,18 @@ Status: isolated learning integration validated; PR/CI acceptance pending;
 production deployment not performed. **YES — validated by unified mainline
 execution and replay**, limited to this independent historical learning domain.
 
+Ready PR: #436. Initial CI run `34441534455` started real runners, passed the API
+121 tests/build and 84 isolation cases, but two learning tests failed with
+`attempt expired or fenced`. This is a real failed check, not Actions quota
+unavailability. The process fixture had used a one-second lease for every phase,
+including native numerical work; the installed image uses 30 seconds. Normal
+fixture execution now uses that same 30-second lease. The deliberately killed
+admission retains its one-second lease and actual expiry before takeover. Core
+fencing/renewal rules and the separate renewal/expiry tests are unchanged.
+The corrected learning/mainline/store regression passed **28 tests in 52.41 s**
+against real PostgreSQL. This changes test configuration only; the accepted
+historical image's runtime code and 30-second release setting are unchanged.
+
 Primary goal: run the existing finite learning calculations through the independent
 canonical execution interfaces, preserving the completed first-round evidence.
 Ready: fixed snapshot/contract, verified original source and opened historical

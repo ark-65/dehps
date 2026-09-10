@@ -35,7 +35,11 @@ def coordinator(config, mode='normal'):
                 os.kill(os.getpid(), signal.SIGKILL)
             return capability.execute(task, parents, artifacts)
         instrumented[name] = Capability(capability.verifier_id, capability.verify, execute)
-    return Coordinator(plan, store, instrumented, lease_seconds=1)
+    # Only the deliberately killed admission needs a short expiry. Normal
+    # numerical work uses the same 30 s lease as the installed image: native
+    # computation and cold compilation need not yield to Python every second.
+    return Coordinator(plan, store, instrumented,
+                       lease_seconds=1 if mode == 'before_evaluate' else 30)
 
 
 if __name__ == '__main__':
