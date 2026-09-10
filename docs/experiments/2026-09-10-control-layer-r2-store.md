@@ -56,6 +56,9 @@ also protect task definitions and commit records from update/delete.
 with no replacement, fsyncs the directory, then verifies the resulting bytes.
 New directory entries are also fsynced. Existing digest paths are verified, never
 repaired or overwritten. Symlinks, wrong sizes and digest mismatches fail closed.
+The parent directory is flushed even if mkdir reports an existing entry: another
+writer may have created it and exited before its own flush. After this durability
+review fix, all 29 context/file/kernel tests passed again.
 A process killed between file preparation and DB commit leaves an unreferenced
 file, not a successful task. Such files are retained; automated inventory/cleanup
 is not implemented or claimed here. Committed missing/corrupt evidence blocks
