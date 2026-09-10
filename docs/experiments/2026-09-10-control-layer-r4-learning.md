@@ -1,7 +1,9 @@
 # R4 finite learning path migration
 
 Role: Engineering under the continuing bounded R0–R5 owner consent.
-Status: implementation in progress, **NO — INTEGRATION_PENDING**.
+Status: isolated learning integration validated; PR/CI acceptance pending;
+production deployment not performed. **YES — validated by unified mainline
+execution and replay**, limited to this independent historical learning domain.
 
 Primary goal: run the existing finite learning calculations through the independent
 canonical execution interfaces, preserving the completed first-round evidence.
@@ -96,13 +98,51 @@ replay still succeeds with unchanged records. Run
 `c546d515-b2b3-423f-818a-a51305ed0d59`, replay
 `95cad699-168b-4f23-a095-ad380f267019`, report SHA
 `180aea5ddd1a86ac4dd5f55981aa1abe70fc05325537e475d7c03d508dd4a479`.
-The fixed image must now be rebuilt and the complete historical path revalidated.
+The rebuilt fixed image and complete historical path subsequently passed below.
 
 The release builder now accepts a committed, hashed constraints file to retain
 NumPy 2.4.6, and fixes numerical worker threads to one. Installed image verification
-is the next acceptance step; its test includes real scoped PostgreSQL admission,
-all five artifacts, an independent HTTP consumer, and readonly replay. It is
-required in CI in addition to process crash/recovery, not substituted by host tests.
+includes real scoped PostgreSQL admission, all five artifacts, an independent HTTP
+consumer, and readonly replay. It is required in CI in addition to process
+crash/recovery, not substituted by host tests.
+
+## Final installed historical verification
+
+**1 passed in 421.61 s**, including the actual rebuild, full historical execution,
+HTTP/report consumption and new-process readonly replay. Source
+`5f8c1da7967461b784f0b5f150ab3ab691fb977f` produced release
+`d0ad80169b25143341feb2baaf5f78d4f212c1f69bec62dc50eceb381db347de`, image
+`sha256:a5727360c36c8da6bfe851c9b4cb8e5dcf5a0b1201dbab0ad02ed3b022d4b0da`.
+The installed NumPy is 2.4.6; Numba is 0.67.0. The actual image fixes all dependency
+bytes for subsequent replay; the dependency versions are not a claim that an
+arbitrary future reinstall will reproduce the same release.
+
+| Integration surface | Actual evidence |
+| --- | --- |
+| Goal / task DAG | The admitted fixed-input plan binds the original input SHA and scientific contract; five declared stages use the existing canonical models and resolver. |
+| Ready queue / supervisor | The common coordinator executed fit → evaluate → analysis → top100 → report in run `bf1920ad-d747-42ca-84ae-03c68ec70c53`. No capability-specific core dispatch or legacy executor was added. |
+| Checkpoint / evaluation | Fresh primary checkpoint fitting and all four chronological model evaluations preserve the original checkpoint, all 2599 probabilities/losses and three complete diagnostic examples. |
+| Analysis / Top-100 | Full original analysis and archived Top-100 match exactly; scientific conclusion remains insufficient. Other historical ticket evaluations are retained explicitly, not counted as fresh searches. |
+| Persistence / registration | Five real PostgreSQL commits, five canonical artifact registrations and ten canonical execution events; artifacts are actual immutable files. |
+| Status / next consumer | HTTP reads the actual domain/plan/release/execution/run-bound completed projection without DB credentials; a separate reader verifies and consumes the complete report. |
+| Replay | New image process `b25054fe-c483-4261-be72-29cd870e2c79` reconstructs the same manifest/artifacts, without new records or status-file writes. |
+| Recovery / computation | The stronger real-PG crash test above counts the actual checkpoint fitting function, and rejects fitting/search/resampling in the new replay process. Same versioned verifier on commit/read/recovery/replay/consumption. |
+
+Completed manifest:
+`389e72aa7f52e8759301f06ae6ec741201f2f8116d1c7aef041b544a4a212fd0`.
+Report SHA:
+`2dec9060c0fc37431ad0145ccbcef84f67aae0c3f7d0d180ceea4e97985c42b8`.
+The scientific report text is byte-identical to the preceding numerical
+recomputation image; the new envelope and parent/release identities differ
+legitimately. Exact local evidence is retained in
+`/tmp/dehps-r4-learning-proof/historical-final/` (descriptor, validation JSON,
+report and runtime artifacts; no credentials), with the complete process log at
+`/tmp/dehps-r4-learning-historical-final-validation.log`.
+
+The existing deterministic third-capability extension/replay test from R2 proves
+new task capabilities need only their own implementation and plan, preserving
+already committed tasks without core edits. Both migrated paths likewise inject
+their own factories. This is architecture acceptance, not a new scientific model.
 
 Required exit proof includes actual finite fitting/evaluation/checkpoint/difference
 analysis, reuse explicitly distinguished from fresh calculation, original
@@ -117,3 +157,16 @@ service, virtual environment, database, artifact or mail ledger is targeted.
 The 2026104 delivery gap and current production-cycle acceptance remain explicit;
 the isolated migration cannot close either. V11 stays retired. R5 deployment,
 single-writer closure and actual independent review remain separate requirements.
+
+Report impact: **NO_RUNTIME_IMPACT for this undeployed learning migration**.
+The diff adds the independent learning modules and tests, and extends only the new
+release/entry configuration. No original P3 supervisor, repository, scientific
+implementation, mail helper, report runner or unit is changed. Builds consume Git
+archives into isolated images; the production venv is not installed into or
+updated. Tests connect only to the explicitly labelled disposable PostgreSQL.
+The original production checkout remains clean ac0ef78. Readonly unit inspection
+at 13:09 confirms the retained supervisor is still PID 7736, observation timer
+disabled and V11 masked; no service was restarted. Today's 2026105 pre-draw timer
+is scheduled for 17:00 and remains PENDING_DELIVERY. This does not certify that
+issue's sealing or delivery, or close the earlier 2026104 gap. Real R5 release
+review, single-writer isolation, deployment and continuity evidence are still due.
