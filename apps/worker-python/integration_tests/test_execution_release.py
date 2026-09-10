@@ -39,6 +39,10 @@ py-modules = ["frozen_probe"]
 import json,os
 from pathlib import Path
 import frozen_probe
+cache=Path(os.environ['NUMBA_CACHE_DIR'])
+assert cache == Path('/tmp/dehps-numba')
+cache.mkdir(exist_ok=True)
+(cache/'probe').write_text('disposable cache')
 if Path('/inputs/force-timeout').exists():
     import time
     time.sleep(30)

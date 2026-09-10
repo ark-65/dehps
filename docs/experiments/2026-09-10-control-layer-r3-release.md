@@ -39,7 +39,7 @@ an explicit inability to replay, never permission to substitute current code.
 ## Component validation
 
 `tests/test_execution_release_schema.py` plus
-`integration_tests/test_execution_release.py`: **10 passed in 33.39 s** against
+`integration_tests/test_execution_release.py`: **10 passed in 29.85 s** against
 actual Docker images with Python 3.14.4. The nine schema cases reject mutable or
 incomplete identities and verify each recorded release component affects identity.
 The integration case builds two committed package versions, installs them into
@@ -55,9 +55,9 @@ unavailable, rejects a wrong archive digest, loads verified retained bytes and
 replays with the original release. A forced timeout removes only the exact
 container created by that call; no detached computation remains.
 
-- First fixture release: `8126ce5fed6e031f9872301420c55a1cfeefa7ecb321b68c03800e4784d43bb2`.
-- Second fixture release: `c86167ed5f432d7c09f6880657388905eef34e591f422baccd31f792bce2376d`.
-- Archived image bytes: `94751cd5da751d5a8ea3bbdcafa15d078ee9127d612f6922c40662bf4c950e58`.
+- First fixture release: `416ff8dac23fe8bbdacad6744adb42f8aa6b510c53d4843e719358fb8ded7689`.
+- Second fixture release: `0a3b12c44377e1e74cd156331a055968bf2b5b6158a10d4ad3099378385ee086`.
+- Archived image bytes: `4bb562feac62c0a6bdf0c0ba320084d25144134afbb5402d9af02e5e43edab32`.
 
 These are engineering fixtures, not scientific/production replay acceptance.
 Fixture images are removed by their test cleanup. A full worker image build and
@@ -76,6 +76,14 @@ recorded inside the resulting image. A later rebuild is a new release requiring
 its own accepted identity; reinstalling version ranges is not historical replay.
 The descriptor and retained archive are created without overwriting earlier files.
 The deployment package must retain both descriptor identity and archive digest.
+
+The first full worker smoke run exposed Numba's import-time cache initialization
+against readonly installed code. This is a real runtime packaging defect, not a
+test-only failure. The image now fixes NUMBA_CACHE_DIR to the isolated `/tmp`
+tmpfs. No scientific kernel, historical source binding or verifier is changed.
+The import trace also confirms that current learning_v1 still imports the legacy
+supervisor through the notification prize helper; R4 must remove that coupling
+while preserving the helper's exact numerical behavior.
 
 The launcher accepts no replacement command, writable code mount or configuration
 override. It has a dedicated runtime target and readonly inputs/credential target;

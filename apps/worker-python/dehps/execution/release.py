@@ -163,7 +163,7 @@ def build_release(repository: Path, commit: str, base_image_id: str,
         # No host venv, ambient .env or untracked runtime file enters this context.
         (root / 'Dockerfile').write_text('\n'.join([
             f'FROM {base_reference}',
-            'ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1',
+            'ENV PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 NUMBA_CACHE_DIR=/tmp/dehps-numba',
             'ADD source.tar /opt/dehps/source/',
             'COPY config.json /opt/dehps/config.json',
             'RUN python -m pip install --no-cache-dir /opt/dehps/source/apps/worker-python && python -m pip check',
