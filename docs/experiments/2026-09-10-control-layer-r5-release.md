@@ -145,3 +145,78 @@ The owner has been asked only to identify the actual independent Reviewer/accoun
 or approval entry point. Continuing engineering consent is already recorded;
 no repeated engineering authorization is requested. The package is still being
 completed, and no approval, identity mapping or Reviewer action is fabricated.
+
+
+## Independent database and socket transport preparation
+
+PR #437 merged as `a879a7b0cdd044811017c334e91503e84c291529` at
+2026-09-10 15:20:45 CST. Its head `ba01a1546a57c49f59eedf3e49dea3eca6c8c305`
+passed all six checks in CI `34447738058` before merge. Installation work continues
+on `codex/control-refactor-r5-install`; that merge did not deploy any service.
+
+The administrator installer now validates the exact PostgreSQL system identifier,
+new database owner/ACL, absence of prior data/schema/roles, reviewed SQL hashes and
+distinct Reviewer principal. It installs existing migrations and minimal entry
+function grants in one transaction. All four roles start NOLOGIN with no password;
+no approval or execution is inserted. Tests activate distinct fixture accounts
+only in disposable databases. Runtime table access, schema creation, owner-role
+assumption, self-approval and Reviewer execution are denied. An unrelated account
+is rejected by PostgreSQL's CONNECT privilege; an existing unrelated schema and
+its evidence are preserved rather than overwritten.
+
+The host release launcher adds an optional private PostgreSQL socket mount, usable
+only with IP networking disabled. It requires a PostgreSQL-owned socket directory,
+the runtime primary group and private permissions, mounts it read-only at
+`/run/dehps-postgres`, and rejects overlap with runtime/input/credential roots.
+The accepted learning image and its frozen scientific code remain unchanged.
+
+A real dedicated PostgreSQL 17 container was tested with no IP network, no
+published ports, `listen_addresses=''` and SCRAM for all local connections. Its
+fixed image was `sha256:2203e6282d9e7de7c24d7da234e2a744fb325df366a3fd8ed940e8abbee39527`.
+Directory owner/group/mode were 999:1000 / 2750; socket mode was 0770. The official
+entrypoint needs its internal default socket while initializing; an initial
+attempt that replaced that path exited and is recorded as failed. The working
+configuration keeps the internal socket and exports only the additional private
+one. CI now creates and cleans its own separate socket server, waits for the final
+PID-1 postmaster rather than the temporary initialization server, and never alters
+the existing test database container.
+
+Final local validation: **17 passed in 21.08 seconds**, including real installation,
+transaction rollback, incorrect-cluster/SQL/identity rejection, all five learning
+stages over the socket, kernel inspection of the actual running container, fresh
+readonly replay and release-schema regressions. The worker had UID 1000, only
+`lo`, and a read-only socket mount. Five commits and five artifact registrations
+were retained; replay added no database records and changed no status bytes/mtime.
+A runtime-owned fake socket and attempting to enable IP networking were rejected.
+
+Accepted image release: `d0ad80169b25143341feb2baaf5f78d4f212c1f69bec62dc50eceb381db347de`.
+Run: `9e4fbc4e-9688-438c-95ec-fdd029b3a6ce`.
+Replay: `b5c6c505-a793-4216-b83a-65c8e2588924`.
+Manifest: `a765e0f38ea4e334a547e7a549ffe14b4e8b7d481d0cab644f2278f50a9a3938`.
+Log: `/tmp/dehps-r5-install-final-validation.log`.
+These are bounded engineering fixture results, not a new scientific experiment
+or production deployment. Earlier fixture failures (missing fixture import and a
+connection-time exception lacking SQLSTATE) were fixed without relaxing the
+actual PostgreSQL permission denial; their logs remain available.
+
+Report impact remains **NO_RUNTIME_IMPACT for development/staging only**. No new
+production account, control database, service, credential or authority mapping has
+been installed. Reviewer identity remains requested, not fabricated. The final
+Operator package still needs exact installed ownership, active entry/consumer
+mapping, reviewed transition/rollback and real report continuity evidence.
+
+
+The socket acceptance was strengthened to restart the actual test PostgreSQL
+container after all five commits and before fresh-process replay. **17 checks
+passed in 20.82 seconds**. The same database records survived socket recreation;
+replay kept every artifact reference and left the status bytes/mtime unchanged.
+Run `247278da-e1c4-42de-ad27-fd4edca1f2be`, replay
+`773ff1b7-8284-445f-a0f6-713e3a1a4419`, manifest
+`560b557ddd2634699405afb9443b5560bddc8537cbd24adddd803b33cb5fdf70`.
+The kernel probe still found only `lo`, UID 1000 and a read-only socket mount.
+Log: `/tmp/dehps-r5-socket-restart-validation.log`.
+
+The administrator credential reader opens with O_NOFOLLOW and O_NONBLOCK before
+checking the descriptor type/permissions. A wrong FIFO path cannot hang before
+the regular-file check; public files and symlinks also remain rejected. This does
+not generate, activate or consume any real Reviewer credential.

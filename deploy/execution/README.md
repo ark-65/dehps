@@ -72,3 +72,71 @@ must not automatically reactivate it. V11 remains masked. A rollback must retain
 new immutable commits/artifacts, avoid re-running committed work and avoid an
 SMTP retry when delivery outcome is unknown. Legacy source paths and original
 unit files must not be overwritten to conceal a failed transition.
+
+## Independent control database installation
+
+`provision_control_database.py` installs the existing schemas as a trusted
+administrator, without loading legacy settings. Its closed specification binds
+the new database, PostgreSQL cluster identity, control domain, stable principals
+and exact SQL bytes. It rejects a changed cluster or SQL file, an existing
+deployment role, execution schema or unrelated user schema. The new database
+must belong to the connected administrator and retain its initial ACL. All
+role/schema/grant changes share one transaction and roll back on failure.
+
+The specification has schema `dehps-control-database-install.v1` and these fields:
+
+| Field | Reviewed value |
+| --- | --- |
+| `database` | New `dehps_control_learning` or `dehps_control_observer` database |
+| `system_identifier` | Actual intended PostgreSQL cluster identifier, as a string |
+| `domain` | `learning` or `observer` |
+| `principals` | Administrator-verified `engineer`, `reviewer`, `operator` identities; Reviewer differs from both others |
+| `sql_sha256` | Exact path-to-SHA mapping for the installer's four `SCHEMA_FILES` |
+
+The schema owner and three role accounts initially have NOLOGIN. Installation
+generates no passwords and creates no approvals or executions. Only the operator
+gets execution-store entry functions; each role gets only its authority entry
+functions. None gets table access, schema creation rights or owner membership.
+The administrator must separately activate logins and deliver credentials to
+their actual owners. The agent must not hold a Reviewer credential to manufacture
+independent review. These identity mappings require real administrative evidence;
+a supplied principal string is not proof of that person's approval.
+
+The private administrator JSON contains only `dsn` and must be canonical, owned
+by the caller and mode 0600. The DSN explicitly supplies host, port, dbname, user
+and password. Remove ambient libpq settings. Never put the password in command
+arguments or this repository. The retained environment contains psycopg:
+
+```bash
+/opt/dehps/releases/control-refactor-r5/legacy/environment/bin/python -I -B \
+  /opt/dehps/releases/control-refactor-r5/provision_control_database.py \
+  --admin-credentials /etc/dehps/control-admin.json \
+  --spec /etc/dehps/reviewed-control-install.json \
+  --source-root /opt/dehps/releases/control-refactor-r5/schema-source
+```
+
+## Database access with IP networking disabled
+
+The independent launcher accepts `--database-socket` only with `--network none`.
+It mounts the private socket directory read-only at `/run/dehps-postgres`; the
+scoped credential DSN uses that host path and port 5432. The directory belongs to
+PostgreSQL, not the worker UID; its group equals the worker's primary group, with
+no group write or other-user access. The socket shares that owner/group and
+denies other users. Typical modes are 2750 for the directory and 0770 for the
+socket. The socket source cannot overlap runtime, inputs or credentials. Install
+its host parent under a protected path so runtime users cannot replace it.
+
+Each independent PostgreSQL container also uses `--network none`, publishes no
+ports and sets `listen_addresses=''`. Local HBA rules require `scram-sha-256`.
+Keep the official image's internal `/var/run/postgresql` socket during
+initialization and export only the additional private socket directory.
+Overriding the default directory alone breaks the initialization client. Pin the
+PostgreSQL image and record volume/socket ownership in the final package.
+
+The accepted learning image works unchanged over this socket. The integration
+test installs the real schema/grants, performs all five learning stages, inspects
+the running container (only `lo`, non-root UID, read-only socket mount), and
+restarts the actual test database, then replays in a fresh process with no extra
+records or status writes. It also rejects
+a runtime-owned socket and combining this transport with IP networking. Fixture
+identities and their activation are not production review evidence.
