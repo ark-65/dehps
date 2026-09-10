@@ -95,8 +95,8 @@ def install(admin_dsn: str, spec: dict, source: Path) -> dict:
             EXISTS (SELECT 1 FROM pg_class WHERE relnamespace='public'::regnamespace)
             OR EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='public'::regnamespace)
             OR EXISTS (SELECT 1 FROM pg_type WHERE typnamespace='public'::regnamespace)
-            OR EXISTS (SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','information_schema')
-                       AND nspname NOT LIKE 'pg\\_%' ESCAPE '\\')""").fetchone()[0]
+            OR EXISTS (SELECT 1 FROM pg_namespace WHERE nspname NOT IN
+                       ('public','information_schema','pg_catalog','pg_toast'))""").fetchone()[0]
         if occupied:
             raise ValueError('empty control database required')
         ownership = admin.execute('''SELECT pg_get_userbyid(datdba)=current_user,datacl IS NULL
