@@ -1,5 +1,28 @@
 # Control-layer refactor checkpoint
 
+## Final acceptance — 2026-09-11
+
+The R0–R5 control-layer refactor has completed engineering, deployment and
+current-cycle acceptance. See the [final requirement and evidence matrix](2026-09-11-control-layer-r0-r5-acceptance.md).
+Earlier stage/status notes below are retained as dated history and are superseded
+by that final report; do not restart their old pending steps.
+
+Independent learning and observation completed installed initial/replay/repeat
+runs with real identity/resource isolation. Formal P3 remains on its frozen
+fixed legacy executor, an explicit roadmap compatibility arrangement. Actual
+owner approval819/decision3496 and completed Operator660 recovered the original
+2026105 settlement without changing old failures or scientific contracts. Its
+normal post report was replay-verified and delivered once at 15:42:20; the natural
+next cycle sealed 2026106 and replayed its three pre-draw tasks by 15:48:43.
+The incompatible duplicate resident and old observer are archived/masked; V11
+remains retired. All original634events/32431registrations/31734registeredfiles
+and both independent domains' persisted records/files were preserved.
+
+Report impact: CURRENT_REPORT_ACCEPTED_AND_NEXT_SEAL_VERIFIED. The 2026104
+historical gap remains; 2026106 mail is PENDING_DELIVERY for September13 at17:00
+Asia/Shanghai. Learning science remains 证据不足. R6 is not started, and no new
+model/search/promotion was added. Stop expanding this completed engineering scope.
+
 ## Current authorization and stage
 
 User direct authorization, 2026-09-09, Codex task `01a0857a-6a96-7543-bc77-2579d2ad5079`:
