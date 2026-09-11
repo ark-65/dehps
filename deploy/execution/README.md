@@ -15,6 +15,22 @@ environment through a private mount namespace. The paths seen by old code remain
 unchanged, so existing artifact references and source probes need no rewriting.
 The original source and shared venv are not imported through the host checkout.
 
+Each retained tree also needs authentic, self-contained `.git` metadata. A plain
+Git archive is insufficient: frozen code calls `rev-parse`, checks the worktree,
+and verifies historical source objects and commit ancestry. Use
+`package_legacy_git.py --repository <original-repository> --commit <exact-SHA>
+--source <new-frozen-source-copy> --output <new-frozen-source-copy>/.git
+--manifest <new-manifest.json>` before reviewing a new bundle. The command checks
+every tracked byte/type/executable mode, exports the complete reachable history,
+builds a fresh index, and requires `fsck` and a clean worktree. It copies no remote
+configuration, hooks, credentials, replacement refs or external alternates.
+Preserve the manifest with the package; include all metadata files in installation
+hash/ownership checks. Never retrofit an already reviewed immutable bundle.
+
+The launcher clears inherited `GIT_*` selectors and ignores developer/global Git
+configuration. The installed source directories retain their exact detached
+commits and readonly metadata; the original verifiers still execute real Git.
+
 | Retained source | Actual entry |
 | --- | --- |
 | `ac0ef7832c6f13c7500b3f7d67731420b575c0f4` | P3 forward, pre/post mail, armed P4, draw sync, performance watch/enter/exit |
@@ -56,8 +72,13 @@ systemd-run --user --unit=dehps-r5-legacy-verification --collect --wait --pipe \
 ```
 
 This checks all nine fixed commands, their actual imported source root and venv,
-UID 1000, `NoNewPrivileges`, kernel `EROFS` denials for both source trees and the
-dependency copy, and read-only inspection data mounts. It does not exercise a
+UID 1000, `NoNewPrivileges`, readonly mount flags and `EROFS`/`EACCES` write denials
+for both source trees and the dependency copy, and read-only inspection data
+mounts. It also checks each exact commit, a clean worktree, full object integrity,
+historical parent/source access and readonly Git metadata without alternates or
+shallow boundaries. It calls the retained performance-runtime compatibility and
+source-contract verifier functions against the current readonly configuration;
+no database or task execution is involved. It does not exercise a
 production cycle, send mail, or count as canonical deployment acceptance.
 
 The candidate production bundle path is

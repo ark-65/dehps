@@ -18,6 +18,10 @@ import subprocess
 
 ORIGINAL = Path('/home/ark/workspace/dehps')
 RESIDENT = Path('/home/ark/workspace/dehps-m4-historical-exec-runtime-cd069c1')
+SOURCE_COMMITS = {
+    ORIGINAL: 'ac0ef7832c6f13c7500b3f7d67731420b575c0f4',
+    RESIDENT: 'cd069c15110b0af0f3a83ff619272c14e4748edc',
+}
 ENTRIES = {
     'forward': (ORIGINAL, 'run_m4_p3_forward_prequential_confirmatory.py',
                 ['cycle', '--apply', '--sync-draws']),
@@ -81,8 +85,11 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
     worker = selected / 'apps/worker-python'
     original_worker = ORIGINAL / 'apps/worker-python'
     sources = [(legacy / 'ac0ef78', ORIGINAL), (legacy / 'cd069c1', RESIDENT)]
-    for source, _ in sources:
+    for source, destination in sources:
         canonical(source)
+        metadata = canonical(source / '.git')
+        if (metadata / 'HEAD').read_text().strip() != SOURCE_COMMITS[destination]:
+            raise ValueError('legacy metadata must retain its exact detached commit')
     canonical(legacy / 'environment')
     if not inspect:
         if os.geteuid() != pwd.getpwnam('ark').pw_uid:
@@ -90,6 +97,11 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
         protected_package(bundle)
     args = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-pid',
             '--ro-bind', '/', '/']
+    # Git called by frozen code must resolve the installed .git and real objects,
+    # not ambient developer directories, replacements, alternates or config.
+    for name in sorted(os.environ):
+        if name.startswith('GIT_'):
+            args += ['--unsetenv', name]
     if inspect:
         args += ['--unshare-net']
     for source, destination in sources:
@@ -108,6 +120,10 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
              '--setenv', 'PYTHONPATH', str(worker),
              '--unsetenv', 'PYTHONHOME', '--unsetenv', 'PYTHONSTARTUP',
              '--setenv', 'PYTHONNOUSERSITE', '1',
+             '--setenv', 'GIT_CONFIG_NOSYSTEM', '1',
+             '--setenv', 'GIT_CONFIG_GLOBAL', '/dev/null',
+             '--setenv', 'GIT_NO_REPLACE_OBJECTS', '1',
+             '--setenv', 'GIT_OPTIONAL_LOCKS', '0',
              '--setenv', 'NUMBA_CACHE_DIR', '/tmp/dehps-numba' if inspect else
              str(ORIGINAL / 'runtime/control-layer-legacy-numba'),
              '--setenv', 'GIT_CONFIG_COUNT', '2',
