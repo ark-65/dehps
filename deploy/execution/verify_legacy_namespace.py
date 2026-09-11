@@ -15,7 +15,7 @@ import legacy_p3_namespace as legacy
 
 
 PROBE = '''
-import errno, json, os, subprocess
+import errno, json, os, runpy, subprocess, sys
 from pathlib import Path
 paths = [
  '/home/ark/workspace/dehps/apps/worker-python/dehps/config.py',
@@ -64,8 +64,26 @@ for root, expected in [
     git_records.append({'root':root,'commit':expected,'parent':parent,
                         'history_commits':int(git('rev-list','--count','HEAD')),
                         'clean':True,'metadata_mount_readonly':True})
+root = Path('/home/ark/workspace/dehps')
+worker = root / 'apps/worker-python'
+sys.path.insert(0, str(worker))
+retained = runpy.run_path(str(worker / 'scripts/run_m4_p3_performance_runtime.py'),
+                         run_name='retained_contract_inspection')
+config = json.loads((root / 'runtime/p3-performance/config.json').read_text())
+retained['verify_runtime_compatibility_closure'](
+    operator_commit=config['operator']['merged_commit'],
+    closure=config['runtime_compatibility_closure'])
+source = retained['successor'].load_source_contract(root_dir=root)
+assert source['artifact_digest'] == retained['EXPECTED_SOURCE_DIGEST']
+assert source['source_set_digest'] == retained['EXPECTED_SOURCE_SET_DIGEST']
+frozen_contract = {'verified_by_original_functions':True,
+                   'operator_commit':config['operator']['merged_commit'],
+                   'closure_digest':config['runtime_compatibility_closure']['closure_digest'],
+                   'source_artifact_digest':source['artifact_digest'],
+                   'source_set_digest':source['source_set_digest']}
 print(json.dumps({'uid':os.getuid(),'no_new_privileges':True,'denials':denials,
-                  'inspection_data_mounts_readonly':True,'git':git_records}))
+                  'inspection_data_mounts_readonly':True,'git':git_records,
+                  'frozen_contract':frozen_contract}))
 '''
 
 

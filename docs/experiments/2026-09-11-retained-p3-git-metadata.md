@@ -75,6 +75,13 @@ These checks used original code and original current configuration as read-only
 inputs, without database access, task dispatch, mail delivery or runtime writes.
 They do not prove a current P3 execution or report was successful.
 
+The original-function contract checks are now part of the permanent namespace
+verifier, not only the separate inspection above. The final combined check
+repeated all nine entries, Git history/permissions and both frozen-contract
+functions with the deliberately invalid inherited Git selectors. It passed in
+41.414 seconds, invocation `75d8c96f2c1840e5a669e6798e55b04f`. Both metadata
+manifests still matched after verification; no cached Git index was rewritten.
+
 ## Report impact and remaining release work
 
 Report-impact verdict for this engineering round: **NO_RUNTIME_IMPACT**. The diff

@@ -76,7 +76,9 @@ UID 1000, `NoNewPrivileges`, readonly mount flags and `EROFS`/`EACCES` write den
 for both source trees and the dependency copy, and read-only inspection data
 mounts. It also checks each exact commit, a clean worktree, full object integrity,
 historical parent/source access and readonly Git metadata without alternates or
-shallow boundaries. It does not exercise a
+shallow boundaries. It calls the retained performance-runtime compatibility and
+source-contract verifier functions against the current readonly configuration;
+no database or task execution is involved. It does not exercise a
 production cycle, send mail, or count as canonical deployment acceptance.
 
 The candidate production bundle path is
