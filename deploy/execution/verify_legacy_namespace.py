@@ -27,12 +27,15 @@ assert status['NoNewPrivs'].strip() == '1'
 assert os.getuid() == 1000
 denials = []
 for path in paths:
+    # A root-owned installed release can fail DAC before the VFS reports EROFS.
+    # Require the mount flag separately so EACCES cannot hide a writable mount.
+    assert os.statvfs(path).f_flag & os.ST_RDONLY, path
     try:
         fd = os.open(path, os.O_WRONLY)
         os.close(fd)
     except OSError as exc:
-        assert exc.errno == errno.EROFS, (path, exc)
-        denials.append({'path':path,'errno':exc.errno})
+        assert exc.errno in (errno.EROFS, errno.EACCES), (path, exc)
+        denials.append({'path':path,'errno':exc.errno,'mount_readonly':True})
     else:
         raise AssertionError('release allows write-open: ' + path)
 assert os.statvfs('/home/ark/workspace/dehps/runtime').f_flag & os.ST_RDONLY

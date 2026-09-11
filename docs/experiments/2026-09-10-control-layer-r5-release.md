@@ -1,5 +1,12 @@
 # R5 controlled release preparation
 
+Current deployment evidence is recorded in
+[the 2026-09-11 activation report](2026-09-11-control-layer-r5-activation.md):
+the independent learning and observation domains have actual executions,
+registered reports, replay and repeat-invocation proof. Formal P3's retained
+environment transition and current report-chain acceptance remain pending.
+The preparation chronology below is preserved and is not the current status.
+
 Role: Engineering under the continuing R0–R5 owner consent. Status:
 **PREPARATION_IN_PROGRESS**, not release-ready, reviewed or deployed.
 
