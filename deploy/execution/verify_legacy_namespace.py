@@ -40,6 +40,10 @@ for path in paths:
         raise AssertionError('release allows write-open: ' + path)
 assert os.statvfs('/home/ark/workspace/dehps/runtime').f_flag & os.ST_RDONLY
 assert os.statvfs('/home/ark/workspace/dehps/data/output').f_flag & os.ST_RDONLY
+env_target = Path('/home/ark/workspace/dehps/.env')
+assert env_target.is_file() and not env_target.is_symlink()
+assert env_target.read_bytes() == b''
+assert os.statvfs(env_target).f_flag & os.ST_RDONLY
 git_records = []
 for root, expected in [
  ('/home/ark/workspace/dehps', 'ac0ef7832c6f13c7500b3f7d67731420b575c0f4'),
@@ -83,6 +87,7 @@ frozen_contract = {'verified_by_original_functions':True,
                    'source_set_digest':source['source_set_digest']}
 print(json.dumps({'uid':os.getuid(),'no_new_privileges':True,'denials':denials,
                   'inspection_data_mounts_readonly':True,'git':git_records,
+                  'env_file_mount_verified_with_empty_input':True,
                   'frozen_contract':frozen_contract}))
 '''
 

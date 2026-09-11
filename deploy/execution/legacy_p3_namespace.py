@@ -91,6 +91,13 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
         if (metadata / 'HEAD').read_text().strip() != SOURCE_COMMITS[destination]:
             raise ValueError('legacy metadata must retain its exact detached commit')
     canonical(legacy / 'environment')
+    # The source directory is mounted readonly before the environment file.
+    # bwrap cannot create a missing file target inside that readonly directory.
+    # Package only an empty regular placeholder; credentials stay on the host.
+    env_target = legacy / 'ac0ef78/.env'
+    if (env_target.is_symlink() or not env_target.is_file()
+            or env_target.stat().st_size != 0):
+        raise ValueError('release requires an empty regular legacy/ac0ef78/.env mount target')
     if not inspect:
         if os.geteuid() != pwd.getpwnam('ark').pw_uid:
             raise ValueError('legacy execution must retain its existing ark runtime owner')
@@ -113,8 +120,10 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
         path = str(ORIGINAL / relative)
         writable = not inspect and (relative == 'runtime' or entry not in {'pre-mail', 'post-mail'})
         args += ['--bind' if writable else '--ro-bind', path, path]
-    if not inspect:
-        args += ['--ro-bind', str(ORIGINAL / '.env'), str(ORIGINAL / '.env')]
+    # Exercise the same file mount during offline acceptance, with the empty
+    # placeholder as its source instead of reading production credentials.
+    args += ['--ro-bind', str(env_target if inspect else ORIGINAL / '.env'),
+             str(ORIGINAL / '.env')]
     args += ['--tmpfs', '/tmp', '--tmpfs', '/var/tmp', '--proc', '/proc', '--dev', '/dev',
              '--chdir', str(ORIGINAL if entry == 'performance-watch' else worker),
              '--setenv', 'PYTHONPATH', str(worker),
