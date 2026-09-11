@@ -15,7 +15,7 @@ import legacy_p3_namespace as legacy
 
 
 PROBE = '''
-import errno, json, os
+import errno, json, os, subprocess
 from pathlib import Path
 paths = [
  '/home/ark/workspace/dehps/apps/worker-python/dehps/config.py',
@@ -40,8 +40,32 @@ for path in paths:
         raise AssertionError('release allows write-open: ' + path)
 assert os.statvfs('/home/ark/workspace/dehps/runtime').f_flag & os.ST_RDONLY
 assert os.statvfs('/home/ark/workspace/dehps/data/output').f_flag & os.ST_RDONLY
+git_records = []
+for root, expected in [
+ ('/home/ark/workspace/dehps', 'ac0ef7832c6f13c7500b3f7d67731420b575c0f4'),
+ ('/home/ark/workspace/dehps-m4-historical-exec-runtime-cd069c1', 'cd069c15110b0af0f3a83ff619272c14e4748edc'),
+]:
+    metadata = Path(root) / '.git'
+    assert metadata.is_dir() and not metadata.is_symlink(), metadata
+    assert os.statvfs(metadata).f_flag & os.ST_RDONLY, metadata
+    assert not (metadata / 'objects/info/alternates').exists()
+    assert not (metadata / 'shallow').exists()
+    def git(*args):
+        return subprocess.check_output(['/usr/bin/git', '-C', root, *args], text=True).strip()
+    assert git('rev-parse', 'HEAD') == expected
+    assert not git('status', '--porcelain'), root
+    assert not git('remote'), root
+    git('fsck', '--full', '--no-reflogs')
+    # A parent and its original source object must remain accessible after the
+    # development repository is hidden by the readonly archive mount.
+    parent = git('rev-parse', 'HEAD^')
+    git('merge-base', '--is-ancestor', parent, 'HEAD')
+    git('cat-file', '-e', parent + ':apps/worker-python/dehps/config.py')
+    git_records.append({'root':root,'commit':expected,'parent':parent,
+                        'history_commits':int(git('rev-list','--count','HEAD')),
+                        'clean':True,'metadata_mount_readonly':True})
 print(json.dumps({'uid':os.getuid(),'no_new_privileges':True,'denials':denials,
-                  'inspection_data_mounts_readonly':True}))
+                  'inspection_data_mounts_readonly':True,'git':git_records}))
 '''
 
 
