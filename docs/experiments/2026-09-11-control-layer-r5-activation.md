@@ -1,5 +1,10 @@
 # R5 independent-domain deployment and retained-P3 gap
 
+Update13:59CST: retained-P3 fixed-release deployment is now complete under actual
+Request818/execution659. Current2026105 report acceptance remains blocked. See
+[the fixed-release deployment evidence](2026-09-11-control-layer-r5-fixed-release-activation.md).
+The original observations below are preserved as their earlier snapshot.
+
 Status: **INDEPENDENT_DOMAINS_DEPLOYED_AND_REPLAY_VERIFIED**.
 The retained P3 environment transition and its current report-chain acceptance
 remain pending. This is not a claim that every R5 entry or the overall goal is complete.
