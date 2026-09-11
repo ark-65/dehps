@@ -91,6 +91,10 @@ def command(bundle: Path, entry: str, inspect: bool) -> list[str]:
         if (metadata / 'HEAD').read_text().strip() != SOURCE_COMMITS[destination]:
             raise ValueError('legacy metadata must retain its exact detached commit')
     canonical(legacy / 'environment')
+    runtime_alias = legacy / 'cd069c1/runtime'
+    if (not runtime_alias.is_symlink()
+            or runtime_alias.readlink() != ORIGINAL / 'runtime'):
+        raise ValueError('release must preserve the resident canonical runtime symlink')
     # The source directory is mounted readonly before the environment file.
     # bwrap cannot create a missing file target inside that readonly directory.
     # Package only an empty regular placeholder; credentials stay on the host.

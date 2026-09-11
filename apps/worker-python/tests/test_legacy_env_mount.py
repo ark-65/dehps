@@ -18,6 +18,7 @@ def test_unsafe_env_mount_target_rejected_before_launch(tmp_path, target_kind):
         metadata.mkdir(parents=True)
         (metadata / 'HEAD').write_text(commit + '\n')
     (bundle / 'legacy/environment').mkdir()
+    (bundle / 'legacy/cd069c1/runtime').symlink_to(legacy.ORIGINAL / 'runtime')
     target = bundle / 'legacy/ac0ef78/.env'
     if target_kind == 'nonempty':
         target.write_text('SYNTHETIC_TEST_SECRET=must-not-enter-release\n')
