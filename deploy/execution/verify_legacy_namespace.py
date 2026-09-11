@@ -44,6 +44,10 @@ env_target = Path('/home/ark/workspace/dehps/.env')
 assert env_target.is_file() and not env_target.is_symlink()
 assert env_target.read_bytes() == b''
 assert os.statvfs(env_target).f_flag & os.ST_RDONLY
+resident = Path('/home/ark/workspace/dehps-m4-historical-exec-runtime-cd069c1')
+assert (resident / 'runtime').is_symlink()
+assert (resident / 'runtime').resolve() == Path('/home/ark/workspace/dehps/runtime')
+assert (resident / 'runtime/logs/research-evidence-supervisor-state.json').is_file()
 git_records = []
 for root, expected in [
  ('/home/ark/workspace/dehps', 'ac0ef7832c6f13c7500b3f7d67731420b575c0f4'),
@@ -105,6 +109,26 @@ def verify(bundle: Path) -> dict:
         assert 'usage:' in result.stdout
         records.append({'entry':entry,'imports':first,
                         'stdout_sha256':sha256(result.stdout.encode()).hexdigest()})
+    # Read the frozen supervisor's actual default path in its own interpreter.
+    # Constructor/path lookup performs no dispatch, schema operation or write.
+    argv = legacy.command(bundle, 'supervisor', True)
+    state_probe = '''
+import json, sys
+from pathlib import Path
+sys.path.insert(0, '/home/ark/workspace/dehps-m4-historical-exec-runtime-cd069c1/apps/worker-python')
+from dehps.research_os.repository import PostgresResearchOSRepository
+from dehps.research_os.supervisor import ResearchEvidenceSupervisor
+supervisor = ResearchEvidenceSupervisor(repository=PostgresResearchOSRepository())
+expected = Path('/home/ark/workspace/dehps/runtime/logs/research-evidence-supervisor-state.json')
+assert supervisor.state_path.resolve() == expected
+assert supervisor.state_path.samefile(expected)
+print(json.dumps({'state_path':str(supervisor.state_path), 'resolved_state_path':str(expected),
+                  'canonical_file_same':True, 'dispatch_performed':False}))
+'''
+    state = subprocess.run(argv[:argv.index('-c') + 1] + [state_probe],
+                           capture_output=True, text=True)
+    if state.returncode:
+        raise RuntimeError(f'resident state path failed: {state.stderr}')
     argv = legacy.command(bundle, 'forward', True)
     argv = argv[:argv.index('-c') + 1] + [PROBE]
     probe = subprocess.run(argv, capture_output=True, text=True)
@@ -114,6 +138,7 @@ def verify(bundle: Path) -> dict:
             'verified_at':datetime.now(timezone.utc).isoformat(),
             'launcher_sha256':sha256(Path(legacy.__file__).read_bytes()).hexdigest(),
             'bundle':str(bundle),'entries':records,'permissions':json.loads(probe.stdout),
+            'resident_state_path':json.loads(state.stdout),
             'production_execution':False,'scientific_acceptance':False}
 
 
