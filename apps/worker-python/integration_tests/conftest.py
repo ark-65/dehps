@@ -20,17 +20,21 @@ ENTRY_FUNCTIONS = (
 
 @pytest.fixture
 def authority():
+    yield from authority_fixture()
+
+
+def authority_fixture(domain='learning'):
     details = conninfo_to_dict(os.environ["DEHPS_EXECUTION_TEST_ADMIN_DSN"])
     assert details["dbname"] == "dehps_execution_test_admin"
     tag = "xa_" + uuid4().hex[:16]
     database, owner = tag + "_db", tag + "_owner"
     # Aliases share a principal even if permission roles/labels differ.
     subjects = {
-        "engineer": ("person-a", "learning", True, False, True),
-        "alias": ("person-a", "learning", False, True, True),
-        "reviewer": ("person-b", "learning", False, True, True),
-        "operator": ("person-c", "learning", False, False, True),
-        "observer": ("person-d", "observer", True, True, True),
+        "engineer": ("person-a", domain, True, False, True),
+        "alias": ("person-a", domain, False, True, True),
+        "reviewer": ("person-b", domain, False, True, True),
+        "operator": ("person-c", domain, False, False, True),
+        "observer": ("person-d", 'observer' if domain == 'learning' else 'learning', True, True, True),
         "unknown": None,
     }
     roles = {name: tag + "_" + name for name in subjects}

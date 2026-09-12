@@ -23,6 +23,11 @@ class Capability:
     verifier_id: str
     verify: Verifier
     execute: Callable[[Task, Mapping[str,StoredResult], ArtifactStore],bytes]
+    # A versioned capability may wait for an external input before claiming a
+    # computation. This is not a completion fact or an authorization override.
+    ready: Callable[[Task, Mapping[str,StoredResult]], str | None] | None = None
+    failure_isolated: bool = False
+    commit_guard: Callable[[dict, bytes, datetime], None] | None = None
 
 
 class Coordinator:
@@ -36,6 +41,8 @@ class Coordinator:
         self.lease_seconds = lease_seconds
         self.run_id = str(uuid4())
         self.projection_errors: list[str] = []
+        self.wait_reasons: dict[str, str] = {}
+        self.task_errors: dict[str, str] = {}
         self.bindings: dict[str,int] = {}
         self._last_manifest = self.initial
         specs = {s['task_digest']:s for s in self.plan.payload['tasks']}
@@ -48,6 +55,8 @@ class Coordinator:
             if previous is not capability.verify:
                 raise BoundaryError('one verifier version cannot select different policies')
         self.store.verifiers = policies
+        self.store.commit_guards = {c.verifier_id: c.commit_guard for c in self.capabilities.values()
+                                    if c.commit_guard is not None}
 
     def admit(self):
         self.plan.validate()
@@ -66,8 +75,14 @@ class Coordinator:
             raise BoundaryError('persisted plan task bindings incomplete')
 
     def snapshot(self, *, recover_registration: bool = False) -> ControlPlaneManifest:
+        with self.store.verification_scope():
+            return self._snapshot_manifest(recover_registration=recover_registration)
+
+    def _snapshot_manifest(self, *, recover_registration: bool, verified_manifest=None) -> ControlPlaneManifest:
         self._load_plan()
-        payload = self.initial.to_dict()
+        # Only the current synchronous run may reuse its already ledger-verified
+        # prefix. Fresh run/replay always reconstructs from the immutable plan.
+        payload = (verified_manifest or self.initial).to_dict()
         tasks = {task.task_key:task for task in self.initial.tasks}
         while True:
             manifest = ControlPlaneManifest.from_dict(payload)
@@ -100,6 +115,10 @@ class Coordinator:
                    'plan_digest':self.plan.digest,'manifest_digest':manifest.artifact_digest,
                    'updated_at':datetime.now(timezone.utc).isoformat(),
                    'tasks':{t.task_key:manifest.task_state_by_digest[t.artifact_digest].declared_status.value for t in manifest.tasks}}
+        if self.wait_reasons:
+            payload['wait_reasons'] = dict(self.wait_reasons)
+        if self.task_errors:
+            payload['task_errors'] = dict(self.task_errors)
         try:
             self.store.artifacts.context.write_projection('status','execution.json',payload)
         except (OSError,BoundaryError) as exc:
@@ -132,17 +151,22 @@ class Coordinator:
     def run(self) -> ControlPlaneManifest:
         # A failed admission/readback must not leave an earlier process's success
         # as the current projection. This is status only, never a durable fact.
+        self.task_errors.clear()
+        self.wait_reasons.clear()
         self._project('starting',self.initial)
         try:
             self.admit()
-            return self._run()
+            with self.store.verification_scope():
+                return self._run()
         except Exception:
             self._project('failed',self._last_manifest)
             raise
 
     def _run(self) -> ControlPlaneManifest:
+        verified_manifest = None
         while True:
-            manifest = self.snapshot(recover_registration=True)
+            manifest = self._snapshot_manifest(recover_registration=True, verified_manifest=verified_manifest)
+            verified_manifest = manifest
             self._last_manifest = manifest
             ready = ReadyQueue.build(manifest,TaskDependencyResolver().resolve(manifest))
             if not ready:
@@ -153,7 +177,25 @@ class Coordinator:
             progressed = False
             for item in ready:
                 task = next(t for t in manifest.tasks if t.task_key == item.task_key)
+                if task.task_key in self.task_errors:
+                    continue
                 task_id = self.bindings[task.artifact_digest]
+                parents = {}
+                for dependency in task.dependencies:
+                    if dependency.dependency_type is DependencyType.TASK:
+                        parent = next(t for t in manifest.tasks if t.task_key == dependency.target_key)
+                        value = self.store.result(self.bindings[parent.artifact_digest])
+                        if value is None:
+                            raise BoundaryError('ready task lost a committed parent')
+                        parents[parent.task_key] = value
+                capability = self.capabilities[task.requested_capability]
+                reason = capability.ready(task, parents) if capability.ready else None
+                if reason is not None:
+                    if not isinstance(reason, str) or not reason or len(reason) > 200:
+                        raise BoundaryError('invalid capability input wait reason')
+                    self.wait_reasons[task.task_key] = reason
+                    continue
+                self.wait_reasons.pop(task.task_key, None)
                 attempt = self.store.claim(task_id,lease_seconds=self.lease_seconds)
                 if attempt is None:
                     continue
@@ -162,14 +204,6 @@ class Coordinator:
                     continue
                 try:
                     with self._lease(attempt,manifest):
-                        parents = {}
-                        for dependency in task.dependencies:
-                            if dependency.dependency_type is DependencyType.TASK:
-                                parent = next(t for t in manifest.tasks if t.task_key == dependency.target_key)
-                                value = self.store.result(self.bindings[parent.artifact_digest])
-                                if value is None:
-                                    raise BoundaryError('ready task lost a committed parent')
-                                parents[parent.task_key] = value
                         data = self.capabilities[task.requested_capability].execute(task,parents,self.store.artifacts)
                         artifact = self.store.prepare(task_id,data)
                         self.store.commit(attempt,artifact,register=self.ledger.register)
@@ -178,15 +212,18 @@ class Coordinator:
                     # a durable success into a failure or rerun it based on error.
                     if self.store.result(task_id) is None:
                         self.store.fail(attempt,type(exc).__name__)
+                        if capability.failure_isolated:
+                            self.task_errors[task.task_key] = type(exc).__name__
+                            continue
                         raise
                     self.ledger.recover_registration(task_id)
                 progressed = True
             if not progressed:
-                self._project('waiting',manifest)
+                self._project('failed' if self.task_errors else 'waiting',manifest)
                 return manifest
 
-    def replay(self) -> ControlPlaneManifest:
+    def replay(self, *, require_complete: bool = True) -> ControlPlaneManifest:
         manifest = self.snapshot()
-        if any(manifest.task_state_by_digest[t.artifact_digest].declared_status is not TaskStatus.COMPLETED for t in manifest.tasks):
+        if require_complete and any(manifest.task_state_by_digest[t.artifact_digest].declared_status is not TaskStatus.COMPLETED for t in manifest.tasks):
             raise BoundaryError('plan replay incomplete')
         return manifest

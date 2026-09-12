@@ -21,7 +21,7 @@ async function fixture() {
   const file = path.join(root, 'learning/status/execution.json');
   await mkdir(path.dirname(file), { recursive: true });
   const binding = { root, controlPlane: 'learning', planDigest: 'b'.repeat(64), releaseSha256: 'a'.repeat(64),
-    executionId: 42, maxAgeSeconds: 60 };
+    executionId: 42, requestId: 9, maxAgeSeconds: 60 };
   const reader = new ExecutionStatusReader([binding]);
   return { root, file, binding, reader, write: (value: unknown) => writeFile(file, JSON.stringify(value)) };
 }
@@ -86,6 +86,30 @@ test('symlink status and ancestor paths are rejected', async () => {
     await writeFile(path.join(foreign, 'execution.json'), JSON.stringify(packet()));
     await symlink(foreign, path.dirname(f.file));
     assert.equal((await f.reader.read('learning', now)).reason, 'INVALID');
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('per-issue waits, isolated failures and expired admission remain distinct', async () => {
+  const f = await fixture();
+  try {
+    const base = packet();
+    await f.write({ ...base, payload: { ...base.payload, phase: 'failed',
+      tasks: { score: 'draft', report: 'draft', previous: 'completed' },
+      wait_reasons: { score: 'WAITING_FOR_AUDITED_DRAW' }, task_errors: { report: 'OSError' } } });
+    const failure = await f.reader.read('learning', now);
+    assert.equal(failure.status, 'FAILED');
+    assert.deepEqual('taskErrors' in failure && failure.taskErrors, { report: 'OSError' });
+    await f.write({ ...base, payload: { ...base.payload, phase: 'waiting', wait_reasons: { foreign: 'wait' } } });
+    assert.equal((await f.reader.read('learning', now)).reason, 'INVALID');
+    await f.write({ ...base, payload: { schema: 'execution-admission-status.v1', phase: 'waiting',
+      reason: 'AUTHORIZATION_REQUIRED', request_id: 9, run_id: base.payload.run_id,
+      plan_digest: base.payload.plan_digest, release_sha256: base.payload.release_sha256,
+      updated_at: base.payload.updated_at } });
+    const wait = await f.reader.read('learning', now);
+    assert.equal(wait.status, 'WAITING');
+    assert.equal(wait.reason, 'AUTHORIZATION_REQUIRED');
+    assert.equal(wait.executionId, null);
+    assert.equal(wait.durableCompletionVerified, false);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 

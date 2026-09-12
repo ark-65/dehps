@@ -1,0 +1,25 @@
+[Unit]
+Description=DEHPS bounded read-only audited input and report exporter
+Requires=dehps-control-postgres@learning.service
+After=dehps-control-postgres@learning.service
+ConditionPathExists=/etc/dehps/forward/publisher.json
+
+[Service]
+Type=oneshot
+User=dehps-learning
+Group=dehps-learning
+Environment=PATH=/usr/bin:/bin
+# Root installs this exact accepted source and venv, independently of mainline.
+ExecStart=/opt/dehps/releases/forward-publisher/venv/bin/python -I -m dehps.prediction.forward_learning.operations publish --config /etc/dehps/forward/publisher.json
+Restart=no
+TimeoutStartSec=30min
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+ReadWritePaths=/opt/dehps/inputs/forward-learning /opt/dehps/inputs/forward-observer
+ReadOnlyPaths=/var/lib/dehps/control-learning /etc/dehps/forward

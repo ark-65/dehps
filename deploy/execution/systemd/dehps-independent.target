@@ -1,0 +1,8 @@
+[Unit]
+Description=DEHPS independent control databases and read-only status recovery
+Wants=dehps-control-postgres@learning.service dehps-control-postgres@observer.service
+Wants=dehps-control-status@learning.service dehps-control-status@observer.service
+After=docker.service
+
+[Install]
+WantedBy=multi-user.target
