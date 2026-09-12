@@ -6,6 +6,7 @@ initializes a database, changes a source contract or treats status JSON as truth
 """
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from contextlib import contextmanager
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
@@ -48,6 +49,24 @@ class ExecutionStore:
         self.artifacts = artifacts
         self.authorization = authorization
         self.verifiers = dict(verifiers)
+        self.commit_guards = {}
+        self._verification_cache = None
+
+    @contextmanager
+    def verification_scope(self):
+        """Bound repeated DAG traversal to one exact-byte verification per read.
+
+        Cache only inside one synchronous traversal/run. Every hit rereads the
+        authenticated task/commit binding and hash-checks artifact bytes. A new
+        replay starts empty; a changed binding or object never gets a cache hit.
+        """
+        outer = self._verification_cache
+        if outer is None:
+            self._verification_cache = {}
+        try:
+            yield
+        finally:
+            self._verification_cache = outer
 
     def register(self, spec: dict) -> int:
         with self.database.connect() as connection:
@@ -79,8 +98,14 @@ class ExecutionStore:
             return None
         artifact = PreparedArtifact(commit['artifact_sha256'], commit['artifact_size'])
         data = self.artifacts.read(artifact)
+        cached = self._verification_cache.get(task_id) if self._verification_cache is not None else None
+        if cached is not None and cached[0] == snapshot and cached[1].data == data:
+            return cached[1]
         self._verify(snapshot['task'], data)
-        return StoredResult(snapshot['task'], artifact, data)
+        result = StoredResult(snapshot['task'], artifact, data)
+        if self._verification_cache is not None:
+            self._verification_cache[task_id] = (snapshot, result)
+        return result
 
     def claim(self, task_id: int, *, lease_seconds: int = 300) -> Attempt | StoredResult | None:
         # Reject a wrong filesystem binding before admitting a computation.
@@ -131,6 +156,11 @@ class ExecutionStore:
                 # Trusted entry-point sink: canonical registrations participate
                 # in the same transaction; capability code receives no connection.
                 register(connection, attempt.task_id)
+            guard = self.commit_guards.get(snapshot['task']['verifier_id'])
+            if guard is not None:
+                # Run after registration inside the real transaction. A deadline
+                # failure rolls back the commit AND its canonical registrations.
+                guard(snapshot['task'], data, connection.execute('SELECT clock_timestamp()').fetchone()[0])
         result = self.result(attempt.task_id)
         if result is None:
             raise BoundaryError('committed result missing on readback')

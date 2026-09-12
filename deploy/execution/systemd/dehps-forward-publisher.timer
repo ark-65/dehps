@@ -1,0 +1,12 @@
+[Unit]
+Description=DEHPS check audited labels and registered independent reports
+
+[Timer]
+OnBootSec=90s
+OnCalendar=*-*-* *:00,15,30,45:00
+Persistent=true
+AccuracySec=1s
+Unit=dehps-forward-publisher.service
+
+[Install]
+WantedBy=timers.target

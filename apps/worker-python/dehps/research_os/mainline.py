@@ -44,12 +44,19 @@ def completion_execution_ids(
     *,
     task: Task,
 ) -> tuple[str, ...]:
+    # Compute the immutable task digest and compile its exact match once, not
+    # once per artifact fact. Long per-issue DAGs otherwise repeatedly hash the
+    # entire metric contract during every resolver pass. Matching is unchanged.
+    pattern = re.compile(
+        rf"^{re.escape(MAINLINE_EXECUTION_FACT_PREFIX)}:"
+        rf"{re.escape(task.task_key)}:{re.escape(task.artifact_digest)}:"
+        rf"({_DIGEST}):completed$"
+    )
     return tuple(
         sorted(
-            execution_id
+            match.group(1)
             for fact in manifest.facts.artifacts
-            if (execution_id := completion_fact_execution_id(task=task, fact_key=fact))
-            is not None
+            if (match := pattern.fullmatch(fact)) is not None
         )
     )
 

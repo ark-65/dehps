@@ -9,6 +9,7 @@ export type ExecutionStatusSource = {
   planDigest: string;
   releaseSha256: string;
   executionId: number;
+  requestId?: number;
   maxAgeSeconds: number;
 };
 
@@ -23,6 +24,8 @@ type Projection = {
   manifest_digest: string;
   updated_at: string;
   tasks: Record<string, string>;
+  wait_reasons?: Record<string, string>;
+  task_errors?: Record<string, string>;
 };
 
 const HEX = /^[a-f0-9]{64}$/;
@@ -42,7 +45,7 @@ export function parseExecutionStatusSources(raw: string | undefined): ExecutionS
   if (!Array.isArray(values)) throw new Error('execution status sources must be an explicit array');
   const domains = new Set<string>();
   return values.map((value: unknown) => {
-    if (!object(value) || Object.keys(value).sort().join(',') !==
+    if (!object(value) || Object.keys(value).filter(key => key !== 'requestId').sort().join(',') !==
       'controlPlane,executionId,maxAgeSeconds,planDigest,releaseSha256,root' ||
       typeof value.controlPlane !== 'string' || !DOMAIN.test(value.controlPlane) ||
       domains.has(value.controlPlane) || typeof value.root !== 'string' ||
@@ -50,6 +53,7 @@ export function parseExecutionStatusSources(raw: string | undefined): ExecutionS
       typeof value.planDigest !== 'string' || !HEX.test(value.planDigest) ||
       typeof value.releaseSha256 !== 'string' || !HEX.test(value.releaseSha256) ||
       !Number.isSafeInteger(value.executionId) || (value.executionId as number) < 1 ||
+      (value.requestId !== undefined && (!Number.isSafeInteger(value.requestId) || (value.requestId as number) < 1)) ||
       !Number.isInteger(value.maxAgeSeconds) || (value.maxAgeSeconds as number) < 1 ||
       (value.maxAgeSeconds as number) > 86400) {
       throw new Error('invalid or duplicate execution status binding');
@@ -74,6 +78,12 @@ function projection(value: unknown): value is Projection {
       !Object.entries(value.tasks).every(([key, state]) => key.length > 0 &&
         typeof state === 'string' && TASK_STATES.has(state))) return false;
   if (new Date(value.updated_at).toISOString().slice(0, 19) !== value.updated_at.slice(0, 19)) return false;
+  const tasks = value.tasks;
+  for (const reasons of [value.wait_reasons, value.task_errors]) {
+    if (reasons !== undefined && (!object(reasons) ||
+      !Object.entries(reasons).every(([key, reason]) => Object.hasOwn(tasks, key) &&
+        typeof reason === 'string' && reason.length > 0 && reason.length <= 200))) return false;
+  }
   return value.phase !== 'completed' || Object.values(value.tasks).every(state => state === 'completed');
 }
 
@@ -126,7 +136,24 @@ export class ExecutionStatusReader {
       if (error instanceof SyntaxError || code === 'ELOOP') return unknown('INVALID');
       return unknown('UNREADABLE');
     }
-    if (!object(raw) || !projection(raw.payload)) return unknown('INVALID');
+    if (!object(raw) || !object(raw.payload)) return unknown('INVALID');
+    if (raw.payload.schema === 'execution-admission-status.v1') {
+      const value = raw.payload;
+      if (value.phase !== 'waiting' || value.reason !== 'AUTHORIZATION_REQUIRED' ||
+          !Number.isSafeInteger(value.request_id) || (value.request_id as number) < 1 ||
+          typeof value.run_id !== 'string' ||
+          typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))) return unknown('INVALID');
+      if (raw.control_plane !== controlPlane || value.plan_digest !== source.planDigest ||
+          value.release_sha256 !== source.releaseSha256 || value.request_id !== source.requestId) return unknown('IDENTITY_MISMATCH');
+      const age = now - Date.parse(value.updated_at);
+      if (age < -5000) return unknown('FUTURE_TIMESTAMP');
+      if (age > source.maxAgeSeconds * 1000) return unknown('STALE');
+      return { ...expected, executionId: null, requestId: value.request_id, status: 'WAITING',
+        reason: 'AUTHORIZATION_REQUIRED', currentExecutionAuthorized: false,
+        evidence: 'OPERATIONAL_PROJECTION_ONLY' as const, durableCompletionVerified: false as const,
+        runId: value.run_id, updatedAt: value.updated_at };
+    }
+    if (!projection(raw.payload)) return unknown('INVALID');
     const value = raw.payload;
     if (raw.control_plane !== controlPlane || value.plan_digest !== source.planDigest ||
         value.release_sha256 !== source.releaseSha256 || value.execution_id !== source.executionId) {
@@ -138,7 +165,8 @@ export class ExecutionStatusReader {
     return { ...expected, status: value.phase.toUpperCase(), reason: null,
       evidence: 'OPERATIONAL_PROJECTION_ONLY' as const, durableCompletionVerified: false as const,
       runId: value.run_id, updatedAt: value.updated_at, manifestDigest: value.manifest_digest,
-      tasks: value.tasks };
+      tasks: value.tasks, ...(value.wait_reasons === undefined ? {} : { waitReasons: value.wait_reasons }),
+      ...(value.task_errors === undefined ? {} : { taskErrors: value.task_errors }) };
   }
 }
 

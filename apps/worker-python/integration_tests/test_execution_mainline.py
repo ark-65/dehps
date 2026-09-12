@@ -45,6 +45,10 @@ def plan(names=('source','consume')):
 
 @pytest.fixture
 def mainline(authority,tmp_path):
+    yield from mainline_fixture(authority, tmp_path)
+
+
+def mainline_fixture(authority, tmp_path):
     clients,admin_dsn,roles,owner=authority
     with psycopg.connect(admin_dsn) as admin:
         admin.execute(sql.SQL('GRANT CREATE ON DATABASE {} TO {}').format(sql.Identifier(admin.info.dbname),sql.Identifier(owner)))

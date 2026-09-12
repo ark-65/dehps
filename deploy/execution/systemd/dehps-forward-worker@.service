@@ -1,0 +1,28 @@
+[Unit]
+Description=DEHPS finite admitted per-issue %i trigger
+Requires=dehps-control-postgres@%i.service
+After=dehps-control-postgres@%i.service dehps-forward-publisher.service
+ConditionPathExists=/etc/dehps/forward/%i/release.env
+
+[Service]
+Type=oneshot
+User=dehps-%i
+Group=dehps-%i
+SupplementaryGroups=docker
+Environment=PATH=/usr/bin:/bin
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=DOCKER_CONFIG=/opt/dehps/releases/control-refactor-r5/docker-client
+EnvironmentFile=/etc/dehps/forward/%i/release.env
+# Same trusted launcher and canonical entry; the image/plan/request are explicit.
+ExecStart=/usr/bin/python3.14 -I -B /opt/dehps/releases/forward-publisher/launcher/launch.py run --descriptor ${DEHPS_RELEASE_DESCRIPTOR} --release-sha256 ${DEHPS_RELEASE_SHA256} --runtime-root /var/lib/dehps/control-%i --control-domain %i --inputs /opt/dehps/inputs/forward-%i --credentials /etc/dehps/forward/%i/operator.json --network none --database-socket /run/dehps/%i-postgres-socket --action run
+Restart=no
+TimeoutStartSec=30min
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/dehps/control-%i

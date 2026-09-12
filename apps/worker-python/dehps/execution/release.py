@@ -278,7 +278,7 @@ def launch(release: Release, expected_sha256: str, context: RunContext, *,
     _digest(expected_sha256)
     if release.digest != expected_sha256:
         raise BoundaryError('launch release differs from approved identity')
-    if action not in {'run', 'replay'}:
+    if action not in {'run', 'replay', 'replay-prefix'}:
         raise BoundaryError('unsupported release action')
     if network != 'none' and not re.fullmatch('dehps-[a-z0-9-]+', network):
         raise BoundaryError('explicit isolated Docker network required')
@@ -320,7 +320,7 @@ def launch(release: Release, expected_sha256: str, context: RunContext, *,
         '--cap-drop=ALL', '--security-opt=no-new-privileges', '--pids-limit=256',
         '--user', f'{os.getuid()}:{os.getgid()}', '--workdir=/tmp',
         '--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256m',
-        '--mount', f'type=bind,src={context.root},dst=/runtime' + (',readonly' if action == 'replay' else ''),
+        '--mount', f'type=bind,src={context.root},dst=/runtime' + (',readonly' if action != 'run' else ''),
         '--mount', f'type=bind,src={inputs},dst=/inputs,readonly',
         '--mount', f'type=bind,src={credentials},dst=/run/dehps-credentials.json,readonly',
         *socket_mount,
@@ -379,7 +379,7 @@ def main():
             command.add_argument('--credentials', type=Path, required=True)
             command.add_argument('--network', required=True)
             command.add_argument('--database-socket', type=Path)
-            command.add_argument('--action', choices=['run', 'replay'], required=True)
+            command.add_argument('--action', choices=['run', 'replay', 'replay-prefix'], required=True)
     args = parser.parse_args()
     if args.command == 'build':
         release = build_release(args.repository, args.commit, args.base_image_id,
