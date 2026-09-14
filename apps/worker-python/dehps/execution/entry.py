@@ -134,12 +134,13 @@ def _execute(inputs, code_root, context, config_path, credentials_path, action):
                     'schema': result.task['artifact_schema'],
                     'path': f'{context.control_plane}/artifacts/objects/{result.artifact.sha256}.blob',
                 }
+    states = manifest.task_state_by_digest
     return {'schema':'execution-entry-result.v1','run_id':engine.run_id,'action':action,
             'control_plane':config['control_plane'],'release_sha256':release.digest,
             'plan_digest':plan.digest,'manifest_digest':manifest.artifact_digest,
             'artifacts': artifacts,
             'wait_reasons': engine.wait_reasons, 'task_errors': engine.task_errors,
-            'tasks':{t.task_key:manifest.task_state_by_digest[t.artifact_digest].declared_status.value
+            'tasks':{t.task_key:states[t.artifact_digest].declared_status.value
                      for t in manifest.tasks}}
 
 

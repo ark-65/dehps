@@ -2,13 +2,13 @@
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import Event, Thread
 from uuid import uuid4
 
 from dehps.research_os.mainline import mainline_completion_fact
-from dehps.research_os.models import ControlPlaneManifest, DependencyType, Task, TaskStatus
+from dehps.research_os.models import CompletionClassification, ControlPlaneManifest, DependencyType, Task, TaskStatus
 from dehps.research_os.ready_queue import ReadyQueue
 from dehps.research_os.resolver import TaskDependencyResolver
 from .artifacts import ArtifactStore
@@ -28,6 +28,8 @@ class Capability:
     ready: Callable[[Task, Mapping[str,StoredResult]], str | None] | None = None
     failure_isolated: bool = False
     commit_guard: Callable[[dict, bytes, datetime], None] | None = None
+    # Optional domain projection, never a completion fact or an admission source.
+    progress: Callable[[ControlPlaneManifest], dict] | None = None
 
 
 class Coordinator:
@@ -35,6 +37,7 @@ class Coordinator:
                  capabilities: Mapping[str,Capability], *, lease_seconds: int = 300):
         self.plan = ExecutionPlan(deepcopy(plan.payload))
         self.initial = self.plan.validate()
+        self._plan_digest = self.initial.artifact_digest
         self.store = store
         self.ledger = MainlineLedger(store)
         self.capabilities = dict(capabilities)
@@ -67,7 +70,7 @@ class Coordinator:
 
     def _load_plan(self):
         with self.store.database.connect() as connection:
-            stored = connection.execute('SELECT execution_store.read_plan(%s)',(self.plan.digest,)).fetchone()[0]
+            stored = connection.execute('SELECT execution_store.read_plan(%s)',(self._plan_digest,)).fetchone()[0]
         if stored['payload'] != self.plan.payload:
             raise BoundaryError('persisted plan differs from frozen canonical packet')
         self.bindings = stored['bindings']
@@ -79,13 +82,15 @@ class Coordinator:
             return self._snapshot_manifest(recover_registration=recover_registration)
 
     def _snapshot_manifest(self, *, recover_registration: bool, verified_manifest=None) -> ControlPlaneManifest:
-        self._load_plan()
+        if verified_manifest is None:
+            self._load_plan()
         # Only the current synchronous run may reuse its already ledger-verified
         # prefix. Fresh run/replay always reconstructs from the immutable plan.
-        payload = (verified_manifest or self.initial).to_dict()
+        manifest = verified_manifest or self.initial
+        states = manifest.task_state_by_digest
+        facts = set(manifest.facts.artifacts)
         tasks = {task.task_key:task for task in self.initial.tasks}
         while True:
-            manifest = ControlPlaneManifest.from_dict(payload)
             ready = ReadyQueue.build(manifest,TaskDependencyResolver().resolve(manifest))
             changed = False
             for item in ready:
@@ -98,28 +103,39 @@ class Coordinator:
                 if recover_registration and any(value is None for value in context['records'].values()):
                     self.ledger.recover_registration(task_id)
                 execution = self.ledger.verify(task_id)
-                for raw in payload['tasks']:
-                    if raw['task_key'] == task.task_key:
-                        raw['status'] = 'completed'
-                        raw['completion_classification'] = 'COMPLETE'
+                states[task.artifact_digest] = replace(states[task.artifact_digest],
+                    declared_status=TaskStatus.COMPLETED, completion_classification=CompletionClassification.COMPLETE)
                 fact = mainline_completion_fact(task=task,execution_id=execution)
-                payload['facts']['artifacts'] = sorted(set(payload['facts']['artifacts'])|{fact,result.artifact.sha256})
+                facts.update((fact, result.artifact.sha256))
                 changed = True
             if not changed:
                 return manifest
+            # Definitions were validated on admission. Only ledger-verified
+            # lifecycle state and completion facts change; keep immutable Task
+            # objects instead of re-parsing thousands of unchanged definitions.
+            # The same canonical Resolver and ReadyQueue still validate every
+            # transition, including all mainline completion declarations.
+            manifest = replace(manifest, task_states=tuple(states[s.task_digest] for s in manifest.task_states),
+                               facts=replace(manifest.facts, artifacts=frozenset(facts)))
 
     def _project(self, phase: str, manifest: ControlPlaneManifest):
+        states = manifest.task_state_by_digest
         payload = {'schema':'execution-status.v2','run_id':self.run_id,'phase':phase,
                    'execution_id':self.store.authorization.execution_id,
                    'release_sha256':self.store.authorization.release_sha256,
-                   'plan_digest':self.plan.digest,'manifest_digest':manifest.artifact_digest,
+                   'plan_digest':self._plan_digest,'manifest_digest':manifest.artifact_digest,
                    'updated_at':datetime.now(timezone.utc).isoformat(),
-                   'tasks':{t.task_key:manifest.task_state_by_digest[t.artifact_digest].declared_status.value for t in manifest.tasks}}
+                   'tasks':{t.task_key:states[t.artifact_digest].declared_status.value for t in manifest.tasks}}
         if self.wait_reasons:
             payload['wait_reasons'] = dict(self.wait_reasons)
         if self.task_errors:
             payload['task_errors'] = dict(self.task_errors)
         try:
+            projections = {c.progress for c in self.capabilities.values() if c.progress is not None}
+            if len(projections) > 1:
+                raise BoundaryError('one capability progress projection required')
+            if projections and phase != 'starting':
+                payload['capability_progress'] = projections.pop()(manifest)
             self.store.artifacts.context.write_projection('status','execution.json',payload)
         except (OSError,BoundaryError) as exc:
             # Projection failure remains visible to the caller, never reverses a
@@ -170,7 +186,7 @@ class Coordinator:
             self._last_manifest = manifest
             ready = ReadyQueue.build(manifest,TaskDependencyResolver().resolve(manifest))
             if not ready:
-                complete = all(manifest.task_state_by_digest[t.artifact_digest].declared_status is TaskStatus.COMPLETED for t in manifest.tasks)
+                complete = all(state.declared_status is TaskStatus.COMPLETED for state in manifest.task_states)
                 self._project('completed' if complete else 'waiting',manifest)
                 return manifest
             self._project('running',manifest)
@@ -224,6 +240,6 @@ class Coordinator:
 
     def replay(self, *, require_complete: bool = True) -> ControlPlaneManifest:
         manifest = self.snapshot()
-        if require_complete and any(manifest.task_state_by_digest[t.artifact_digest].declared_status is not TaskStatus.COMPLETED for t in manifest.tasks):
+        if require_complete and any(state.declared_status is not TaskStatus.COMPLETED for state in manifest.task_states):
             raise BoundaryError('plan replay incomplete')
         return manifest

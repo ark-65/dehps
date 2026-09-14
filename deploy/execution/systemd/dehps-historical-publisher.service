@@ -1,0 +1,28 @@
+[Unit]
+Description=DEHPS historical audited labels and registered report publication
+Requires=dehps-control-postgres@learning.service
+After=dehps-control-postgres@learning.service
+ConditionPathExists=/etc/dehps/historical/publisher.json
+
+[Service]
+Type=oneshot
+User=dehps-learning
+Group=dehps-learning
+Environment=PATH=/usr/bin:/bin
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+ExecStart=/usr/bin/flock --exclusive --no-fork /run/dehps/historical/observer.lock /opt/dehps/releases/historical-publisher/venv/bin/python -I -m dehps.prediction.historical_learning.operations publish --config /etc/dehps/historical/publisher.json
+Restart=no
+TimeoutStartSec=25h
+# New issue/report directories inherit the observer input tree's setgid group
+# and must remain traversable by that independent read-only consumer.
+UMask=0027
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+ReadWritePaths=/opt/dehps/inputs/historical-learning /opt/dehps/inputs/historical-observer /run/dehps/historical
+ReadOnlyPaths=/var/lib/dehps/control-learning /etc/dehps/historical

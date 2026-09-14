@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import asdict
+from dataclasses import asdict
 from datetime import datetime,timedelta,timezone
 from importlib.resources import files
 import json
@@ -55,7 +56,7 @@ def mainline_fixture(authority, tmp_path):
         admin.execute(sql.SQL('GRANT CREATE ON SCHEMA public TO {}').format(sql.Identifier(owner)))
         admin.execute(sql.SQL('SET ROLE {}').format(sql.Identifier(owner)))
         admin.execute((Path(__file__).resolve().parents[3]/'infra/postgres/init/002_research_os.sql').read_text())
-        for migration in ('002_store.sql','003_mainline.sql'):
+        for migration in ('002_store.sql','003_mainline.sql','004_plan_index.sql'):
             admin.execute(files('dehps.execution').joinpath('migrations/'+migration).read_text())
         admin.execute('RESET ROLE')
         admin.execute(sql.SQL('REVOKE CREATE ON DATABASE {} FROM {}').format(sql.Identifier(admin.info.dbname),sql.Identifier(owner)))
@@ -87,6 +88,51 @@ def records(admin_dsn):
     with psycopg.connect(admin_dsn) as admin:
         return {name:admin.execute(sql.SQL('SELECT count(*) FROM {}').format(sql.Identifier(*name.split('.')))).fetchone()[0]
                 for name in ('execution_store.commits','execution_store.attempts','public.research_os_mainline_execution_events','public.research_os_mainline_artifacts')}
+
+
+def test_indexed_approved_specs_are_private_and_never_replace_reauthorization(mainline, authority):
+    config, admin, _ = mainline
+    coordinator(config).run()
+    clients, _, _, _ = authority
+    for statement in ('SELECT * FROM execution_store.request_task_specs',
+                      "INSERT INTO execution_store.request_plan_index VALUES (999,'execution-plan.v2')",
+                      "SELECT execution_store.index_authorized_plan(999,'a','b')"):
+        with clients['operator'].database.connect() as connection:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                connection.execute(statement)
+    with psycopg.connect(admin) as connection:
+        assert connection.execute('SELECT count(*) FROM execution_store.request_task_specs').fetchone()[0] == 2
+        with pytest.raises(psycopg.errors.RaiseException, match='immutable'):
+            connection.execute("UPDATE execution_store.request_task_specs SET spec='{}'")
+    before = records(admin)
+    with psycopg.connect(admin) as connection:
+        request = connection.execute('SELECT request_id FROM execution_authority.executions WHERE id=%s',
+            (config['authorization']['execution_id'],)).fetchone()[0]
+    clients['reviewer'].revoke(request)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        coordinator(config).run()
+    coordinator(config).replay()
+    assert records(admin) == before
+
+
+def test_all_completed_plan_admission_rechecks_real_expiry_before_return(mainline, authority):
+    config, admin, _ = mainline
+    coordinator(config).run()
+    clients, _, _, _ = authority
+    request = clients['engineer'].request(config['plan'], RELEASE)
+    content = clients['reviewer'].get(request)['content_sha256']
+    clients['reviewer'].approve(request, content, RELEASE, datetime.now(timezone.utc)+timedelta(seconds=2))
+    execution = clients['operator'].begin(request, content, RELEASE)
+    with psycopg.connect(admin) as connection:
+        connection.execute('''CREATE FUNCTION public.delay_admission_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN PERFORM pg_sleep(2.1); RETURN NEW; END $$''')
+        connection.execute('''CREATE TRIGGER delay_admission_fixture BEFORE INSERT ON execution_store.plans
+            FOR EACH ROW EXECUTE FUNCTION public.delay_admission_fixture()''')
+    expired = {**config, 'authorization': asdict(ExecutionAuthorization(execution, content, RELEASE))}
+    before = records(admin)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        coordinator(expired).run()
+    assert records(admin) == before
 
 
 def test_canonical_dag_executes_downstream_and_replays_in_new_process(mainline):

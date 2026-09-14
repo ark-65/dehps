@@ -38,6 +38,29 @@ test('sources are explicit, closed and cannot silently select another domain', (
   assert.throws(() => parseExecutionStatusSources(JSON.stringify([binding, binding])));
 });
 
+test('historical progress belongs only to the bound new plan and never to an old completed task', async () => {
+  const f = await fixture();
+  try {
+    const progress = { schema: 'historical-progress.v1', historical_total: 2603, historical_learned: 2,
+      incremental_learned: 0, latest_learned_issue: '2009077', consumed_report_issues: ['2009076', '2009077'],
+      batch_summary_registered: false, evidence: 'OPERATIONAL_PROJECTION_ONLY' };
+    const value = { ...packet(), payload: { ...packet().payload, phase: 'waiting',
+      tasks: { 'historical-report-fixture-2009076-learn': 'completed', 'historical-report-fixture-slot01-learn': 'draft' },
+      capability_progress: progress } };
+    await f.write(value);
+    const current = await f.reader.read('learning', now);
+    assert.equal(current.status, 'WAITING');
+    assert.deepEqual('historicalProgress' in current && current.historicalProgress, progress);
+    assert.equal(current.durableCompletionVerified, false);
+    await f.write({ ...value, payload: { ...value.payload, plan_digest: 'd'.repeat(64) } });
+    assert.equal((await f.reader.read('learning', now)).reason, 'IDENTITY_MISMATCH');
+    await f.write({ ...value, payload: { ...value.payload, tasks: { old: 'completed' } } });
+    assert.equal((await f.reader.read('learning', now)).reason, 'INVALID');
+    await f.write({ ...value, payload: { ...value.payload, capability_progress: { ...progress, historical_learned: 2604 } } });
+    assert.equal((await f.reader.read('learning', now)).reason, 'INVALID');
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('missing, stale, foreign, corrupt and future projections never reuse a cached success', async () => {
   const f = await fixture();
   try {

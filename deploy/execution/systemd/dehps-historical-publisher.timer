@@ -1,0 +1,12 @@
+[Unit]
+Description=DEHPS historical source and report read-only check every 15 minutes
+
+[Timer]
+OnBootSec=1min
+OnCalendar=*:0/15
+Persistent=true
+AccuracySec=1s
+Unit=dehps-historical-publisher.service
+
+[Install]
+WantedBy=timers.target

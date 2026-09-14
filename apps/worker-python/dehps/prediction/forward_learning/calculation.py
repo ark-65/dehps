@@ -49,15 +49,29 @@ def portfolio(q, contract_sha, issue):
 
 
 def score(seal, label, contract_sha):
+    if seal['status'] != 'SEALED_BEFORE_DRAW':
+        return {**label_record(label), 'status': 'GAP', 'probability': {}, 'diagnostics': {}}
+    return score_probabilities(seal['probabilities'], seal['tickets'], label, contract_sha)
+
+
+def label_record(label):
     red = [int(i in label['red']) for i in range(1, 34)]
     blue = [int(i == label['blue']) for i in range(1, 17)]
-    result = {'red_labels': red, 'blue_labels': blue, 'label': label,
+    return {'red_labels': red, 'blue_labels': blue, 'label': label,
               'learnable_cause': '证据不足', 'interim_aggregate': 'NOT_COMPUTED',
               'payout': 'NOT_REQUIRED_FOR_PROBABILITY_SCORING'}
-    if seal['status'] != 'SEALED_BEFORE_DRAW':
-        return {**result, 'status': 'GAP', 'probability': {}, 'diagnostics': {}}
+
+
+def score_probabilities(probabilities, tickets_by_model, label, contract_sha):
+    """Pure scoring shared by distinct historical and prospective contracts.
+
+    This function makes no claim about when probabilities were sealed. The
+    calling capability must supply that evidence label and its own verifier.
+    """
+    result = label_record(label)
+    red = result['red_labels']
     result.update(status='SCORED', probability={}, diagnostics={})
-    for name, q in seal['probabilities'].items():
+    for name, q in probabilities.items():
         per_number = [retained.bernoulli_log_loss_nats(y, p) for y, p in zip(red, q, strict=True)]
         result['probability'][name] = {'log_loss': math.fsum(per_number)/33,
             'brier': math.fsum((p-y)**2 for p, y in zip(q, red, strict=True))/33,
@@ -67,7 +81,7 @@ def score(seal, label, contract_sha):
     ids, rows = proposal(contract_sha, label['issue'])
     winning = candidate_rank(tuple(label['red']), universe=UNIVERSE)
     for name in ('shrink900', 'old'):
-        q = np.asarray(seal['probabilities'][name]); tickets = seal['tickets'][name]
+        q = np.asarray(probabilities[name]); tickets = tickets_by_model[name]
         all_scores = retained.scores(q, np.asarray(rows)-1)
         winning_score = float(retained.scores(q, np.asarray([label['red']])-1)[0])
         rank = 1 + int(np.sum((all_scores > winning_score) | ((all_scores == winning_score) & (np.asarray(ids) < winning))))

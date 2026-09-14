@@ -1,0 +1,33 @@
+[Unit]
+Description=DEHPS historical report learning %i canonical execution
+Requires=dehps-control-postgres@%i.service
+After=dehps-control-postgres@%i.service dehps-historical-publisher.service
+RequiresMountsFor=/opt/dehps/inputs/historical-%i/formal-cgroups
+ConditionPathExists=/etc/dehps/historical/%i/release.env
+
+[Service]
+Type=oneshot
+User=dehps-%i
+Group=dehps-%i
+SupplementaryGroups=docker
+Environment=PATH=/usr/bin:/bin
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=DOCKER_CONFIG=/opt/dehps/releases/control-refactor-r5/docker-client
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+EnvironmentFile=/etc/dehps/historical/%i/release.env
+ExecStart=/usr/bin/flock --exclusive --no-fork /run/dehps/historical/%i.lock /usr/bin/python3.14 -I -B /opt/dehps/releases/historical-publisher/launcher/launch.py run --descriptor ${DEHPS_RELEASE_DESCRIPTOR} --release-sha256 ${DEHPS_RELEASE_SHA256} --runtime-root /var/lib/dehps/control-%i --control-domain %i --inputs /opt/dehps/inputs/historical-%i --credentials /etc/dehps/historical/%i/operator.json --network none --database-socket /run/dehps/%i-postgres-socket --action run
+Restart=no
+# The immutable batch-start artifact enforces 24 hours across service restarts.
+TimeoutStartSec=25h
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/dehps/control-%i /run/dehps/historical

@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import date, datetime, timezone
 from enum import Enum
+from functools import lru_cache
 from hashlib import sha256
 from types import MappingProxyType
 from typing import Any
@@ -154,6 +155,27 @@ def _decoded_object(value: str) -> dict[str, Any]:
     return decoded
 
 
+def _definition_digest(kind: str, value) -> str:
+    return stable_hash({'schema': RESEARCH_OS_SCHEMA_VERSION,
+                        'artifact_type': kind, 'definition': value.to_dict()})
+
+
+@lru_cache(maxsize=32768)
+def _immutable_definition_digest(kind: str, value) -> str:
+    # Frozen Goal/Task fields are hashable immutable values after from_dict.
+    # Reconstructing the same definition during replay retains identical bytes.
+    return _definition_digest(kind, value)
+
+
+def _cached_definition_digest(kind: str, value) -> str:
+    try:
+        hash(value)
+    except TypeError:
+        # Preserve behavior for old direct callers supplying mutable lists.
+        return _definition_digest(kind, value)
+    return _immutable_definition_digest(kind, value)
+
+
 @dataclass(frozen=True)
 class Goal:
     """Immutable Goal definition. Lifecycle state is stored in GoalState."""
@@ -220,13 +242,7 @@ class Goal:
 
     @property
     def artifact_digest(self) -> str:
-        return stable_hash(
-            {
-                "schema": RESEARCH_OS_SCHEMA_VERSION,
-                "artifact_type": "goal_definition",
-                "definition": self.to_dict(),
-            }
-        )
+        return _cached_definition_digest('goal_definition', self)
 
 
 @dataclass(frozen=True)
@@ -343,13 +359,7 @@ class Task:
 
     @property
     def artifact_digest(self) -> str:
-        return stable_hash(
-            {
-                "schema": RESEARCH_OS_SCHEMA_VERSION,
-                "artifact_type": "task_definition",
-                "definition": self.to_dict(),
-            }
-        )
+        return _cached_definition_digest('task_definition', self)
 
 
 @dataclass(frozen=True)
