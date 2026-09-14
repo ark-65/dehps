@@ -26,6 +26,18 @@ type Projection = {
   tasks: Record<string, string>;
   wait_reasons?: Record<string, string>;
   task_errors?: Record<string, string>;
+  capability_progress?: HistoricalProgress;
+};
+
+type HistoricalProgress = {
+  schema: 'historical-progress.v1';
+  historical_total: number;
+  historical_learned: number;
+  incremental_learned: number;
+  latest_learned_issue: string | null;
+  consumed_report_issues: string[];
+  batch_summary_registered: boolean;
+  evidence: 'OPERATIONAL_PROJECTION_ONLY';
 };
 
 const HEX = /^[a-f0-9]{64}$/;
@@ -83,6 +95,21 @@ function projection(value: unknown): value is Projection {
     if (reasons !== undefined && (!object(reasons) ||
       !Object.entries(reasons).every(([key, reason]) => Object.hasOwn(tasks, key) &&
         typeof reason === 'string' && reason.length > 0 && reason.length <= 200))) return false;
+  }
+  if (value.capability_progress !== undefined) {
+    const progress = value.capability_progress;
+    if (!object(progress) || progress.schema !== 'historical-progress.v1' ||
+        progress.evidence !== 'OPERATIONAL_PROJECTION_ONLY' ||
+        !Number.isSafeInteger(progress.historical_total) || (progress.historical_total as number) < 1 ||
+        !Number.isSafeInteger(progress.historical_learned) || (progress.historical_learned as number) < 0 ||
+        (progress.historical_learned as number) > (progress.historical_total as number) ||
+        !Number.isSafeInteger(progress.incremental_learned) || (progress.incremental_learned as number) < 0 ||
+        (progress.incremental_learned as number) > 32 ||
+        !(progress.latest_learned_issue === null || (typeof progress.latest_learned_issue === 'string' && /^\d{7}$/.test(progress.latest_learned_issue))) ||
+        typeof progress.batch_summary_registered !== 'boolean' || !Array.isArray(progress.consumed_report_issues) ||
+        !progress.consumed_report_issues.every(issue => typeof issue === 'string' && /^\d{7}$/.test(issue)) ||
+        new Set(progress.consumed_report_issues).size !== progress.consumed_report_issues.length ||
+        !Object.keys(tasks).every(key => key.startsWith('historical-report-'))) return false;
   }
   return value.phase !== 'completed' || Object.values(value.tasks).every(state => state === 'completed');
 }
@@ -166,6 +193,7 @@ export class ExecutionStatusReader {
       evidence: 'OPERATIONAL_PROJECTION_ONLY' as const, durableCompletionVerified: false as const,
       runId: value.run_id, updatedAt: value.updated_at, manifestDigest: value.manifest_digest,
       tasks: value.tasks, ...(value.wait_reasons === undefined ? {} : { waitReasons: value.wait_reasons }),
+      ...(value.capability_progress === undefined ? {} : { historicalProgress: value.capability_progress }),
       ...(value.task_errors === undefined ? {} : { taskErrors: value.task_errors }) };
   }
 }

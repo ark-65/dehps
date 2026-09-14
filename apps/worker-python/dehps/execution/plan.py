@@ -51,10 +51,11 @@ class ExecutionPlan:
             raise BoundaryError('duplicate task or business binding')
         if set(by_digest) != {t.artifact_digest for t in manifest.tasks}:
             raise BoundaryError('plan must bind every canonical task exactly once')
+        states = manifest.task_state_by_digest
         for task in manifest.tasks:
             if not task.requested_capability:
                 raise BoundaryError('coordinator tasks require explicit capabilities')
-            if manifest.task_state_by_digest[task.artifact_digest].declared_status is not TaskStatus.DRAFT:
+            if states[task.artifact_digest].declared_status is not TaskStatus.DRAFT:
                 raise BoundaryError('initial status declarations cannot assert execution facts')
             integration_contract(task)
             if set(by_digest[task.artifact_digest]) != {'business_key','task_digest','manifest_digest','scientific_contract_sha256','verifier_id','artifact_schema'}:

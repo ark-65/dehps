@@ -25,6 +25,7 @@ SCHEMA_FILES = (
     'apps/worker-python/dehps/execution/migrations/001_authority.sql',
     'apps/worker-python/dehps/execution/migrations/002_store.sql',
     'apps/worker-python/dehps/execution/migrations/003_mainline.sql',
+    'apps/worker-python/dehps/execution/migrations/004_plan_index.sql',
 )
 AUTHORITY = {
     'engineer': ('request_create(jsonb,text,text)', 'request_get(bigint)'),

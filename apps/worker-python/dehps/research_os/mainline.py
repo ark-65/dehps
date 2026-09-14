@@ -64,6 +64,18 @@ def completion_execution_ids(
 def validate_mainline_completion_declarations(
     manifest: ControlPlaneManifest,
 ) -> None:
+    # Index the exact existing fact grammar once per resolver pass. Scanning
+    # every artifact for every completed task makes long chronological DAGs
+    # quadratic per transition. Both task key and immutable digest must match;
+    # malformed facts and competing execution IDs keep their original meaning.
+    fact_pattern = re.compile(
+        rf"{re.escape(MAINLINE_EXECUTION_FACT_PREFIX)}:([\s\S]*):({_DIGEST}):({_DIGEST}):completed"
+    )
+    executions: dict[tuple[str, str], list[str]] = {}
+    for fact in manifest.facts.artifacts:
+        match = fact_pattern.fullmatch(fact)
+        if match is not None:
+            executions.setdefault((match.group(1), match.group(2)), []).append(match.group(3))
     states = manifest.task_state_by_digest
     for task in manifest.tasks:
         if task.requested_capability is None:
@@ -76,7 +88,7 @@ def validate_mainline_completion_declarations(
                     f"executable task {task.task_key!r} cannot be completed without "
                     "completion_classification COMPLETE"
                 )
-            execution_ids = completion_execution_ids(manifest, task=task)
+            execution_ids = executions.get((task.task_key, task.artifact_digest), ())
             if len(execution_ids) != 1:
                 raise ResearchOSValidationError(
                     f"executable task {task.task_key!r} requires exactly one immutable "
