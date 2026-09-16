@@ -61,3 +61,13 @@ User/Group/SupplementaryGroups plus account UID/GID before replay. The account
 is not added to a permanent group and the Docker socket is not changed.
 The829 publisher and827 worker images remain byte-identical; only this host
 entry and the new exact request/packet bindings change. Preserve failed830/668.
+# Installed831 acceptance recovery
+
+For the already installed831 continuation, use the separately bound
+`historical-continuation-acceptance.py` release after Engineering833 and a new
+authenticated Operator request. It replaces only the stopped acceptance670
+controller. Do not rerun installation, create scoped executions, recapture a
+594-only continuation, or reset deadlines after new commits exist. The entry
+verifies exact installed service/image/identity bindings, witnesses committed
+reports before restarting observers, and uses nonblocking publication. Existing
+frozen activation packages and their failed evidence remain unchanged.
