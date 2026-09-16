@@ -47,11 +47,11 @@ def domains(tmp_path):
         yield result
 
 
-def setup_prefix(domains, monkeypatch):
+def setup_prefix(domains, monkeypatch, release_sha256="a"*64):
     root = domains['learning']['root']
     c, _, key = helper.fixture(root/'inputs', count=904)
     shutil.copytree(root/'inputs', domains['observer']['root']/'inputs')
-    configs = {d: v['authorize'](plan.build_plan(c, domain=d), 'a'*64) for d,v in domains.items()}
+    configs = {d: v['authorize'](plan.build_plan(c, domain=d), release_sha256) for d,v in domains.items()}
     first = engine(configs['learning'])
     capability = first.capabilities[plan.CAPABILITIES['learn']]
     def two_only(task, parents):
@@ -219,15 +219,3 @@ def test_expired_original_window_cannot_be_extended_by_new_release(domains, monk
     stopped=engine(config);stopped.run()
     assert 'AUTHORIZATION_REQUIRED' in stopped.wait_reasons.values()
     assert records(domains['learning']['admin'])==before
-
-
-def test_production_preparation_reader_enforces_readonly_transaction(domains):
-    from dehps.prediction.historical_learning.operations import ReadonlyDatabase
-    binding=domains['learning']['clients']['operator'].database
-    reader=ReadonlyDatabase(binding.dsn,binding.database,binding.role)
-    with reader.connect() as db:
-        assert db.execute('SHOW transaction_read_only').fetchone()==('on',)
-        # A read-only transaction blocks even SQL which would otherwise be
-        # allowed by a scoped execution function; privileges are not the guard.
-        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
-            db.execute('CREATE TEMP TABLE continuation_readonly_probe(value int)')

@@ -6,9 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from dehps.execution.artifacts import ArtifactStore
 from dehps.execution.authority import AuthorityClient
-from dehps.execution.context import RunContext
 from dehps.execution.coordinator import Coordinator
 from dehps.execution.database import DatabaseBinding
 from dehps.execution.plan import ExecutionPlan
@@ -22,13 +20,7 @@ from .plan import build_plan
 from .publisher import (append_bytes, archive, audited_source, publish_dispatch,
                         publish_inputs, publish_observations, source_references)
 from . import continuation
-
-
-class ReadonlyDatabase(DatabaseBinding):
-    def connect(self):
-        connection = super().connect()
-        connection.read_only = True
-        return connection
+from .readonly import ReadonlyArtifacts, ReadonlyContext, ReadonlyDatabase
 
 
 def freeze(*, source, retained_root, retained_sha256, source_root, output, key):
@@ -95,7 +87,7 @@ def reader_engine(config):
     request = AuthorityClient(database).get(packet['request_id'])
     require(request['payload'] == plan.payload and request['release_sha256'] == release.digest
             and request['control_plane'] == domain, 'historical reader admission binding differs')
-    store = ExecutionStore(database, ArtifactStore(RunContext(Path(config['runtime_root']), domain)),
+    store = ExecutionStore(database, ReadonlyArtifacts(ReadonlyContext(Path(config['runtime_root']), domain)),
         ExecutionAuthorization(0, request['content_sha256'], release.digest), {})
     context = SimpleNamespace(inputs=inputs, code_root=Path(config['code_root']), release=release)
     return Coordinator(plan, store, build_capabilities(plan, store, context))

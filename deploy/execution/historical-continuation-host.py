@@ -19,9 +19,9 @@ import time
 
 OLD = Path('/opt/dehps/releases/historical-learning-v1-d9c9899-r2')
 OLD_CONFIG = Path('/etc/dehps/historical')
-STAGE = Path('/opt/dehps/releases/historical-continuation-827')
-CONFIG = Path('/etc/dehps/historical-continuation-827')
-PUB = Path('/opt/dehps/releases/historical-continuation-publisher-827')
+STAGE = Path('/opt/dehps/releases/historical-continuation-829')
+CONFIG = Path('/etc/dehps/historical-continuation-829')
+PUB = Path('/opt/dehps/releases/historical-continuation-publisher-829')
 UNITS = ['dehps-historical-publisher', 'dehps-historical-worker@learning', 'dehps-historical-worker@observer']
 
 
@@ -44,7 +44,7 @@ def bootstrap(expected):
     support = load('continuation_support', OLD/'operator-support.py')
     support.STAGE, support.CONFIG, support.PUB = STAGE, CONFIG, PUB
     support.KEY = package['operator_request_key']
-    support.ENGINEERING = 'engineering-historical-release-continuation-20260916-v1'
+    support.ENGINEERING = 'engineering-historical-preflight-readonly-fix-20260916-v1'
     package = support.packet(expected)
     support.require(os.geteuid() == 0, 'Actual host administrator authentication required')
     support.require(Path(__file__) == STAGE/'continuation-host.py', 'Protected staged entry required')
@@ -72,8 +72,8 @@ def prepare_request(s, package, domain):
                                 (saved['request_id'],)).fetchone()
         s.require(actual == (plan,release,saved['content_sha256'],s.THREAD), 'Existing continuation admission differs')
         return saved
-    engineer = 'dehps_control_'+domain+'_hist827_engineer'
-    operator = 'dehps_control_'+domain+'_hist827_operator'
+    engineer = 'dehps_control_'+domain+'_hist829_engineer'
+    operator = 'dehps_control_'+domain+'_hist829_operator'
     passwords = {engineer:secrets.token_urlsafe(48), operator:secrets.token_urlsafe(48)}
     with s.admin_connection(domain) as db:
         s.require(not db.execute('SELECT 1 FROM pg_roles WHERE rolname=ANY(%s)',([engineer,operator],)).fetchone(),
@@ -100,7 +100,7 @@ def prepare_request(s, package, domain):
         with psycopg.connect(**{**params,'user':engineer,'password':passwords[engineer]}) as db:
             s.require(db.execute('SELECT session_user').fetchone()[0] == engineer, 'Engineering login differs')
             request = db.execute('SELECT execution_authority.request_create(%s,%s,%s)',
-                (Jsonb(plan),release,'Exact retained-prefix continuation after Engineering827')).fetchone()[0]
+                (Jsonb(plan),release,'Exact retained-prefix continuation after Engineering829')).fetchone()[0]
             value = db.execute('SELECT execution_authority.request_get(%s)',(request,)).fetchone()[0]
     finally:
         with s.admin_connection(domain) as db:
@@ -131,7 +131,7 @@ def publisher(s, package, installer):
 
 
 def prefix_check(s, package):
-    # New reader uses readonly transactions; retained fixed-image replay is a
+    # Reader allows four authenticated read APIs with identity locks; replay is a
     # separate deployment proof. Neither command invokes run/fit or repairs SQL.
     config = {'schema':'historical-continuation-preparation.v1','readers':{},
         'next_releases':{d:v['release_sha256'] for d,v in package['workers'].items()},
@@ -160,7 +160,7 @@ def replay_command(package, domain, *, prior):
     """The retained launcher requires the actual non-root runtime UID."""
     stage = OLD if prior else STAGE
     config = OLD_CONFIG if prior else CONFIG
-    inputs = '/opt/dehps/inputs/historical-'+('' if prior else 'continuation-827-')+domain
+    inputs = '/opt/dehps/inputs/historical-'+('' if prior else 'continuation-829-')+domain
     worker = package['prior_workers' if prior else 'workers'][domain]
     return ['runuser','-u','dehps-'+domain,'--','env',
         'DOCKER_HOST=unix:///var/run/docker.sock',
@@ -201,7 +201,7 @@ def review(s, package, installer, reviewer, expected):
         if outer.status.value=='submitted':outer=service.begin_review(s.KEY,reviewer_role=AgentRole.REVIEWER,reviewer_id=principal,environment='production')
         if outer.status.value=='under_review':
             outer=service.approve(s.KEY,reviewer_role=AgentRole.REVIEWER,reviewer_id=principal,environment='production',
-                reason={'authentication':'actual local ark sudo plus independent scoped authenticated Reviewer sessions',
+                reason={'authentication':'actual ark sudo authentication, owner-delegated exact packet review, and independent scoped authenticated Reviewer sessions',
                         'activation_packet_sha256':expected,'continuation_sha256':package['continuation_sha256'],
                         'runtime_approvals':approvals,'original_approved_until':package['approved_until'],
                         'continuation_budget_seconds':86400,'no_model_started':True,'no_mail_sent':True})
@@ -231,7 +231,7 @@ def review(s, package, installer, reviewer, expected):
 def new_inputs(s, installer, package, domain):
     uid=61010 if domain=='learning' else 61011
     old=Path('/opt/dehps/inputs/historical-'+domain)
-    root=Path('/opt/dehps/inputs/historical-continuation-827-'+domain)
+    root=Path('/opt/dehps/inputs/historical-continuation-829-'+domain)
     if not root.exists():
         shutil.copytree(old,root,symlinks=True,
             ignore=lambda path,names: {'formal-cgroups','execution.json','release.json','dispatch.json'} if Path(path)==old else set())
@@ -256,7 +256,7 @@ def new_inputs(s, installer, package, domain):
         '--descriptor ${DEHPS_RELEASE_DESCRIPTOR} --release-sha256 ${DEHPS_RELEASE_SHA256} '+
         '--runtime-root /var/lib/dehps/control-'+domain+' --control-domain '+domain+' --inputs '+str(root)+
         ' --credentials '+str(credential)+' --network none --database-socket /run/dehps/'+domain+'-postgres-socket --action run\n')
-    installer.exact_file(Path('/etc/systemd/system')/('dehps-historical-worker@'+domain+'.service.d/zz-continuation-827.conf'),text.encode())
+    installer.exact_file(Path('/etc/systemd/system')/('dehps-historical-worker@'+domain+'.service.d/zz-continuation-829.conf'),text.encode())
     return root,unit
 
 
@@ -299,7 +299,7 @@ def install(s, package, installer, expected, execution):
         '\nReadWritePaths='+str(roots['learning'])+' '+str(roots['observer'])+'\nReadOnlyPaths='+str(CONFIG)+'\n')
     old_dropin=Path('/etc/systemd/system/dehps-historical-publisher.service.d/formal-idle.conf')
     if old_dropin.exists():installer.exact_file(STAGE/'rollback/formal-idle.conf',old_dropin.read_bytes(),0o400)
-    installer.exact_file(Path('/etc/systemd/system/dehps-historical-publisher.service.d/zz-continuation-827.conf'),text.encode())
+    installer.exact_file(Path('/etc/systemd/system/dehps-historical-publisher.service.d/zz-continuation-829.conf'),text.encode())
     executions={d:installer.begin(d,package) for d in ('learning','observer')}
     for domain in ('learning','observer'):
         env=Path('/etc/dehps/control')/domain/'reader.env'
