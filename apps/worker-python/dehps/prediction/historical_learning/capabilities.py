@@ -6,7 +6,7 @@ from dehps.execution.coordinator import Capability
 from dehps.execution.ledger import MainlineLedger
 from dehps.execution.release import canonical
 from . import calculation as compute
-from .contract import Inputs, POLICY, SCHEMA, digest, instant, require
+from .contract import Inputs, POLICY, SCHEMA, digest, formal_priority_active, instant, require
 from .plan import CAPABILITIES, build_plan
 from .report import report, summary_text
 
@@ -154,6 +154,8 @@ def build_capabilities(plan, store, context):
         learned = sorted(d['index'] for d in complete if d['phase'] == 'learn')
         consumed = sorted(d['index'] for d in complete if d['phase'] in {'report', 'observe'})
         return {'schema': 'historical-progress.v1', 'historical_total': len(inputs.history)-900,
+            'formal_priority_window': {'timezone': 'Asia/Shanghai', 'start_inclusive': '18:00:00',
+                                      'end_exclusive': '22:00:00', 'active': formal_priority_active()},
             'historical_learned': sum(i < len(inputs.history) for i in learned),
             'incremental_learned': sum(i >= len(inputs.history) for i in learned),
             'latest_learned_issue': inputs.issue(learned[-1]) if learned else None,

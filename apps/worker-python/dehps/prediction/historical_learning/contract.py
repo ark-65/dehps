@@ -5,6 +5,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
+from zoneinfo import ZoneInfo
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -18,6 +19,14 @@ POLICY = {'model': 'shrink900', 'alpha': 900, 'controls': ['old', 'uniform'],
           'minimum_history': 900, 'pool_size': 10000, 'tickets': 100, 'seed': 20260905,
           'blue_training': False, 'promotion': False, 'incremental_slots': 32,
           'admission_days': 30, 'batch_budget_seconds': 86400, 'poll_seconds': 900}
+
+# Operational dispatch policy, not a change to the frozen scientific inputs.
+FORMAL_PRIORITY_TIMEZONE = ZoneInfo('Asia/Shanghai')
+
+
+def formal_priority_active(now=None):
+    local = (now if now is not None else datetime.now(timezone.utc)).astimezone(FORMAL_PRIORITY_TIMEZONE)
+    return 18 <= local.hour < 22
 
 
 def sha(value):
@@ -155,9 +164,17 @@ class Inputs:
         if not 0 <= age <= 1200:
             return 'WAITING_FOR_SOURCE_CHECK'
         require(body['reason'] in {None, 'FORMAL_TASK_RUNNING', 'SOURCE_CONFLICT', 'SOURCE_UNREADABLE'}, 'invalid dispatch reason')
-        return self.formal_guard() or body['reason']
+        # Only the resource deferral expires outside the protected window. A
+        # signed source error must never be cleared by a time-of-day allowance.
+        if body['reason'] in {'SOURCE_CONFLICT', 'SOURCE_UNREADABLE'}:
+            return body['reason']
+        if not formal_priority_active(now):
+            return None
+        return self.formal_guard(now=now) or body['reason']
 
-    def formal_guard(self):
+    def formal_guard(self, *, now=None):
+        if not formal_priority_active(now):
+            return None
         # Operator binds the host user-service cgroup directory read-only here.
         # Actual process membership is checked before EACH dispatch, without
         # acquiring a production lock or changing a formal unit. Inactive

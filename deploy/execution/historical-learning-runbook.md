@@ -40,8 +40,27 @@ Root must install read-only bind mounts of the host's
 input root's `formal-cgroups`, using persistent systemd mount units. Use the
 actual `systemd-escape --path --suffix=mount` unit names, `Options=bind,ro`, and
 order them after `user@1000.service`. These are observation-only mounts; do not
-edit formal service units, locks or deadlines. Each compute dispatch checks
-actual formal service process membership. A missing guard leaves the task waiting.
+edit formal service units, locks or deadlines. Each compute dispatch uses the
+historical priority window in `Asia/Shanghai`, independent of the host/container
+timezone: from 18:00:00 inclusive to 22:00:00 exclusive, check actual formal
+service process membership. In that window a missing guard leaves the task
+waiting. Outside it, formal process membership does not defer historical work.
+This same guard applies to the publisher, learner and observer. The status
+projection's `formal_priority_window` records the window and whether it is active.
+Only `FORMAL_TASK_RUNNING` resource deferral is waived outside the window;
+signed source errors, missing/stale dispatch observations, authorization,
+complete-label checks and the original batch deadline continue to apply.
+
+Deploy the time-window change as a separately admitted fixed release. Do not
+patch an installed image or rewrite prior release/input/checkpoint identities.
+Existing committed prefixes remain bound to their original releases; validate
+the exact continuation binding and readonly replay before switching a running
+batch. A code merge alone does not authorize that transition or renew its budget.
+The incident recovery installed a historical publisher `formal-idle.conf`
+pre-start delay outside the source tree. A separately reviewed deployment must
+also remove that obsolete all-day delay for the new release (retaining its exact
+bytes in the rollback packet); otherwise the old host wrapper still delays
+publication outside the window. Do not change any formal service drop-in.
 
 Apply `004_plan_index.sql` only to the two independent control databases, under
 their existing non-login schema owner, after verifying their cluster identities
