@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import shutil
+import time
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -132,7 +133,8 @@ def test_incremental_order_missing_report_duplicate_and_source_correction(tmp_pa
         publish_inputs(inputs, rows, receipt, key, approved_until=(now-timedelta(seconds=1)).isoformat(), references=refs)
 
 
-def test_dispatch_gate_checks_formal_process_membership_before_each_task(tmp_path):
+def test_dispatch_gate_checks_formal_process_membership_before_each_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(contract, 'formal_priority_active', lambda now=None: True)
     c, _, _ = fixture(tmp_path)
     inputs = contract.Inputs(tmp_path, contract.digest(c))
     assert inputs.gate() is None
@@ -141,6 +143,84 @@ def test_dispatch_gate_checks_formal_process_membership_before_each_task(tmp_pat
     assert inputs.gate() == 'FORMAL_TASK_RUNNING'
     path.write_text('')
     assert inputs.gate() is None
+
+
+@pytest.mark.parametrize(('utc', 'active'), [
+    ('2026-09-16T09:59:59.999999+00:00', False),
+    ('2026-09-16T10:00:00+00:00', True),
+    ('2026-09-16T13:59:59.999999+00:00', True),
+    ('2026-09-16T14:00:00+00:00', False),
+    ('2026-09-16T15:59:59+00:00', False),
+    ('2026-09-16T16:00:00+00:00', False),
+])
+@pytest.mark.parametrize('host_timezone', ['UTC', 'America/New_York'])
+def test_formal_priority_boundaries_use_shanghai_not_host_timezone(monkeypatch, utc, active, host_timezone):
+    try:
+        with monkeypatch.context() as patch:
+            patch.setenv('TZ', host_timezone)
+            time.tzset()
+            assert contract.formal_priority_active(datetime.fromisoformat(utc)) is active
+    finally:
+        time.tzset()
+
+
+@pytest.mark.parametrize('guard', ['busy', 'idle', 'missing'])
+def test_formal_guard_crosses_both_window_boundaries_without_restart(tmp_path, guard):
+    c, _, _ = fixture(tmp_path)
+    inputs = contract.Inputs(tmp_path, contract.digest(c))
+    if guard == 'missing':
+        (tmp_path/'formal-cgroups').rmdir()
+    else:
+        path = tmp_path/'formal-cgroups/dehps-p3-top100-post-draw-mail.service/cgroup.procs'
+        path.parent.mkdir(); path.write_text('123\n' if guard == 'busy' else '')
+    protected_reason = {'busy': 'FORMAL_TASK_RUNNING', 'idle': None,
+                        'missing': 'MISSING_FORMAL_DISPATCH_GUARD'}[guard]
+    for local, expected in [('17:59:59', None), ('18:00:00', protected_reason),
+                            ('21:59:59', protected_reason), ('22:00:00', None)]:
+        assert inputs.formal_guard(now=datetime.fromisoformat('2026-09-16T'+local+'+08:00')) == expected
+
+
+@pytest.mark.parametrize('active', [False, True])
+@pytest.mark.parametrize('reason', [None, 'FORMAL_TASK_RUNNING', 'SOURCE_CONFLICT', 'SOURCE_UNREADABLE'])
+def test_dispatch_hint_waives_only_formal_deferral(tmp_path, monkeypatch, active, reason):
+    c, _, key = fixture(tmp_path)
+    inputs = contract.Inputs(tmp_path, contract.digest(c))
+    monkeypatch.setattr(contract, 'formal_priority_active', lambda now=None: active)
+    path = tmp_path/'dispatch.json'; body = json.loads(path.read_bytes())['body']
+    body['reason'] = reason
+    path.write_bytes(signed(body, key, c['export_public_key']))
+    expected = None if reason == 'FORMAL_TASK_RUNNING' and not active else reason
+    assert inputs.gate() == expected
+
+
+@pytest.mark.parametrize(('failure', 'expected'), [
+    ('missing', 'WAITING_FOR_SOURCE_CHECK'), ('stale', 'WAITING_FOR_SOURCE_CHECK'),
+    ('expired', 'AUTHORIZATION_REQUIRED'),
+])
+def test_outside_priority_window_keeps_source_freshness_and_authorization(tmp_path, monkeypatch, failure, expected):
+    c, _, key = fixture(tmp_path)
+    monkeypatch.setattr(contract, 'formal_priority_active', lambda now=None: False)
+    inputs = contract.Inputs(tmp_path, contract.digest(c))
+    path = tmp_path/'dispatch.json'; body = json.loads(path.read_bytes())['body']
+    body['reason'] = 'FORMAL_TASK_RUNNING'
+    if failure == 'missing':
+        path.unlink()
+    else:
+        name, seconds = ('observed_at', 1201) if failure == 'stale' else ('approved_until', 1)
+        body[name] = (datetime.now(timezone.utc)-timedelta(seconds=seconds)).isoformat()
+        path.write_bytes(signed(body, key, c['export_public_key']))
+    assert inputs.gate() == expected
+
+
+def test_outside_priority_window_still_verifies_signed_dispatch(tmp_path, monkeypatch):
+    c, _, _ = fixture(tmp_path)
+    monkeypatch.setattr(contract, 'formal_priority_active', lambda now=None: False)
+    inputs = contract.Inputs(tmp_path, contract.digest(c))
+    path = tmp_path/'dispatch.json'; envelope = json.loads(path.read_bytes())
+    envelope['body']['reason'] = 'FORMAL_TASK_RUNNING'
+    path.write_bytes(canonical(envelope))
+    with pytest.raises(BoundaryError, match='signature invalid'):
+        inputs.gate()
 
 
 def test_damaged_frozen_source_is_retained_as_error_and_signed_stop_in_both_domains(tmp_path):

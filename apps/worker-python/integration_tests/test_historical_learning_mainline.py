@@ -15,6 +15,7 @@ import pytest
 
 from dehps.prediction.forward_learning import calculation as fixed
 from dehps.prediction.historical_learning import contract, plan
+from dehps.prediction.historical_learning import capabilities
 from dehps.prediction.historical_learning.publisher import publish_observations
 from conftest import authority_fixture
 from test_execution_mainline import mainline, mainline_fixture, records
@@ -173,3 +174,114 @@ def test_real_finite_approval_expires_before_historical_commit(mainline, authori
     before = records(admin)
     engine(config).replay(require_complete=False)
     assert records(admin) == before
+
+
+def test_priority_window_resumes_checkpoint_and_independent_reports(mainline, observer_mainline, monkeypatch):
+    original, admin, authorize = mainline
+    root = Path(original['root']); c, _, key = helper.fixture(root/'inputs')
+    guard = root/'inputs/formal-cgroups/dehps-p3-top100-post-draw-mail.service/cgroup.procs'
+    guard.parent.mkdir(); guard.write_text('123\n')  # isolated process-membership fixture
+    config = authorize(plan.build_plan(c))
+    window = [True]
+    active = lambda now=None: window[0]
+    monkeypatch.setattr(contract, 'formal_priority_active', active)
+    monkeypatch.setattr(capabilities, 'formal_priority_active', active)
+    held = engine(config); held.run()
+    assert set(held.wait_reasons.values()) == {'FORMAL_TASK_RUNNING'}
+    assert records(admin)['execution_store.commits'] == 0
+
+    fit = fixed.fit_checkpoint; calls = []
+    def enter_window_during_first_fit(*args):
+        calls.append(args[1])
+        result = fit(*args)
+        if len(calls) == 1:
+            window[0] = True  # an in-flight update commits; the next dispatch waits
+        return result
+    monkeypatch.setattr(fixed, 'fit_checkpoint', enter_window_during_first_fit)
+    window[0] = False
+    first = engine(config); first.run()
+    assert calls == [900] and records(admin)['execution_store.commits'] == 2
+    assert set(first.wait_reasons.values()) == {'FORMAL_TASK_RUNNING'}
+    prefix = {p.name: p.read_bytes() for p in (root/'learning/artifacts/objects').glob('*.blob')}
+
+    window[0] = False
+    resumed = engine(config); resumed.run()
+    assert calls == [900, 901] and records(admin)['execution_store.commits'] == 6
+    assert all((root/'learning/artifacts/objects'/name).read_bytes() == data for name, data in prefix.items())
+    projection = json.loads((root/'learning/status/execution.json').read_bytes())['payload']['capability_progress']
+    assert projection['formal_priority_window'] == {'timezone': 'Asia/Shanghai', 'start_inclusive': '18:00:00',
+        'end_exclusive': '22:00:00', 'active': False}
+
+    observer_original, observer_admin, observer_authorize = observer_mainline
+    observer_root = Path(observer_original['root']); shutil.copytree(root/'inputs', observer_root/'inputs')
+    observed = contract.Inputs(observer_root/'inputs', contract.digest(c))
+    assert len(publish_observations(observed, engine(config), key,
+        approved_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())) == 3
+    observer_config = observer_authorize(plan.build_plan(c, domain='observer')); observer_config['domain'] = 'observer'
+    window[0] = True
+    protected = engine(observer_config); protected.run()
+    assert records(observer_admin)['execution_store.commits'] == 0
+    window[0] = False
+    observer = engine(observer_config); observer.run()
+    assert records(observer_admin)['execution_store.commits'] == 3
+    for issue in c['issues'][900:]:
+        assert 'HISTORICAL_RECONSTRUCTION' in (observer_root/'inputs/reports'/f'{issue}.md').read_text()
+
+    replays = {}
+    for domain, cfg, database in [('learning', config, admin), ('observer', observer_config, observer_admin)]:
+        before = records(database)
+        result = subprocess.run([*child_args(cfg), 'replay'], capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stderr
+        assert records(database) == before
+        replays[domain] = json.loads(result.stdout)['run_id']
+    assert calls == [900, 901]
+    print(json.dumps({'scope': 'DISPOSABLE_POSTGRES_WINDOW_FIXTURE', 'learning_run_id': resumed.run_id,
+        'observer_run_id': observer.run_id, 'replays': replays, 'issues': c['issues'][900:],
+        'producer_records': records(admin), 'observer_records': records(observer_admin),
+        'prefix_bytes_preserved': True, 'fit_calls': calls}))
+
+
+def test_outside_window_does_not_renew_committed_batch_budget(mainline, monkeypatch):
+    original, admin, authorize = mainline
+    root = Path(original['root']); c, _, _ = helper.fixture(root/'inputs')
+    config = authorize(plan.build_plan(c))
+    monkeypatch.setattr(contract, 'formal_priority_active', lambda now=None: False)
+    first = engine(config)
+    name = plan.CAPABILITIES['learn']; cap = first.capabilities[name]
+    first.capabilities[name] = replace(cap, ready=lambda *args: 'FIXTURE_FREEZE_ONLY')
+    first.run()
+    before = records(admin)
+    assert before['execution_store.commits'] == 1
+    class ExpiredBatchClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz)+timedelta(hours=25)
+    # Advance only the capability readiness clock; retain the real committed
+    # freeze, its deadline, input signatures and PostgreSQL admission unchanged.
+    monkeypatch.setattr(capabilities, 'datetime', ExpiredBatchClock)
+    current = engine(config); current.run()
+    assert set(current.wait_reasons.values()) == {'HISTORICAL_BATCH_BUDGET_EXHAUSTED'}
+    assert records(admin) == before
+
+
+def test_new_release_cannot_relabel_existing_commits(mainline, authority):
+    from dataclasses import asdict
+    from dehps.execution.store import ExecutionAuthorization
+    original, admin, authorize = mainline
+    root = Path(original['root']); c, _, _ = helper.fixture(root/'inputs')
+    packet = plan.build_plan(c); config = authorize(packet)
+    engine(config).run()
+    before = records(admin)
+    prefix = {p.name: p.read_bytes() for p in (root/'learning/artifacts/objects').glob('*.blob')}
+    clients, _, _, _ = authority
+    new_release = 'b'*64  # isolated explicit second release, never a production identity
+    request = clients['engineer'].request(packet.payload, new_release)
+    content = clients['reviewer'].get(request)['content_sha256']
+    clients['reviewer'].approve(request, content, new_release, datetime.now(timezone.utc)+timedelta(hours=1))
+    execution = clients['operator'].begin(request, content, new_release)
+    rebound = {**config, 'authorization': asdict(ExecutionAuthorization(execution, content, new_release))}
+    with pytest.raises(psycopg.errors.UniqueViolation, match='business key already bound to another definition'):
+        engine(rebound).run()
+    engine(config).replay(require_complete=False)
+    assert records(admin) == before
+    assert all((root/'learning/artifacts/objects'/name).read_bytes() == data for name, data in prefix.items())
