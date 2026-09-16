@@ -106,9 +106,10 @@ def continuation_plan(contract, continuation, *, domain):
         add(-1, 'observe-summary', observations + [key(i, 'observe') for i in range(start, n)])
     manifest = ControlPlaneManifest(old_manifest.goals, (*retained, *tasks), old_manifest.goal_states,
         tuple(TaskState(t.artifact_digest, TaskStatus.DRAFT) for t in (*retained, *tasks)))
+    manifest_digest = manifest.artifact_digest
     retained_digests = {t.artifact_digest for t in retained}
     specs = [s for s in original.payload['tasks'] if s['task_digest'] in retained_digests]
     specs += [dict(business_key=t.task_key, task_digest=t.artifact_digest,
-        manifest_digest=manifest.artifact_digest, scientific_contract_sha256=contract_sha,
+        manifest_digest=manifest_digest, scientific_contract_sha256=contract_sha,
         verifier_id=t.requested_capability, artifact_schema=SCHEMA) for t in tasks]
     return ExecutionPlan.build(manifest, specs)
