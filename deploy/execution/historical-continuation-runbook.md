@@ -1,15 +1,15 @@
 # Fixed historical continuation handoff
 
-Use Engineering827's accepted commit and immutable release builder for both
-workers. Package the exact continuation contract, both plans, images, input
+Engineering829 repairs only the host preflight/publisher read surface. Retain
+Engineering827's accepted worker images after verifying unchanged worker code. Package the exact continuation contract, both plans, images, input
 manifest, publisher inventory, old helper hashes, formal baseline, and rollback
 references. No SQL schema change is required. Old inputs/releases remain intact.
 
 `historical-continuation-host.py` is a fixed-package template, not a development
 entry. Copy it into the packet as `continuation-host.py`. Stage verified bytes as
 root-owned, non-writable files using the retained hash-bound staging pattern.
-The new stage is `/opt/dehps/releases/historical-continuation-827`; configuration
-and publisher use separate `historical-continuation-827` paths.
+The new stage is `/opt/dehps/releases/historical-continuation-829`; configuration
+and publisher use separate `historical-continuation-829` paths.
 
 The packet must bind the accepted commit, original contract, both new and prior
 release identities, exact plans/prefix, original expiry, <=24h continuation
@@ -19,10 +19,10 @@ entry pins the packet and staging program SHA256. Preserve original helpers at
 their existing path and pin their bytes under `retained_helpers`.
 
 The real ark sudo terminal invokes `review PACKET_SHA`. It authenticates the
-installed UID/machine mapping, completed Engineering827, independently scoped
+installed UID/machine mapping, completed Engineering829, independently scoped
 SQL Reviewer sessions, and the exact outer request. It neither accepts a chat
-identity string nor invokes training. Actual prefix replay under read-only
-transactions must reproduce the packaged contract before approval. It waits
+identity string nor invokes training. Actual prefix replay through the four allowlisted authenticated read APIs (preserving identity
+row locks) must reproduce the packaged contract before approval. It waits
 for a separately recorded Operator execution before handing install to a
 bounded system service. Never call this entry as Engineering to self-approve.
 
