@@ -1,6 +1,6 @@
 # Fixed historical continuation handoff
 
-Engineering829 repairs only the host preflight/publisher read surface. Retain
+Engineering831 repairs only the fixed-image replay subprocess group. Retain
 Engineering827's accepted worker images after verifying unchanged worker code. Package the exact continuation contract, both plans, images, input
 manifest, publisher inventory, old helper hashes, formal baseline, and rollback
 references. No SQL schema change is required. Old inputs/releases remain intact.
@@ -8,8 +8,8 @@ references. No SQL schema change is required. Old inputs/releases remain intact.
 `historical-continuation-host.py` is a fixed-package template, not a development
 entry. Copy it into the packet as `continuation-host.py`. Stage verified bytes as
 root-owned, non-writable files using the retained hash-bound staging pattern.
-The new stage is `/opt/dehps/releases/historical-continuation-829`; configuration
-and publisher use separate `historical-continuation-829` paths.
+The new stage is `/opt/dehps/releases/historical-continuation-831`; configuration
+and publisher use separate `historical-continuation-831` paths.
 
 The packet must bind the accepted commit, original contract, both new and prior
 release identities, exact plans/prefix, original expiry, <=24h continuation
@@ -19,7 +19,7 @@ entry pins the packet and staging program SHA256. Preserve original helpers at
 their existing path and pin their bytes under `retained_helpers`.
 
 The real ark sudo terminal invokes `review PACKET_SHA`. It authenticates the
-installed UID/machine mapping, completed Engineering829, independently scoped
+installed UID/machine mapping, completed Engineering831, independently scoped
 SQL Reviewer sessions, and the exact outer request. It neither accepts a chat
 identity string nor invokes training. Actual prefix replay through the four allowlisted authenticated read APIs (preserving identity
 row locks) must reproduce the packaged contract before approval. It waits
@@ -52,3 +52,12 @@ Never modify FormalP3/V11, fabricate2026104, send acceptance mail, extend the
 original30-day admission, restart the ended12-hour watch, or use Docker to
 circumvent unavailable sudo. If actual host authentication is absent, finish
 the exact packet and report that concrete entry, not another request for intent.
+
+
+Replay uses the actual service UID, explicitly retains its primary service GID,
+and adds only the existing canonical service's `SupplementaryGroups=docker`
+to that child process. Both review and install verify the live unit's exact
+User/Group/SupplementaryGroups plus account UID/GID before replay. The account
+is not added to a permanent group and the Docker socket is not changed.
+The829 publisher and827 worker images remain byte-identical; only this host
+entry and the new exact request/packet bindings change. Preserve failed830/668.
