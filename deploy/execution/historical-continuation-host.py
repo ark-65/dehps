@@ -7,6 +7,7 @@ accepted as Reviewer authentication. No formal service or mail action exists.
 from datetime import datetime, timezone
 from hashlib import sha256
 import importlib.util
+import grp
 import json
 import os
 from pathlib import Path
@@ -19,9 +20,9 @@ import time
 
 OLD = Path('/opt/dehps/releases/historical-learning-v1-d9c9899-r2')
 OLD_CONFIG = Path('/etc/dehps/historical')
-STAGE = Path('/opt/dehps/releases/historical-continuation-829')
-CONFIG = Path('/etc/dehps/historical-continuation-829')
-PUB = Path('/opt/dehps/releases/historical-continuation-publisher-829')
+STAGE = Path('/opt/dehps/releases/historical-continuation-831')
+CONFIG = Path('/etc/dehps/historical-continuation-831')
+PUB = Path('/opt/dehps/releases/historical-continuation-publisher-831')
 UNITS = ['dehps-historical-publisher', 'dehps-historical-worker@learning', 'dehps-historical-worker@observer']
 
 
@@ -44,7 +45,7 @@ def bootstrap(expected):
     support = load('continuation_support', OLD/'operator-support.py')
     support.STAGE, support.CONFIG, support.PUB = STAGE, CONFIG, PUB
     support.KEY = package['operator_request_key']
-    support.ENGINEERING = 'engineering-historical-preflight-readonly-fix-20260916-v1'
+    support.ENGINEERING = 'engineering-historical-replay-service-group-20260916-v1'
     package = support.packet(expected)
     support.require(os.geteuid() == 0, 'Actual host administrator authentication required')
     support.require(Path(__file__) == STAGE/'continuation-host.py', 'Protected staged entry required')
@@ -72,8 +73,8 @@ def prepare_request(s, package, domain):
                                 (saved['request_id'],)).fetchone()
         s.require(actual == (plan,release,saved['content_sha256'],s.THREAD), 'Existing continuation admission differs')
         return saved
-    engineer = 'dehps_control_'+domain+'_hist829_engineer'
-    operator = 'dehps_control_'+domain+'_hist829_operator'
+    engineer = 'dehps_control_'+domain+'_hist831_engineer'
+    operator = 'dehps_control_'+domain+'_hist831_operator'
     passwords = {engineer:secrets.token_urlsafe(48), operator:secrets.token_urlsafe(48)}
     with s.admin_connection(domain) as db:
         s.require(not db.execute('SELECT 1 FROM pg_roles WHERE rolname=ANY(%s)',([engineer,operator],)).fetchone(),
@@ -100,7 +101,7 @@ def prepare_request(s, package, domain):
         with psycopg.connect(**{**params,'user':engineer,'password':passwords[engineer]}) as db:
             s.require(db.execute('SELECT session_user').fetchone()[0] == engineer, 'Engineering login differs')
             request = db.execute('SELECT execution_authority.request_create(%s,%s,%s)',
-                (Jsonb(plan),release,'Exact retained-prefix continuation after Engineering829')).fetchone()[0]
+                (Jsonb(plan),release,'Exact retained-prefix continuation after Engineering831')).fetchone()[0]
             value = db.execute('SELECT execution_authority.request_get(%s)',(request,)).fetchone()[0]
     finally:
         with s.admin_connection(domain) as db:
@@ -156,13 +157,26 @@ def snapshot(s):
         'timers':s.command('runuser','-u','ark','--','env','XDG_RUNTIME_DIR=/run/user/1000','systemctl','--user','list-timers','--all','--no-pager')}
 
 
+def check_replay_identity(s, domain):
+    service = 'dehps-'+domain
+    uid = {'learning':61010, 'observer':61011}[domain]
+    account = pwd.getpwnam(service)
+    s.require(account.pw_uid == uid and account.pw_gid == uid
+              and grp.getgrnam(service).gr_gid == uid, 'Replay service UID/primary GID differs')
+    raw = s.command('systemctl','show','dehps-historical-worker@'+domain+'.service',
+                    '--property=User','--property=Group','--property=SupplementaryGroups')
+    actual = dict(line.split('=',1) for line in raw.splitlines() if '=' in line)
+    s.require(actual == {'User':service,'Group':service,'SupplementaryGroups':'docker'},
+              'Replay must match existing canonical service identity and supplementary group')
+
+
 def replay_command(package, domain, *, prior):
     """The retained launcher requires the actual non-root runtime UID."""
     stage = OLD if prior else STAGE
     config = OLD_CONFIG if prior else CONFIG
-    inputs = '/opt/dehps/inputs/historical-'+('' if prior else 'continuation-829-')+domain
+    inputs = '/opt/dehps/inputs/historical-'+('' if prior else 'continuation-831-')+domain
     worker = package['prior_workers' if prior else 'workers'][domain]
-    return ['runuser','-u','dehps-'+domain,'--','env',
+    return ['runuser','-u','dehps-'+domain,'-g','dehps-'+domain,'-G','docker','--','env',
         'DOCKER_HOST=unix:///var/run/docker.sock',
         'DOCKER_CONFIG=/opt/dehps/releases/control-refactor-r5/docker-client',
         '/usr/bin/flock','--exclusive','/run/dehps/historical/'+domain+'.lock',
@@ -180,6 +194,7 @@ def review(s, package, installer, reviewer, expected):
     mapping=json.loads(s.MAPPING.read_bytes())
     principal='unix-host:'+sha256(Path('/etc/machine-id').read_bytes()).hexdigest()+':uid:1000'
     s.require(pwd.getpwnam('ark').pw_uid==1000 and mapping['reviewer_principal']==principal, 'Actual ark Reviewer differs')
+    for domain in ('learning','observer'):check_replay_identity(s,domain)
     original=s.private(OLD_CONFIG/'admission-window.json')
     s.require(original['approved_until']==package['approved_until'] and now()<datetime.fromisoformat(package['review_before']),
               'Original expiry or time-bound deployment packet differs; no extension')
@@ -231,7 +246,7 @@ def review(s, package, installer, reviewer, expected):
 def new_inputs(s, installer, package, domain):
     uid=61010 if domain=='learning' else 61011
     old=Path('/opt/dehps/inputs/historical-'+domain)
-    root=Path('/opt/dehps/inputs/historical-continuation-829-'+domain)
+    root=Path('/opt/dehps/inputs/historical-continuation-831-'+domain)
     if not root.exists():
         shutil.copytree(old,root,symlinks=True,
             ignore=lambda path,names: {'formal-cgroups','execution.json','release.json','dispatch.json'} if Path(path)==old else set())
@@ -256,7 +271,7 @@ def new_inputs(s, installer, package, domain):
         '--descriptor ${DEHPS_RELEASE_DESCRIPTOR} --release-sha256 ${DEHPS_RELEASE_SHA256} '+
         '--runtime-root /var/lib/dehps/control-'+domain+' --control-domain '+domain+' --inputs '+str(root)+
         ' --credentials '+str(credential)+' --network none --database-socket /run/dehps/'+domain+'-postgres-socket --action run\n')
-    installer.exact_file(Path('/etc/systemd/system')/('dehps-historical-worker@'+domain+'.service.d/zz-continuation-829.conf'),text.encode())
+    installer.exact_file(Path('/etc/systemd/system')/('dehps-historical-worker@'+domain+'.service.d/zz-continuation-831.conf'),text.encode())
     return root,unit
 
 
@@ -268,7 +283,7 @@ def install(s, package, installer, expected, execution):
     review=json.loads((CONFIG/'runtime-review.json').read_bytes());s.protected(CONFIG/'runtime-review.json')
     s.require(review['activation_packet_sha256']==expected and now()<datetime.fromisoformat(package['approved_until']), 'Runtime review absent/expired')
     for domain,uid in [('learning',61010),('observer',61011)]:
-        s.require(pwd.getpwnam('dehps-'+domain).pw_uid==uid, 'Service identity differs')
+        check_replay_identity(s,domain)
         s.require(json.loads(s.command('docker','image','inspect',package['workers'][domain]['image_id']))[0]['Id']==package['workers'][domain]['image_id'], 'Fixed image absent')
     publisher(s,package,installer)
     baseline=STAGE/'evidence/before.json'
@@ -299,7 +314,7 @@ def install(s, package, installer, expected, execution):
         '\nReadWritePaths='+str(roots['learning'])+' '+str(roots['observer'])+'\nReadOnlyPaths='+str(CONFIG)+'\n')
     old_dropin=Path('/etc/systemd/system/dehps-historical-publisher.service.d/formal-idle.conf')
     if old_dropin.exists():installer.exact_file(STAGE/'rollback/formal-idle.conf',old_dropin.read_bytes(),0o400)
-    installer.exact_file(Path('/etc/systemd/system/dehps-historical-publisher.service.d/zz-continuation-829.conf'),text.encode())
+    installer.exact_file(Path('/etc/systemd/system/dehps-historical-publisher.service.d/zz-continuation-831.conf'),text.encode())
     executions={d:installer.begin(d,package) for d in ('learning','observer')}
     for domain in ('learning','observer'):
         env=Path('/etc/dehps/control')/domain/'reader.env'
