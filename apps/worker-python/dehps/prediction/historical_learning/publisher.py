@@ -185,7 +185,6 @@ def publish_observations(inputs, learning_engine, key, *, approved_until):
     published = []
     with learning_engine.store.verification_scope():
         manifest = learning_engine.replay(require_complete=False)
-        producer_plan_digest = learning_engine.plan.digest
         by_index = {}
         for task in manifest.tasks:
             definition = json.loads(task.metric_contract)['historical']
@@ -209,7 +208,8 @@ def publish_observations(inputs, learning_engine, key, *, approved_until):
                 'report_sha256': report.artifact.sha256, 'learn_sha256': learn.artifact.sha256 if learn else None,
                 'producer_committed_at': ledger['commit']['created_at'],
                 'producer_execution_id': ledger['attempt']['authority_execution'],
-                'producer_release_sha256': report.task['release_sha256'], 'producer_plan_digest': producer_plan_digest}
+                'producer_release_sha256': report.task['release_sha256'],
+                'producer_plan_digest': report.task['manifest_digest']}
             path = inputs.root/'observations'/f'{index:05d}.json'
             existed = path.exists()
             append_bytes(path, signed(body, key, inputs.contract['export_public_key']))

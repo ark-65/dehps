@@ -21,6 +21,14 @@ from .contract import Inputs, POLICY, SCHEMA, digest, instant, require
 from .plan import build_plan
 from .publisher import (append_bytes, archive, audited_source, publish_dispatch,
                         publish_inputs, publish_observations, source_references)
+from . import continuation
+
+
+class ReadonlyDatabase(DatabaseBinding):
+    def connect(self):
+        connection = super().connect()
+        connection.read_only = True
+        return connection
 
 
 def freeze(*, source, retained_root, retained_sha256, source_root, output, key):
@@ -81,14 +89,35 @@ def reader_engine(config):
     release = Release.read(inputs/'release.json', config['release_sha256'])
     packet = json.loads((inputs/'execution.json').read_bytes())
     plan = ExecutionPlan(packet['plan']); plan.validate()
-    database = DatabaseBinding(**private_json(config['reader_credentials']))
+    domain = config.get('domain', 'learning')
+    require(domain in {'learning', 'observer'}, 'reader domain differs')
+    database = ReadonlyDatabase(**private_json(config['reader_credentials']))
     request = AuthorityClient(database).get(packet['request_id'])
     require(request['payload'] == plan.payload and request['release_sha256'] == release.digest
-            and request['control_plane'] == 'learning', 'historical reader admission binding differs')
-    store = ExecutionStore(database, ArtifactStore(RunContext(Path(config['runtime_root']), 'learning')),
+            and request['control_plane'] == domain, 'historical reader admission binding differs')
+    store = ExecutionStore(database, ArtifactStore(RunContext(Path(config['runtime_root']), domain)),
         ExecutionAuthorization(0, request['content_sha256'], release.digest), {})
     context = SimpleNamespace(inputs=inputs, code_root=Path(config['code_root']), release=release)
     return Coordinator(plan, store, build_capabilities(plan, store, context))
+
+
+def prepare_continuation(config, output):
+    """Read existing ledgers only; write a candidate packet, never admission."""
+    require(set(config) == {'schema', 'readers', 'next_releases', 'original_approved_until', 'budget_seconds'},
+            'closed continuation preparation config required')
+    require(config['schema'] == 'historical-continuation-preparation.v1', 'preparation schema differs')
+    require(not output.exists(), 'continuation preparation requires a new directory')
+    engines = {d: reader_engine({**reader, 'domain': d}) for d, reader in config['readers'].items()}
+    original = json.loads((Path(config['readers']['learning']['inputs'])/'contract.json').read_bytes())
+    value = continuation.capture(original, engines, next_releases=config['next_releases'],
+        original_approved_until=config['original_approved_until'], budget_seconds=config['budget_seconds'])
+    output.mkdir(parents=True, mode=0o700)
+    append_bytes(output/'continuation.json', canonical(value))
+    for domain in ('learning', 'observer'):
+        append_bytes(output/(domain+'-plan.json'), canonical(build_plan(original, domain=domain, continuation=value).payload))
+    return {'status': 'CONTINUATION_PREPARED_NOT_APPROVED', 'continuation_sha256': digest(value),
+        'retained_count': value['retained_count'], 'next_issue': original['issues'][900+value['retained_count']],
+        'training_executed': False, 'approvals_created': False}
 
 
 def source_error(config, key, exc):
@@ -173,6 +202,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     pub = commands.add_parser('publish'); pub.add_argument('--config', type=Path, required=True)
+    resume = commands.add_parser('prepare-continuation')
+    resume.add_argument('--config', type=Path, required=True)
+    resume.add_argument('--output', type=Path, required=True)
     initial = commands.add_parser('freeze')
     for name in ('source-credentials', 'retained-root', 'source-root', 'output', 'key-file'):
         initial.add_argument('--'+name, type=Path, required=True)
@@ -180,6 +212,8 @@ def main():
     args = parser.parse_args()
     if args.command == 'publish':
         result = publish(private_json(args.config))
+    elif args.command == 'prepare-continuation':
+        result = prepare_continuation(private_json(args.config), args.output)
     else:
         result = freeze(source=DatabaseBinding(**private_json(args.source_credentials)), retained_root=args.retained_root,
             retained_sha256=args.retained_sha256, source_root=args.source_root, output=args.output, key=signing_key(args.key_file))
