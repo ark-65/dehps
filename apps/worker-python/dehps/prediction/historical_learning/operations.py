@@ -131,7 +131,8 @@ def source_error(config, key, exc):
         publish_dispatch(target, key, approved_until=config['approved_until'], reason=reason)
 
 
-def publish(config):
+def _publish_sources(config):
+    """Audit current machine sources and sign readiness only after validation."""
     require(set(config) == {'schema', 'activated_at', 'approved_until', 'key_file', 'contract_sha256',
         'learning_inputs', 'observer_inputs', 'source_credentials', 'source_root', 'producer_reader'}, 'closed historical publisher configuration required')
     require(config['schema'] == 'historical-publisher.v1', 'publisher schema differs')
@@ -185,8 +186,25 @@ def publish(config):
     except Exception as exc:
         source_error(config, key, exc)
         raise
-    reports = publish_observations(observer, reader_engine(config['producer_reader']), key, approved_until=config['approved_until'])
-    return {'status': 'EXPORTED', 'published_labels': labels, 'published_reports': reports,
+    return observer, labels, key
+
+
+def publish(config):
+    initial = _publish_sources(config)
+    if isinstance(initial, dict):
+        return initial
+    observer, labels, key = initial
+    reports = publish_observations(observer, reader_engine(config['producer_reader']), key,
+                                   approved_until=config['approved_until'])
+    # Workers are ordered after this service. A large registered-report replay
+    # can consume most of the 1200-second readiness lifetime before they start.
+    # Perform a NEW complete source audit, including frozen inputs, database
+    # labels, expiry and formal guard. Never merely re-sign an old observation.
+    final = _publish_sources(config)
+    if isinstance(final, dict):
+        return {**final, 'published_labels': labels, 'published_reports': reports}
+    _, final_labels, _ = final
+    return {'status': 'EXPORTED', 'published_labels': list(dict.fromkeys([*labels, *final_labels])), 'published_reports': reports,
             'training_executed': False, 'approvals_created': False}
 
 

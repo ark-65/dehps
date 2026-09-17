@@ -75,3 +75,12 @@ def test_full_batch_uses_completed_state_before_replay_and_no_restart(tmp_path):
     for v in states.values(): v['capability_progress']['batch_summary_registered'] = True
     _,_,_,done = a.cycle(s,p,i,tmp_path,True,-10000)
     assert done and not events
+
+
+def test_recovery_witness_requires_new_updates_beyond_incident_prefix(tmp_path):
+    s,p,i,states,events,_ = fixture(tmp_path)
+    p['witness_new_count'] = 935
+    for value in states.values(): value['capability_progress']['continuation']['new_committed_count'] = 933
+    witnessed,_,_,_ = a.cycle(s,p,i,tmp_path,False,a.time.monotonic())
+    assert not witnessed and not (tmp_path/'two-new-issue-witness.json').exists()
+    assert not any(e[:2] == ('systemctl','enable') for e in events)
