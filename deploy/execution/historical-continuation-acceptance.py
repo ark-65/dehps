@@ -14,10 +14,10 @@ import subprocess
 import sys
 import time
 
-STAGE = Path('/opt/dehps/releases/historical-acceptance-833')
+STAGE = Path('/opt/dehps/releases/historical-source-refresh-20260917')
 OLD = Path('/opt/dehps/releases/historical-continuation-831')
 OLD_SHA = '466634f8a7aa684f440780e31431f1bed835194495cb048bf817362e33b20512'
-KEY = 'operator-historical-acceptance-resume-20260916-v1'
+KEY = 'operator-historical-source-freshness-20260917-v1'
 DEADLINE = datetime.fromisoformat('2026-09-17T10:36:56+00:00')
 UNITS = ('dehps-historical-publisher', 'dehps-historical-worker@learning',
          'dehps-historical-worker@observer')
@@ -39,7 +39,7 @@ def load(path):
     return module
 
 
-def setup(expected):
+def setup(expected, *, before_install=False):
     require(os.geteuid() == 0, 'Actual administrator required')
     require(Path(__file__) == STAGE/'acceptance.py', 'Exact staged entry required')
     raw = (OLD/'activation-packet.json').read_bytes()
@@ -59,9 +59,21 @@ def setup(expected):
     for name, digest in binding['installed_files'].items():
         p = Path(name); s.protected(p)
         require(s.sha(p) == digest, 'Installed runtime identity differs: '+name)
+    for name, digest in binding['publisher_files'].items():
+        p = STAGE/name
+        require('..' not in Path(name).parts and p.is_relative_to(STAGE), 'Invalid publisher package member')
+        s.protected(p); require(s.sha(p) == digest, 'Publisher package differs: '+name)
+    config = Path('/etc/dehps/historical-source-refresh-20260917/publisher.json')
+    s.protected(config.parent)
+    info = config.lstat()
+    require(config.resolve() == config and config.is_file() and
+            info.st_uid == 61010 and info.st_gid == 61010 and info.st_mode & 0o777 == 0o600,
+            'Exact private publisher identity/mode required')
+    require(s.sha(config) == binding['publisher_config_sha256'], 'Publisher configuration differs')
     expected_units = set(UNITS) | {'dehps-control-status@learning', 'dehps-control-status@observer'}
-    require(set(binding['unit_sha256']) == expected_units, 'Closed installed unit set required')
-    for unit, digest in binding['unit_sha256'].items():
+    unit_hashes = binding['previous_unit_sha256'] if before_install else binding['unit_sha256']
+    require(set(unit_hashes) == expected_units, 'Closed installed unit set required')
+    for unit, digest in unit_hashes.items():
         content = s.command('systemctl', 'cat', unit+'.service').encode()
         require(sha256(content).hexdigest() == digest, 'Installed unit changed: '+unit)
     identity = json.loads((OLD/'evidence/runtime-identities.json').read_bytes())
@@ -70,9 +82,14 @@ def setup(expected):
             identity['scoped_executions'] == {'learning': 3, 'observer': 3} and
             identity['original_approved_until'] == package['approved_until'], 'Installed execution differs')
     require(not installer.active('dehps-historical-continuation-670.service'), 'Previous acceptance still active')
+    require(not installer.active('dehps-historical-acceptance-672.service'), 'Superseded acceptance still active')
     for domain in ('learning', 'observer'):
         host.check_replay_identity(s, domain)
         require(json.loads(s.command('docker', 'image', 'inspect', package['workers'][domain]['image_id']))[0]['Id'] == package['workers'][domain]['image_id'], 'Installed image absent')
+    require(binding['witness_issues'] == ['2019069', '2019070'] and binding['witness_new_count'] == 935,
+            'New recovery witness must exceed committed1527 prefix')
+    package = {**package, 'first_new_issues': binding['witness_issues'],
+               'witness_new_count': binding['witness_new_count']}
     return s, package, installer, host
 
 
@@ -99,8 +116,8 @@ def validate(state, package):
                 'Original finite batch budget exhausted')
 
 
-def progressed(state):
-    return all(p.get('capability_progress', {}).get('continuation', {}).get('new_committed_count', 0) >= 2
+def progressed(state, required_count=2):
+    return all(p.get('capability_progress', {}).get('continuation', {}).get('new_committed_count', 0) >= required_count
                for p in state.values())
 
 
@@ -119,7 +136,7 @@ def cycle(s, package, installer, evidence, witnessed, last_publish):
     """Consume completed state before any command can replace it with STARTING."""
     state = {d: installer.progress(d) for d in ('learning', 'observer')}
     validate(state, package)
-    if not witnessed and progressed(state):
+    if not witnessed and progressed(state, package.get('witness_new_count', 2)):
         for issue in package['first_new_issues']:
             path = Path('/opt/dehps/inputs/historical-continuation-831-observer/reports')/(issue+'.md')
             report = s.command('runuser', '-u', 'dehps-observer', '--', 'cat', str(path))
@@ -156,6 +173,7 @@ def run(expected, execution):
     s, package, installer, host = setup(expected)
     authorize(s, expected, execution)
     evidence = STAGE/'evidence'; evidence.mkdir(mode=0o755, exist_ok=True)
+    evidence.chmod(0o755)  # status/report files are public; private proofs stay0600
     if not (evidence/'before.json').exists():
         s.save(evidence/'before.json', host.snapshot(s), 0o644)
     witness = evidence/'two-new-issue-witness.json'

@@ -143,7 +143,8 @@ print(child.stdout.strip())
     assert (rows(domains),files(domains))==before
 
 
-def test_publisher_reader_handles_committed_mixed_release_prefix(domains, monkeypatch, tmp_path):
+@pytest.mark.parametrize('entry', ['reports', 'complete_publisher'])
+def test_publisher_reader_handles_committed_mixed_release_prefix(domains, monkeypatch, tmp_path, entry):
     _, config, value, key = preparation(domains, monkeypatch, tmp_path)
     releases = {}
     for domain, reader in config['readers'].items():
@@ -165,7 +166,33 @@ def test_publisher_reader_handles_committed_mixed_release_prefix(domains, monkey
     before=rows(domains)
     producer=operations.reader_engine(config['readers']['learning'])
     target=contract.Inputs(domains['observer']['root']/'inputs',contract.digest(original))
-    assert publish_observations(target,producer,key,approved_until=value['original_approved_until'])==[-1,902,903]
+    if entry == 'reports':
+        assert publish_observations(target,producer,key,approved_until=value['original_approved_until'])==[-1,902,903]
+    else:
+        import base64
+        from datetime import datetime, timezone
+        from psycopg.conninfo import conninfo_to_dict
+        learning = domains['learning']['root']/'inputs'
+        history=json.loads((learning/'history.json').read_bytes())
+        receipt=json.loads((learning/'receipts'/f"{history[0]['label']['audit_sha256']}.json").read_bytes())
+        source_binding=domains['learning']['clients']['operator'].database
+        credentials=conninfo_to_dict(source_binding.dsn)
+        source=tmp_path/'source.json';source.write_bytes(canonical({'dsn':source_binding.dsn,
+            'database':credentials['dbname'],'role':credentials['user']}));source.chmod(0o600)
+        private=tmp_path/'publisher-key.json';private.write_bytes(canonical({'ed25519_private_key':
+            base64.b64encode(key.private_bytes_raw()).decode()}));private.chmod(0o600)
+        audits=[]
+        def audited_fixture(connection):
+            assert connection.execute('SELECT current_database()').fetchone()[0]==credentials['dbname']
+            audits.append(True)
+            return [r['label'] for r in history],receipt
+        monkeypatch.setattr(operations,'audited_source',audited_fixture)
+        result=operations.publish({'schema':'historical-publisher.v1','activated_at':datetime.now(timezone.utc).isoformat(),
+            'approved_until':value['original_approved_until'],'key_file':str(private),'contract_sha256':contract.digest(original),
+            'learning_inputs':str(learning),'observer_inputs':str(target.root),'source_credentials':str(source),
+            'source_root':str(tmp_path),'producer_reader':config['readers']['learning']})
+        assert result['status']=='EXPORTED' and result['published_reports']==[-1,902,903]
+        assert audits==[True,True] and result['published_labels']==[]
     assert rows(domains)==before
     observed=engine(configs['observer']);observed.run()
     assert '保留原版本 2 期' in (target.root/'reports/summary.md').read_text()
