@@ -83,3 +83,36 @@ unchanged prior continuation from both domain inputs and requires identical
 ancestry. The original runtime expiry is immutable. Every additional budget
 needs a new finite contract, exact packet, authenticated review and Operator
 execution. Actual restart resumes the same committed anchor, never resets it.
+
+# Timer overrun repair (Engineering839)
+
+A calendar job longer than15minutes must use `DeferReactivation=true` on both
+historical timer templates. This needs systemd257+. Otherwise a missed calendar
+tick immediately reactivates the publisher and can starve workers ordered after
+it. Keep the15minute calendar, boot triggers, locks, actual18–22formal guard,
+resource limits, fixed images, plans, scoped executions and original expiry.
+
+Stage `historical-timer-defer-host.py` as `timer-host.py` in a separately hashed,
+root-protected `historical-timer-defer.v1` packet at
+`/opt/dehps/releases/historical-timer-defer-839`. Bind both old/new timer bytes,
+formal baseline, accepted commit, exact existing837workers/plans/expiry, finite
+review deadline and a new typed Operator request. The host rejects every timer
+change except the single DeferReactivation line. It has no database admission,
+model, input or budget mutation path.
+
+After completed Engineering839, genuine ark `review PACKET_SHA` approves only
+that exact Operator package. Start the separate Operator execution. Its bounded
+actions are `quiesce`, `replay-learning`, `replay-observer`, `install`, `enable`
+and `rollback`, each taking PACKET_SHA and the actual execution ID. First allow
+already running observations to finish; quiesce only the independent chain and
+capture immutable registration inventories. Run both fixed-image fresh-process
+read-only replays, compare inventories, install timers, then enable them and
+witness a real publisher-to-worker handoff and the next future calendar trigger.
+The two worker images remain ff8ff3; only timer configuration changes. Rollback
+stops only this chain, restores old timer bytes and retains all evidence.
+
+An enabled timer, completed batch or isolated test alone is not acceptance:
+require registered independent summary/reports, complete replay, unchanged
+commits/registrations, actual scheduling evidence, and current formal report
+protection. Preserve baseline refusals and investigate legitimate scheduled
+ledger changes separately; never rewrite old evidence or send acceptance mail.
