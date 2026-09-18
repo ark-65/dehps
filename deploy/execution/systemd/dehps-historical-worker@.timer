@@ -5,6 +5,7 @@ Description=DEHPS historical %i bounded input poll and checkpoint recovery
 OnBootSec=2min
 OnCalendar=*:0/15
 Persistent=true
+DeferReactivation=true
 AccuracySec=5s
 Unit=dehps-historical-worker@%i.service
 

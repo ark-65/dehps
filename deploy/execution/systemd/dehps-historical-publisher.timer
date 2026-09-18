@@ -5,6 +5,7 @@ Description=DEHPS historical source and report read-only check every 15 minutes
 OnBootSec=1min
 OnCalendar=*:0/15
 Persistent=true
+DeferReactivation=true
 AccuracySec=1s
 Unit=dehps-historical-publisher.service
 
