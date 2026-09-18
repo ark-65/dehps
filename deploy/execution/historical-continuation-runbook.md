@@ -71,3 +71,15 @@ controller. Do not rerun installation, create scoped executions, recapture a
 verifies exact installed service/image/identity bindings, witnesses committed
 reports before restarting observers, and uses nonblocking publication. Existing
 frozen activation packages and their failed evidence remain unchanged.
+
+# Second and later continuation
+
+Engineering837 introduces `historical-continuation.v2`, embedding the exact prior
+continuation and preserving every retained task's own release and budget anchor.
+Use `historical-chained-continuation-host.py` for the next separately approved
+packet at `/opt/dehps/releases/historical-chained-continuation-837`; never rerun
+completed831 installation or edit its contract. Preparation schema v2 reads the
+unchanged prior continuation from both domain inputs and requires identical
+ancestry. The original runtime expiry is immutable. Every additional budget
+needs a new finite contract, exact packet, authenticated review and Operator
+execution. Actual restart resumes the same committed anchor, never resets it.

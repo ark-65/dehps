@@ -97,12 +97,19 @@ def prepare_continuation(config, output):
     """Read existing ledgers only; write a candidate packet, never admission."""
     require(set(config) == {'schema', 'readers', 'next_releases', 'original_approved_until', 'budget_seconds'},
             'closed continuation preparation config required')
-    require(config['schema'] == 'historical-continuation-preparation.v1', 'preparation schema differs')
+    require(config['schema'] in {'historical-continuation-preparation.v1', 'historical-continuation-preparation.v2'},
+            'preparation schema differs')
     require(not output.exists(), 'continuation preparation requires a new directory')
     engines = {d: reader_engine({**reader, 'domain': d}) for d, reader in config['readers'].items()}
     original = json.loads((Path(config['readers']['learning']['inputs'])/'contract.json').read_bytes())
+    prior = None
+    if config['schema'] == 'historical-continuation-preparation.v2':
+        prior_bytes = [(Path(reader['inputs'])/'continuation.json').read_bytes() for reader in config['readers'].values()]
+        require(prior_bytes[0] == prior_bytes[1], 'domain continuation ancestry differs')
+        prior = json.loads(prior_bytes[0])
     value = continuation.capture(original, engines, next_releases=config['next_releases'],
-        original_approved_until=config['original_approved_until'], budget_seconds=config['budget_seconds'])
+        original_approved_until=config['original_approved_until'], budget_seconds=config['budget_seconds'],
+        prior_continuation=prior)
     output.mkdir(parents=True, mode=0o700)
     append_bytes(output/'continuation.json', canonical(value))
     for domain in ('learning', 'observer'):

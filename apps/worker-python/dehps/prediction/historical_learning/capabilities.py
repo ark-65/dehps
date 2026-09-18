@@ -20,11 +20,19 @@ def build_capabilities(plan, store, context):
     inputs = Inputs(context.inputs, hashes.pop())
     domain = store.artifacts.context.control_plane
     continuation_hashes = {d['continuation_sha256'] for d in definitions.values() if 'continuation_sha256' in d}
-    require(len(continuation_hashes) <= 1, 'one exact continuation required')
-    continuation_sha = next(iter(continuation_hashes), None)
-    continuation = inputs.hashed('continuation.json', continuation_sha) if continuation_sha else None
+    continuation = None
+    continuation_sha = None
+    lineage = {}
+    if continuation_hashes:
+        # The current contract embeds every exact ancestor; task definitions
+        # retain their original owning continuation and release identities.
+        raw = json.loads((context.inputs/'continuation.json').read_bytes())
+        continuation_sha = digest(raw)
+        continuation = inputs.hashed('continuation.json', continuation_sha)
     if continuation:
         bridge.validate(continuation, inputs.contract)
+        lineage = {digest(item): item for item in bridge.lineage(continuation)}
+        require(set(lineage) == continuation_hashes, 'continuation ancestry/task definitions differ')
         require(continuation['domains'][domain]['next_release_sha256'] == context.release.digest,
                 'continuation next release differs')
     require(build_plan(inputs.contract, domain=domain, continuation=continuation).payload == plan.payload,
@@ -37,7 +45,7 @@ def build_capabilities(plan, store, context):
             inputs.hashed('continuation.json', continuation_sha)
 
     def retained(definition):
-        return continuation is not None and 'continuation_sha256' not in definition
+        return continuation is not None and definition.get('continuation_sha256') != continuation_sha
 
     def values(parents):
         return [json.loads(p.data) for p in parents.values()]
@@ -55,16 +63,19 @@ def build_capabilities(plan, store, context):
                 'batch_count': len(inputs.history)-900, 'started_at': started_at,
                 'batch_deadline': (instant(started_at)+timedelta(seconds=POLICY['batch_budget_seconds'])).isoformat()}
         if phase == 'resume':
+            owner_sha = definition['continuation_sha256']
+            owner = lineage[owner_sha]
             previous = predecessor(parents)
-            require(previous['after']['count'] == 900+continuation['retained_count'], 'retained checkpoint count differs')
+            require(previous['after']['count'] == 900+owner['retained_count'], 'retained checkpoint count differs')
             return {'after': previous['after'], 'history_sha256': inputs.contract['history_sha256'],
                 'batch_count': len(inputs.history)-900, 'started_at': started_at,
-                'batch_deadline': bridge.deadline(continuation, started_at),
-                'original_batch_deadline': previous['batch_deadline'], 'continuation_sha256': continuation_sha,
-                'retained_count': continuation['retained_count'], 'checkpoint_sha256': digest(previous['after'])}
+                'batch_deadline': bridge.deadline(owner, started_at),
+                'original_batch_deadline': previous['batch_deadline'], 'continuation_sha256': owner_sha,
+                'retained_count': owner['retained_count'], 'checkpoint_sha256': digest(previous['after'])}
         if phase == 'observe-resume':
-            require(len(parents) == continuation['retained_count'], 'retained observations incomplete')
-            return {'continuation_sha256': continuation_sha, 'retained_count': len(parents),
+            owner_sha = definition['continuation_sha256']
+            require(len(parents) == lineage[owner_sha]['retained_count'], 'retained observations incomplete')
+            return {'continuation_sha256': owner_sha, 'retained_count': len(parents),
                 'original_observations': {k: p.artifact.sha256 for k, p in parents.items()}}
         if phase == 'learn':
             previous = predecessor(parents)
@@ -159,7 +170,7 @@ def build_capabilities(plan, store, context):
         expected_release = context.release.digest
         if retained(definition):
             prior = continuation['domains'][domain]
-            expected_release = prior['prior_release_sha256']
+            expected_release = bridge.release_for(continuation, domain, definition)
             require(digest(value) == prior['artifacts'].get(binding['business_key']), 'retained artifact identity differs')
         require(set(value) == {'schema', 'phase', 'index', 'task_digest', 'release_sha256', 'parents', 'scientific'}, 'closed historical result required')
         require(value['schema'] == binding['artifact_schema'] == SCHEMA and value['phase'] == definition['phase']

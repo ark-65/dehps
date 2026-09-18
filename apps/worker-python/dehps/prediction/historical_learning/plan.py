@@ -62,7 +62,7 @@ def continuation_plan(contract, continuation, *, domain):
     from .continuation import validate, retained_tasks
     validate(continuation, contract)
     require(domain in {'learning', 'observer'}, 'explicit historical control domain required')
-    original = build_plan(contract, domain=domain)
+    original = build_plan(contract, domain=domain, continuation=continuation.get('prior_continuation'))
     old_manifest = original.validate()
     retained = retained_tasks(original, continuation['retained_count'])
     contract_sha, continuation_sha = digest(contract), digest(continuation)

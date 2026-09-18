@@ -47,9 +47,9 @@ def domains(tmp_path):
         yield result
 
 
-def setup_prefix(domains, monkeypatch, release_sha256="a"*64):
+def setup_prefix(domains, monkeypatch, release_sha256="a"*64, count=904):
     root = domains['learning']['root']
-    c, _, key = helper.fixture(root/'inputs', count=904)
+    c, _, key = helper.fixture(root/'inputs', count=count)
     shutil.copytree(root/'inputs', domains['observer']['root']/'inputs')
     configs = {d: v['authorize'](plan.build_plan(c, domain=d), release_sha256) for d,v in domains.items()}
     first = engine(configs['learning'])
@@ -219,3 +219,70 @@ def test_expired_original_window_cannot_be_extended_by_new_release(domains, monk
     stopped=engine(config);stopped.run()
     assert 'AUTHORIZATION_REQUIRED' in stopped.wait_reasons.values()
     assert records(domains['learning']['admin'])==before
+
+
+def test_second_continuation_retains_mixed_releases_and_all_budget_anchors(domains, monkeypatch):
+    fit = fixed.fit_checkpoint; calls = []
+    def counted(counts, count):
+        calls.append(count); return fit(counts, count)
+    monkeypatch.setattr(fixed, 'fit_checkpoint', counted)
+    c, key, _, first = setup_prefix(domains, monkeypatch, count=906)
+    configs = install_contract(domains, c, first)
+    partial = engine(configs['learning'])
+    capability = partial.capabilities[plan.CAPABILITIES['learn']]
+    partial.capabilities[plan.CAPABILITIES['learn']] = replace(capability,
+        ready=lambda task, parents: ('ISOLATED_SECOND_PREFIX_STOP'
+            if json.loads(task.metric_contract)['historical']['index'] >= 904
+            else capability.ready(task, parents)))
+    partial.run()
+    observer_inputs = contract.Inputs(domains['observer']['root']/'inputs', contract.digest(c))
+    publish_observations(observer_inputs, engine(configs['learning']), key,
+                         approved_until=first['original_approved_until'])
+    engine(configs['observer']).run()
+    assert calls == [900, 901, 902, 903]
+    preserved = {p:p.read_bytes() for domain, item in domains.items()
+                 for p in (item['root']/domain/'artifacts/objects').glob('*.blob')}
+    second = continuation.capture(c, {d:engine(v) for d,v in configs.items()},
+        next_releases={'learning':'d'*64, 'observer':'e'*64},
+        original_approved_until=first['original_approved_until'], prior_continuation=first)
+    assert second['schema'] == continuation.CHAIN_SCHEMA and second['retained_count'] == 4
+    assert canonical(second['prior_continuation']) == canonical(first)
+    for domain in domains:
+        tasks = plan.build_plan(c, domain=domain, continuation=second).validate().tasks
+        assert sum(json.loads(t.metric_contract)['historical']['phase'] in {'resume','observe-resume'}
+                   for t in tasks) == 2
+    for mutate in [lambda v:v.update(original_approved_until='2099-01-01T00:00:00+00:00'),
+                   lambda v:v.update(retained_count=2),
+                   lambda v:v['domains']['learning'].update(next_release_sha256='a'*64),
+                   lambda v:v['domains']['learning'].update(prior_release_sha256='f'*64),
+                   lambda v:v['prior_continuation'].update(budget_seconds=1),
+                   lambda v:v['domains']['observer']['artifacts'].pop(next(iter(v['domains']['observer']['artifacts'])))]:
+        bad = deepcopy(second); mutate(bad)
+        with pytest.raises(BoundaryError):plan.build_plan(c, continuation=bad)
+    latest = install_contract(domains, c, second)
+    new = engine(latest['learning']); commit = new.store.commit
+    def lost_ack(*args, **kwargs):
+        result = commit(*args, **kwargs)
+        if json.loads(result.data)['phase'] == 'learn' and calls == [900,901,902,903,904]:
+            raise psycopg.OperationalError('second continuation committed acknowledgement lost')
+        return result
+    monkeypatch.setattr(new.store, 'commit', lost_ack)
+    new.run(); engine(latest['learning']).run()
+    publish_observations(observer_inputs, engine(latest['learning']), key,
+                         approved_until=second['original_approved_until'])
+    engine(latest['observer']).run()
+    assert calls == list(range(900,906))
+    assert all(p.read_bytes()==value for p,value in preserved.items())
+    counts = {d:records(v['admin']) for d,v in domains.items()}
+    for domain, config in latest.items():
+        path=domains[domain]['root']/'chain-replay.json';path.write_text(json.dumps(config));path.chmod(0o600)
+        result=subprocess.run([sys.executable,str(Path(__file__).with_name('historical_scenario.py')),str(path),'replay'],
+            capture_output=True,text=True,timeout=120,
+            env={**os.environ,'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1'})
+        assert result.returncode==0,result.stderr
+    assert {d:records(v['admin']) for d,v in domains.items()} == counts
+    progress=json.loads((domains['learning']['root']/'learning/status/execution.json').read_text())['payload']['capability_progress']
+    assert progress['historical_learned']==6 and progress['continuation']['retained_prefix_count']==4
+    assert progress['continuation']['new_committed_count']==2
+    print(json.dumps({'scope':'DISPOSABLE_POSTGRES_CHAINED_CONTINUATION','fits':calls,
+        'records':counts,'all_prior_bytes_preserved':True,'retained':4,'new_committed':2}))
