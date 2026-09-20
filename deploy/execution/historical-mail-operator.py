@@ -42,6 +42,13 @@ def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
 
 
+def require_active_execution(records, execution, requester, request_id):
+    # Repository returns typed metadata objects, not the adapter's JSON view.
+    require(any(x.id==execution and x.request_id==request_id and x.status.value=='running'
+                and x.executor_role.value=='operator' and x.executor_id==requester and x.environment=='production'
+                for x in records), 'actual Operator execution differs')
+
+
 def checked(expected,execution):
     require(os.geteuid()==0,'authenticated host administrator required')
     raw=(STAGE/'package.json').read_bytes();require(sha256(raw).hexdigest()==expected,'package digest differs')
@@ -56,9 +63,9 @@ def checked(expected,execution):
     require(request.status.value=='executing' and request.requested_by==support.THREAD
             and request.payload['scope']['activation_packet_sha256']==expected,'exact active Operator request required')
     records=repo.list_execution_metadata(p['operator_request_key'])
-    require(any(x['id']==execution and x['status']=='running' and x['executor_role']=='operator'
-                and x['executor_id']==support.THREAD for x in records),'actual Operator execution differs')
+    require_active_execution(records,execution,support.THREAD,request.id)
     require(repo.get_request('engineering-historical-learning-two-mails-20260920-v2').status.value=='completed','Engineering842 not accepted')
+    require(repo.get_request('engineering-historical-mail-metadata-readback-20260920-v1').status.value=='completed','Engineering844 not accepted')
     require(datetime.now(timezone.utc)<datetime.fromisoformat(p['approved_until']),'original bounded expiry reached')
     return p,support
 
