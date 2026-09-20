@@ -1,0 +1,12 @@
+[Unit]
+Description=Independent historical-learning Top100 mail at the existing pre-draw time
+
+[Timer]
+OnCalendar=Tue,Thu,Sun *-*-* 17:00:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+DeferReactivation=true
+Unit=dehps-historical-top100-pre-mail.service
+
+[Install]
+WantedBy=timers.target

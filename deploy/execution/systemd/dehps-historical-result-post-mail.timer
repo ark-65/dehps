@@ -1,0 +1,12 @@
+[Unit]
+Description=Independent historical-learning draw-result and sealed-hit review mail
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+Persistent=true
+AccuracySec=1min
+Unit=dehps-historical-result-post-mail.service
+
+[Install]
+WantedBy=timers.target
