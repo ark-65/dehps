@@ -64,6 +64,22 @@ def test_ambiguous_commit_ack_recovers_without_new_attempt(mainline,monkeypatch)
     assert records(admin)['execution_store.attempts']==6 and not e.task_errors
 
 
+def test_report_failure_cannot_be_consumed_and_retry_keeps_original_seal(mainline):
+    from dataclasses import replace
+    from dehps.notifications.historical_mail.plan import CAPABILITIES
+    config,admin=setup(mainline);e=engine(config)
+    def failure(*args):
+        raise OSError('synthetic report rendering failure')
+    name=CAPABILITIES['pre-report'];e.capabilities[name]=replace(e.capabilities[name],execute=failure)
+    e.run();assert e.task_errors and records(admin)['execution_store.commits']==1
+    assert registered_emails(engine(config))==[]
+    root=Path(config['root'])/'learning/artifacts/objects'
+    retained={p.name:p.read_bytes() for p in root.glob('*.blob')}
+    resumed=engine(config);resumed.run()
+    assert not resumed.task_errors and records(admin)['execution_store.commits']==3
+    assert len(registered_emails(resumed))==1 and all((root/n).read_bytes()==v for n,v in retained.items())
+
+
 @pytest.mark.parametrize('mode',['revoke','expire'])
 def test_live_admission_loss_blocks_commit_and_keeps_replay(mainline,authority,mode,monkeypatch):
     initial,admin,_=mainline;c,_,_=helper.fixture(Path(initial['root'])/'inputs',past=True)

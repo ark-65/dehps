@@ -126,7 +126,12 @@ def run(path, action):
             gate(inputs,key,'FORMAL_TASK_RUNNING')
             return {'status':'WAITING','reason':'FORMAL_TASK_RUNNING'}
         publication = publish(inputs,cfg['readers'],DatabaseBinding(**json.loads(Path(cfg['source_credentials']).read_bytes())),key,cfg['source_root'])
-        reauthorize(); launch(cfg,packet,'run'); launch(cfg,packet,'replay-prefix')
+        reauthorize(); launch(cfg,packet,'run')
+        status = json.loads((Path(cfg['runtime'])/'observer/status/execution.json').read_bytes())['payload']
+        require(status.get('schema') == 'execution-status.v2' and status.get('plan_digest') == packet['plan_digest']
+                and status.get('release_sha256') == packet['release_sha256'] and status.get('phase') in ('waiting','completed')
+                and not status.get('task_errors'), 'canonical notification task failed or admission/status differs')
+        launch(cfg,packet,'replay-prefix')
         engine,_ = reader(cfg,packet); messages = registered_emails(engine)
         for message in messages:
             name = message['issue']+'-'+message['kind']
@@ -145,7 +150,7 @@ def run(path, action):
                 if message['kind'] == action:
                     outputs.append(delivery.deliver(message))
         result = {'status':'VERIFIED','at':utcnow().isoformat(),'action':action,'publication':publication,
-                  'run_id':json.loads((Path(cfg['runtime'])/'observer/status/execution.json').read_bytes())['payload']['run_id'],
+                  'run_id':status['run_id'],
                   'consumer_replay_run_id':engine.run_id,'registered_reports':len(messages),'deliveries':outputs}
         append_bytes(Path(cfg['evidence'])/(digest(result)+'.json'),canonical(result))
         return result

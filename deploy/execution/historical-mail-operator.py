@@ -170,7 +170,9 @@ def activate(p):
     item=json.loads((CONFIG/'runtime-admission.json').read_bytes());require((CONFIG/'review-receipt.json').exists(),'runtime approval missing')
     write(INPUTS/'execution.json',canonical({'schema':'execution-input.v1','request_id':item['id'],'plan':item['payload']}),0o640,0,61011)
     # Preparation and fresh-process replay are read/compute only: no SMTP.
-    command('/opt/dehps/releases/historical-chained-publisher-837/venv/bin/python','-I','-B',str(STAGE/'runner.py'),'prepare')
+    result=json.loads(command('/opt/dehps/releases/historical-chained-publisher-837/venv/bin/python','-I','-B',str(STAGE/'runner.py'),'prepare'))
+    require(result.get('status')=='VERIFIED' and result.get('registered_reports',0)>0,
+            'first registered readable notification report missing; timers remain disabled')
     command('/opt/dehps/releases/historical-chained-publisher-837/venv/bin/python','-I','-B',str(STAGE/'runner.py'),'replay')
     for name in UNITS:command('systemctl','enable','--now',name+'.timer')
     print('Independent mail timers activated after canonical preparation/replay. Scheduled delivery remains pending.')
