@@ -1,0 +1,23 @@
+[Unit]
+Description=Independent historical-learning post replay-bound notification
+Wants=network-online.target
+After=network-online.target dehps-control-postgres@observer.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+UMask=0077
+Environment=OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/dehps/inputs/historical-mail-842 /var/lib/dehps/historical-mail-842 /var/lib/dehps/historical-mail-ledger-842 /home/ark/workspace/dehps/runtime/historical-mail-842/reports /opt/dehps/releases/historical-mail-842/evidence /run/dehps-historical-mail-842
+RuntimeDirectory=dehps-historical-mail-842
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=20min
+MemoryMax=768M
+CPUQuota=100%
+TasksMax=128
+ExecStart=/opt/dehps/releases/historical-chained-publisher-837/venv/bin/python -I -B /opt/dehps/releases/historical-mail-842/runner.py post
