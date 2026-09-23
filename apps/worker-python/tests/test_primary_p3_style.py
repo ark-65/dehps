@@ -102,3 +102,37 @@ def test_readable_projection_retries_without_overwriting_history(tmp_path):
     path = style.publish_readable(tmp_path, email)
     assert style.publish_readable(tmp_path, email) == path
     with pytest.raises(ValueError): style.publish_readable(tmp_path, replace(email, html='drift'))
+
+
+@pytest.mark.parametrize('retained', [False, True])
+def test_relocated_entrypoint_loads_canonical_cli(tmp_path, retained):
+    import os
+    from pathlib import Path
+    import shutil
+    import subprocess
+    import sys
+    worker = Path(__file__).parents[1]
+    dependencies = worker
+    python = sys.executable
+    if retained:
+        base = Path('/opt/dehps/releases/retained-p3-r5-alias-f8ec526/legacy')
+        if not base.exists():
+            pytest.skip('host retained dependency compatibility check')
+        dependencies = base / 'ac0ef78/apps/worker-python'
+        python = str(base / 'environment/bin/python')
+    relocated = tmp_path / 'source/apps/worker-python'
+    shutil.copytree(worker / 'dehps/notifications/primary_style', relocated / 'dehps/notifications/primary_style', ignore=shutil.ignore_patterns('__pycache__'))
+    entry = relocated / 'scripts/run_primary_p3_presentation.py'; entry.parent.mkdir()
+    shutil.copyfile(worker / 'scripts/run_primary_p3_presentation.py', entry)
+    assert not (entry.parent / 'run_m4_p3_top100_notification.py').exists()
+    bootstrap = '''
+import pathlib,runpy,sys
+worker,script=sys.argv[1:3]
+sys.path[:0]=[worker,str(pathlib.Path(script).parent)]
+sys.argv=[script,'--help']
+runpy.run_path(script,run_name='__main__')
+'''
+    env = {**os.environ, 'NUMBA_CACHE_DIR': str(tmp_path / 'numba')}
+    result = subprocess.run([python, '-I', '-B', '-c', bootstrap, str(dependencies), str(entry)], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert '{pre,post,acceptance,replay}' in result.stdout

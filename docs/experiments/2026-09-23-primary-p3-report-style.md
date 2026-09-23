@@ -70,3 +70,18 @@ delivery remains `PENDING_DELIVERY`; deployment does not prove SMTP delivery.
 Deployment adds only two mail service drop-ins. Rollback removes those exact
 new drop-ins and reloads the user manager, restoring retained original entries;
 all committed presentation, failed events, originals and ledger evidence remain.
+
+## Relocated-entry correction (Engineering 850)
+
+Operator 849 staged the fixed package but stopped at entrypoint import before
+registering any presentation task or sending mail. The retained bootstrap placed
+the new script's directory on `sys.path`, so the original canonical CLI was not
+found. All 84 protected files remained unchanged and no service entry was switched.
+The original failure log remains in `runtime/primary-style-849`.
+
+The correction explicitly locates the canonical scripts directory through the
+frozen `ROOT_DIR`. A sparse relocated-package regression test reproduces the real
+bootstrap, with only the additive files in the new release, and exercises both
+current and retained dependencies. Scientific and presentation calculations are
+unchanged. Deployment must use a new immutable package and successor Operator
+request; the failed package and authorization history are retained.

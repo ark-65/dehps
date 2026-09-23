@@ -19,6 +19,9 @@ from dehps.config import ROOT_DIR
 from dehps.notifications import p3_top100 as original
 from dehps.notifications.mail import QqMailConfig
 from dehps.research_os.repository import PostgresResearchOSRepository
+# The bootstrap's script directory is the additive release, not the retained
+# canonical scripts directory. Resolve the original CLI from its frozen root.
+sys.path.insert(0, str(ROOT_DIR / 'apps/worker-python/scripts'))
 import run_m4_p3_top100_notification as canonical
 
 
