@@ -76,3 +76,58 @@ Final acceptance validation uses the observer domain for every disposable
 PostgreSQL case.18 new unit cases and5 PostgreSQL cases passed together.
 The authenticated real-source prefix has14 durable commits, preserves114
 original tickets and115/116 gaps, and is unchanged by a new-process replay.
+
+## Production acceptance — Operator853 / execution690
+
+PR466 merged as`c276af5ccef212e4b4d66696745c35e0cfff5e0c`. Its tree equals
+reviewed source`9ff588c492a8ad9d4259ab2914b4742b3501f248`; the fixed production
+image retains that source. Package`7dafbeaeb72c75d1371db5bbde1c46002c413209c8c381f4518a3df709ef0cfd`,
+release`12dbde81c0cebdadae970beda0fd9b2f721d7b7c5e9f2bd2a77bcebdbc78fa43`,
+plan`34eb2b69c6517693dfa3a69c0e0d93e9bef280ec07744f105f17f57d1366edf4`.
+Exact observer runtime request8 is approved until the unchanged original expiry.
+All approvals are honestly attributed to the owner's explicit delegated decision;
+no independent agent review is claimed. Temporary administrator authentication
+was completed without storing the owner's credential in files or commands.
+
+| Integration/report layer | Actual evidence | State |
+| --- | --- | --- |
+| Goal, Resolver, Ready Queue, Coordinator | Exact admitted17-task observer DAG;14 durable completed tasks | Current prefix validated |
+|114 source/report/replay | Original registered seal trained through113; original/actual calendar both shown | Restored |
+|115 source/report/replay | Original registered GAP, empty tickets and null financial fields | Restored with GAP |
+|116 source/report/replay | Registered absence, real draw/payout only; no retrospective candidate | Restored with GAP |
+| Summary consumer | Fixed incident event; sent2026-10-12 12:09:52 Beijing; one durable send row | Sent |
+|117 prospective seal | Trained through116,3513 labels; sealed12:08:03.014398, committed12:08:03.168891 Beijing onOctober12 | Genuinely sealed |
+| New-process read-only replay | Run`2a27168f-fc4e-49a3-98ee-02b3222b05b1`; identical registered artifact identities | Verified |
+| Refreshed pre/post services | Fresh canonical runs`81c3d26a-3b73-4488-bbd1-a93c1618e6cb` and`a1cb7332-0d9f-438b-aa6c-5df5d8715c9c`; both exit0 | Verified |
+| Timers | Pre nextOctober13 17:00; post nextOctober12 12:27:10,then15-minute polling | Enabled |
+|117 actual pre/post delivery and settlement | Future source audit, payout, post report/replay and delivery remain required | PENDING_DELIVERY |
+
+Immutable final operational acceptance record:
+`/opt/dehps/releases/historical-calendar-recovery-852/evidence/a5365b22d5acb5d63e3d4adef7dd70178329fec9e0c3fe52ffff0c12ec7a8d32.json`.
+Readable files are under`runtime/historical-calendar-recovery-852/reports`.
+The original842 ledger SHA remains`b79fd5fe387ad2ab8708c6394eb35a869d4cd29d862025b13fc7f771b3be63d9`;
+846 remains`15258b91e671cb3d908c232628b768b4c84cf04e59792334e4d762c11fb82ac4`.
+Primary ledger and frozen CLI hashes match their pre-change baselines. Learning
+and Formal P3 retain their existing execution paths. Recovery gives zero new
+scientific credit. Full117 acceptance: **NO — INTEGRATION_PENDING**.
+
+## CI acceptance correction — Engineering854 / execution691
+
+GitHub's four worker partitions passed. The installed-observation CI failed on
+an unchanged old assertion expecting revoked admission to exit nonzero and
+project failure. Existing entry instead emits normal AUTHORIZATION_REQUIRED
+wait before any claim, and the existing HTTP consumer supports that wait with
+an exact requestId binding. This was a real executed test failure; the quota
+exception was not applied. Ordinary repository auto-merge had already merged466.
+
+Correct only the acceptance assertions: exact wait request/plan/release identity,
+empty new artifacts/tasks, unauthorised current execution, HTTP identity mismatch
+on a wrong requestId, unchanged durable counts and old-history replay after
+revocation. A fresh installed image and disposable PostgreSQL/HTTP validation
+passed locally:1 test,36.32 seconds. No SMTP was invoked.
+
+Report impact for this follow-up: **NO_RUNTIME_IMPACT**. Diff audit changes only
+`integration_tests/test_observation_release.py` and this report. Production
+factories, entry, estimators, source contracts, database policies, notification
+consumers, service entries and timers are byte-identical; production code does
+not import the changed test. The accepted fixed recovery release remains active.
