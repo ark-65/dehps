@@ -134,9 +134,21 @@ def test_fixed_image_observation_admission_full_report_http_and_readonly_replay(
         assert records(admin_dsn) == before and status_path.stat().st_mtime_ns == timestamp
         clients['reviewer'].revoke(request_id)
         failed = run()
-        assert failed.returncode != 0
-        assert json.loads(status_path.read_bytes())['payload']['phase'] == 'failed'
-        assert api(api_config, controlPlane='observer', releaseSha256=release.digest)['status'] == 'UNKNOWN'
+        assert failed.returncode == 0, failed.stderr.decode()
+        waiting = json.loads(failed.stdout)
+        projection = json.loads(status_path.read_bytes())['payload']
+        assert waiting['schema'] == projection['schema'] == 'execution-admission-status.v1'
+        assert waiting['phase'] == projection['phase'] == 'waiting'
+        assert waiting['reason'] == projection['reason'] == 'AUTHORIZATION_REQUIRED'
+        assert waiting['request_id'] == projection['request_id'] == request_id
+        assert waiting['plan_digest'] == projection['plan_digest'] == plan.digest
+        assert waiting['release_sha256'] == projection['release_sha256'] == release.digest
+        assert waiting['tasks'] == waiting['artifacts'] == {}
+        response = api(api_config, controlPlane='observer', releaseSha256=release.digest, requestId=request_id)
+        assert response['status'] == 'WAITING' and response['reason'] == 'AUTHORIZATION_REQUIRED'
+        assert response['currentExecutionAuthorized'] is False and response['executionId'] is None
+        assert api(api_config, controlPlane='observer', releaseSha256=release.digest,
+                   requestId=request_id+1)['reason'] == 'IDENTITY_MISMATCH'
         assert records(admin_dsn) == before
         # Revocation prevents new execution but does not erase valid history.
         replay = run('replay')
