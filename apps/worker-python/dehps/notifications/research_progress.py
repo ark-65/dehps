@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 from dehps.notifications.mail import QqMailConfig, QqMailService
 
 
-ROOT = Path(__file__).resolve().parents[4]
+RELEASE_ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(os.environ.get("DEHPS_RESEARCH_PROGRESS_STATE_ROOT", str(RELEASE_ROOT))).resolve()
 STATUS_PATH = ROOT / "runtime/logs/m4-information-theory-status.json"
 SUPERVISOR_PATH = ROOT / "runtime/logs/research-evidence-supervisor-state.json"
 LEDGER_PATH = ROOT / "runtime/notifications/research-progress-mail.json"

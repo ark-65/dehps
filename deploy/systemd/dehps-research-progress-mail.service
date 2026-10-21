@@ -5,12 +5,13 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+WorkingDirectory=/home/ark/releases/dehps-research-progress/current/apps/worker-python
 EnvironmentFile=-/home/ark/workspace/dehps/.env
 EnvironmentFile=/home/ark/.config/dehps/research-progress.env
+Environment=DEHPS_RESEARCH_PROGRESS_STATE_ROOT=/home/ark/workspace/dehps
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=/home/ark/workspace/dehps/runtime
-ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/send_research_progress.py --deliver
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python /home/ark/releases/dehps-research-progress/current/apps/worker-python/scripts/send_research_progress.py --deliver
